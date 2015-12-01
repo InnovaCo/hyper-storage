@@ -1,0 +1,12 @@
+<configuration>
+    <property name="TAG" value="inn-revault-service"/>
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <withJansi>true</withJansi>
+        <encoder>
+            <pattern>%highlight(%.-3level) %cyan(%d{HH:mm:ss.SSS}) %yellow(%-35.35logger) %highlight(%msg) %n</pattern>
+        </encoder>
+    </appender>
+    <root level="TRACE">
+        <appender-ref ref="STDOUT"/>
+    </root>
+</configuration>

@@ -6,16 +6,16 @@ import eu.inn.hyperbus.model.annotations.{body, request}
 import eu.inn.hyperbus.model.standard._
 
 @body("revault-query")
-case class Query(path: String)
+case class Query(path: String) extends Body
 
 @request("/revault/{path}") // todo: path can include /
 case class RevaultGet(body: Query) extends StaticGet(body)
 with DefinedResponse[Ok[DynamicBody]]
 
 @body("revault-monitor")
-case class Monitor(id: String, status: String) extends Links
+case class Monitor(id: String, status: String) extends Body
 
-@request("/revault/{path}")
+@request("/revault")
 case class RevaultPut(body: DynamicBody) extends StaticPut(body)
 with DefinedResponse[(
     Created[CreatedBody],
@@ -23,7 +23,7 @@ with DefinedResponse[(
     NoContent[EmptyBody]
   )]
 
-@request("/revault/{path}")
+@request("/revault")
 case class RevaultPatch(body: DynamicBody) extends StaticPatch(body)
 with DefinedResponse[(
     Accepted[Monitor],
