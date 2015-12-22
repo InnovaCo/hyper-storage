@@ -5,11 +5,10 @@ import akka.cluster.ClusterEvent.{MemberEvent, MemberRemoved, MemberUp}
 import akka.cluster.{Cluster, ClusterEvent, Member}
 import akka.routing.{MurmurHash, ConsistentHash}
 import scala.concurrent.duration._
-import scala.collection.mutable
 
 case class ShardMessage(key: String, content: Any)
 
-abstract class RevaultMemberStatus
+sealed trait RevaultMemberStatus
 object RevaultMemberStatus {
   @SerialVersionUID(1L) case object Unknown extends RevaultMemberStatus
   @SerialVersionUID(1L) case object Passive extends RevaultMemberStatus
@@ -18,21 +17,217 @@ object RevaultMemberStatus {
   @SerialVersionUID(1L) case object Deactivating extends RevaultMemberStatus
 }
 
-abstract class RevaultSyncResult
-object RevaultSyncResult {
-  @SerialVersionUID(1L) case object None extends RevaultSyncResult
-  @SerialVersionUID(1L) case object Allowed extends RevaultSyncResult
-  @SerialVersionUID(1L) case object NotFound extends RevaultSyncResult
-}
-
-case class Sync(applicantAddress: Address, status: RevaultMemberStatus, clusterHash: Int)
-case class SyncReply(confirmerAddress: Address, status: RevaultMemberStatus, syncResult: RevaultSyncResult, clusterHash: Int)
+@SerialVersionUID(1L) case class Sync(applicantAddress: Address, status: RevaultMemberStatus, clusterHash: Int)
+@SerialVersionUID(1L) case class SyncReply(confirmerAddress: Address, status: RevaultMemberStatus, confirmedStatus: RevaultMemberStatus, clusterHash: Int)
 
 case class RevaultMemberActor(actorRef: ActorSelection,
                               status: RevaultMemberStatus,
-                              syncResult: RevaultSyncResult,
-                              isSelf: Boolean)
+                              confirmedStatus: RevaultMemberStatus)
 
+/*sealed trait ProcessorState
+case object Starting extends ProcessorState
+//case object Syncing extends ProcessorState
+case object Active extends ProcessorState
+case object Downing extends ProcessorState*/
+
+case class ProcessorData(members: Map[Address, RevaultMemberActor], selfAddress: Address) {
+  lazy val clusterHash = MurmurHash.stringHash(
+      (members.keySet + selfAddress).map(_.toString
+    ).toList.sorted.mkString("|"))
+  def + (elem: (Address, RevaultMemberActor)) = ProcessorData(members + elem, selfAddress)
+  def - (key: Address) = ProcessorData(members - key, selfAddress)
+}
+
+sealed trait Events
+case object SyncTimer extends Events
+case object ShutdownProcessor extends Events
+
+class ProcessorFSM extends FSM[RevaultMemberStatus, ProcessorData] {
+  private val cluster = Cluster(context.system)
+  private val selfAddress = cluster.selfAddress
+  cluster.subscribe(self, initialStateMode = ClusterEvent.InitialStateAsEvents, classOf[MemberEvent])
+
+  startWith(RevaultMemberStatus.Activating, ProcessorData(Map.empty, selfAddress))
+
+  when(RevaultMemberStatus.Activating) {
+    case Event(MemberUp(member), data) ⇒
+      introduceSelfTo(member, data) andUpdate
+
+    case Event(SyncTimer, data) ⇒
+      if (isActivationAllowed(data)) {
+        goto(RevaultMemberStatus.Active)
+      }
+      else {
+        stay
+      }
+  }
+
+  when(RevaultMemberStatus.Active) {
+    case Event(SyncTimer, data) ⇒
+      confirmStatus(data, RevaultMemberStatus.Active, isFirst = false)
+      stay
+
+    case Event(ShutdownProcessor, data) ⇒
+      confirmStatus(data, RevaultMemberStatus.Deactivating, isFirst = true)
+      goto(RevaultMemberStatus.Deactivating)
+  }
+
+  whenUnhandled {
+    case Event(sync: Sync, data) ⇒
+      incomingSync(sync, data) andUpdate
+
+    case Event(syncReply: SyncReply, data) ⇒
+      processReply(syncReply, data) andUpdate
+
+    case Event(MemberUp(member), data) ⇒
+      addNewMember(member, data) andUpdate
+
+    case Event(MemberRemoved(member, previousState), data) ⇒
+      removeMember(member, data) andUpdate
+
+    case Event(e, s) =>
+      log.warning("received unhandled request {} in state {}/{}", e, stateName, s)
+      stay
+  }
+
+  initialize()
+
+  def setSyncTimer(): Unit = {
+    setTimer("syncing", SyncTimer, 1 second) // todo: move timeout to configuration
+  }
+
+  def introduceSelfTo(member: Member, data: ProcessorData) : Option[ProcessorData] = {
+    if (member.hasRole("revault") && member.address != selfAddress) {
+        val actor = context.actorSelection(RootActorPath(member.address) / "user" / "revault")
+        val newData = data + member.address → RevaultMemberActor(
+          actor, RevaultMemberStatus.Unknown, RevaultMemberStatus.Unknown
+        )
+        val sync = Sync(selfAddress, RevaultMemberStatus.Activating, newData.clusterHash)
+        actor ! sync
+        setSyncTimer()
+        if (log.isDebugEnabled) {
+          log.debug(s"New member: $member. $sync was sent to $actor")
+        }
+        Some(newData)
+      }
+    else if (member.hasRole("revault") && member.address == selfAddress) {
+      log.debug(s"Self is up: $member")
+      setSyncTimer()
+      None
+    }
+    else {
+      log.debug(s"Non revault member: $member is ignored")
+      None
+    }
+  }
+
+  def processReply(syncReply: SyncReply, data: ProcessorData) : Option[ProcessorData] = {
+    if (log.isDebugEnabled) {
+      log.debug(s"$syncReply received from $sender")
+    }
+    if (syncReply.clusterHash != data.clusterHash) {
+      log.info(s"ClusterHash (${data.clusterHash}) is not matched for $syncReply. SyncReply is ignored")
+      None
+    } else {
+      data.members.get(syncReply.confirmerAddress) map { member ⇒
+        data + syncReply.confirmerAddress →
+          member.copy(status = syncReply.status, confirmedStatus = syncReply.confirmedStatus)
+      } orElse {
+        log.warning(s"Got $syncReply from unknown member. Current members: ${data.members}")
+        None
+      }
+    }
+  }
+
+  def isActivationAllowed(data: ProcessorData): Boolean = {
+    if (confirmStatus(data, RevaultMemberStatus.Activating, isFirst = false)) {
+      log.info(s"Synced with all members: ${data.members}. Activating")
+      confirmStatus(data, RevaultMemberStatus.Active, isFirst = true)
+      true
+    }
+    else {
+      false
+    }
+  }
+
+  def confirmStatus(data: ProcessorData, status: RevaultMemberStatus, isFirst: Boolean) : Boolean = {
+    var syncedWithAllMembers = true
+    data.members.foreach { case (address, member) ⇒
+      if (member.confirmedStatus != status) {
+        syncedWithAllMembers = false
+        val sync = Sync(selfAddress, status, data.clusterHash)
+        member.actorRef ! sync
+        setSyncTimer()
+        if (log.isDebugEnabled && !isFirst) {
+          log.debug(s"Didn't received reply from: $member. $sync was sent to ${member.actorRef}")
+        }
+      }
+    }
+    syncedWithAllMembers
+  }
+
+  def incomingSync(sync: Sync, data: ProcessorData): Option[ProcessorData] = {
+    if (log.isDebugEnabled) {
+      log.debug(s"$sync received from $sender")
+    }
+    if (sync.clusterHash != data.clusterHash) {
+      log.info(s"ClusterHash ($data.clusterHash) is not matched for $sync")
+      None
+    } else {
+      data.members.get(sync.applicantAddress) map { member ⇒
+        // todo: don't confirm, until it's possible
+        val syncReply = SyncReply(selfAddress, stateName, sync.status, data.clusterHash)
+        if (log.isDebugEnabled) {
+          log.debug(s"Replying with $syncReply to $sender")
+        }
+        sender() ! syncReply
+        data + sync.applicantAddress → member.copy(status = sync.status)
+      } orElse {
+        log.error(s"Got $sync from unknown member. Current members: ${data.members}")
+        sender() ! SyncReply(selfAddress, stateName, RevaultMemberStatus.Unknown, data.clusterHash)
+        None
+      }
+    }
+  }
+
+  def addNewMember(member: Member, data: ProcessorData): Option[ProcessorData] = {
+    if (member.hasRole("revault") && member.address != selfAddress) {
+      val actor = context.actorSelection(RootActorPath(member.address) / "user" / "revault")
+      val newData = data + member.address → RevaultMemberActor(
+        actor, RevaultMemberStatus.Unknown, RevaultMemberStatus.Unknown
+      )
+      if (log.isDebugEnabled) {
+        log.debug(s"New member: $member. State is unknown yet")
+      }
+      Some(newData)
+    }
+    else {
+      None
+    }
+  }
+
+  def removeMember(member: Member, data: ProcessorData): Option[ProcessorData] = {
+    if (member.hasRole("revault")) {
+      if (log.isDebugEnabled) {
+        log.debug(s"Member removed: $member.")
+      }
+      Some(data - member.address)
+    } else {
+      None
+    }
+  }
+
+  protected [this] implicit class ImplicitExtender(data: Option[ProcessorData]) {
+    def andUpdate: State = {
+      if (data.isDefined)
+        stay using data.get
+      else
+        stay
+    }
+  }
+}
+
+/*
 private [revault] case object SyncTimer
 
 class ProcessorActor/*(workerProps: Props, workerCount: Int)*/ extends Actor with ActorLogging {
@@ -159,7 +354,6 @@ class ProcessorActor/*(workerProps: Props, workerCount: Int)*/ extends Actor wit
   }
 }
 
-/*
 
 1. start
 

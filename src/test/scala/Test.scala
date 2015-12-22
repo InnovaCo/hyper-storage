@@ -4,12 +4,13 @@ import akka.actor.{ActorSystem, Actor, ActorLogging}
 import akka.cluster.Cluster
 import akka.cluster.ClusterEvent._
 import akka.event.LoggingReceive
-import akka.testkit.TestActorRef
+import akka.testkit.{TestKit, TestFSMRef, TestActorRef}
 import com.typesafe.config.ConfigFactory
 import eu.inn.hyperbus.transport._
 import eu.inn.hyperbus.transport.api._
+import eu.inn.revault.{RevaultMemberStatus, ProcessorFSM}
 import org.scalatest.concurrent.ScalaFutures
-import org.scalatest.{BeforeAndAfter, FreeSpec, Matchers}
+import org.scalatest.{FreeSpecLike, BeforeAndAfter, FreeSpec, Matchers}
 
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future, Promise}
@@ -28,30 +29,33 @@ class TestActorX extends Actor with ActorLogging {
   }
 }
 
-class Test extends FreeSpec with ScalaFutures with Matchers with BeforeAndAfter {
-  implicit var actorSystem: ActorSystem = null
+class Test(transportManager: TransportManager, implicit val actorSystem: ActorSystem)
+  extends TestKit(actorSystem)
+  with FreeSpecLike with ScalaFutures with Matchers with BeforeAndAfter {
 
-  var transportManager: TransportManager = null
-  before {
-    val transportConfiguration = TransportConfigurationLoader.fromConfig(ConfigFactory.load())
-    transportManager = new TransportManager(transportConfiguration)
-    ActorSystemRegistry.get("eu-inn").foreach { as ⇒
-      actorSystem = as
-      val testActor = TestActorRef[TestActorX]
-      Cluster(actorSystem).subscribe(testActor, initialStateMode = InitialStateAsEvents, classOf[MemberEvent])
-    }
-  }
+  def this() = this(
+    new TransportManager(TransportConfigurationLoader.fromConfig(ConfigFactory.load())),
+    ActorSystemRegistry.get("eu-inn").get
+  )
+
+  val cluster = Cluster(actorSystem)
+  val testActorX = TestActorRef[TestActorX]
+  cluster.subscribe(testActorX, initialStateMode = InitialStateAsEvents, classOf[MemberEvent])
 
   after {
-    if (transportManager != null) {
-      Await.result(transportManager.shutdown(20.seconds), 20.seconds)
-    }
+    Await.result(transportManager.shutdown(20.seconds), 20.seconds)
+    cluster.unsubscribe(testActorX)
   }
 
-  "Test " - {
-    "1" in {
-      val cnt = new AtomicInteger(0)
-      cnt.get() should equal(0)
+  "TestProcessor " - {
+    "ProcessorFSM should become Active when it's single member" in {
+      val fsm = TestFSMRef(new ProcessorFSM)
+      val processorFsm: TestActorRef[ProcessorFSM] = fsm
+
+      fsm.stateName should equal(RevaultMemberStatus.Activating)
+      awaitCond {
+        fsm.stateName == RevaultMemberStatus.Active
+      }
     }
   }
 }

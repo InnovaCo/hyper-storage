@@ -32,8 +32,7 @@ class RevaultService(console: Console, config: Config, implicit val injector: In
   val cluster = Cluster(actorSystem)
 
   // processor actor
-  val processorActorRef = actorSystem.actorOf(Props(new ProcessorActor()))
-
+  val processorActorRef = actorSystem.actorOf(Props(new ProcessorFSM))
 
   // shutdown
   override def stopService(controlBreak: Boolean): Unit = {
