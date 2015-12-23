@@ -171,7 +171,7 @@ class ProcessorFSM extends FSM[RevaultMemberStatus, ProcessorData] {
       log.debug(s"$sync received from $sender")
     }
     if (sync.clusterHash != data.clusterHash) {
-      log.info(s"ClusterHash ($data.clusterHash) is not matched for $sync")
+      log.info(s"ClusterHash (${data.clusterHash}) is not matched for $sync")
       None
     } else {
       data.members.get(sync.applicantAddress) map { member ⇒
