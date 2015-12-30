@@ -4,9 +4,15 @@ import akka.actor._
 import akka.cluster.ClusterEvent.{MemberEvent, MemberRemoved, MemberUp}
 import akka.cluster.{Cluster, ClusterEvent, Member}
 import akka.routing.{MurmurHash, ConsistentHash}
+import scala.collection.mutable
 import scala.concurrent.duration._
+import akka.cluster.Member.addressOrdering
 
-case class ShardMessage(key: String, content: Any)
+trait Expireable {
+  def isExpired: Boolean
+}
+
+case class Task(key: String, content: Expireable)
 
 sealed trait RevaultMemberStatus
 object RevaultMemberStatus {
@@ -24,30 +30,59 @@ case class RevaultMemberActor(actorRef: ActorSelection,
                               status: RevaultMemberStatus,
                               confirmedStatus: RevaultMemberStatus)
 
-/*sealed trait ProcessorState
-case object Starting extends ProcessorState
-//case object Syncing extends ProcessorState
-case object Active extends ProcessorState
-case object Downing extends ProcessorState*/
+case class ProcessorData(members: Map[Address, RevaultMemberActor], selfAddress: Address, selfStatus: RevaultMemberStatus) {
+  lazy val clusterHash = MurmurHash.stringHash(allMemberStatuses.map(_._1).mkString("|"))
+  def + (elem: (Address, RevaultMemberActor)) = ProcessorData(members + elem, selfAddress, selfStatus)
+  def - (key: Address) = ProcessorData(members - key, selfAddress, selfStatus)
 
-case class ProcessorData(members: Map[Address, RevaultMemberActor], selfAddress: Address) {
-  lazy val clusterHash = MurmurHash.stringHash(
-      (members.keySet + selfAddress).map(_.toString
-    ).toList.sorted.mkString("|"))
-  def + (elem: (Address, RevaultMemberActor)) = ProcessorData(members + elem, selfAddress)
-  def - (key: Address) = ProcessorData(members - key, selfAddress)
+  def taskIsFor(task: Task): Address = consistentHash.nodeFor(task.key)
+
+  def taskWasFor(task: Task): Address = consistentHashPrevious.nodeFor(task.key)
+
+  private lazy val consistentHash = ConsistentHash(activeMembers, VirtualNodesSize)
+
+  private lazy val consistentHashPrevious = ConsistentHash(previouslyActiveMembers, VirtualNodesSize)
+
+  private lazy val allMemberStatuses: List[(Address, RevaultMemberStatus)] = {
+    members.map {
+      case (address, rvm) ⇒ address → rvm.status
+    }.toList :+ (selfAddress → selfStatus)
+  }.sortBy(_._1)
+
+  private def VirtualNodesSize = 128 // todo: find a better value, configurable?
+
+  private def activeMembers: Iterable[Address] = allMemberStatuses.flatMap {
+      case (address, RevaultMemberStatus.Active) ⇒ Some(address)
+      case (address, RevaultMemberStatus.Activating) ⇒ Some(address)
+      case _ ⇒ None
+    }
+
+  private def previouslyActiveMembers: Iterable[Address] = allMemberStatuses.flatMap {
+    case (address, RevaultMemberStatus.Active) ⇒ Some(address)
+    case (address, RevaultMemberStatus.Activating) ⇒ Some(address)
+    case (address, RevaultMemberStatus.Deactivating) ⇒ Some(address)
+    case _ ⇒ None
+  }
 }
 
 sealed trait Events
 case object SyncTimer extends Events
 case object ShutdownProcessor extends Events
+case object ReadyForNextTask
 
-class ProcessorFSM extends FSM[RevaultMemberStatus, ProcessorData] {
+// todo: change name
+class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemberStatus, ProcessorData] {
   private val cluster = Cluster(context.system)
   private val selfAddress = cluster.selfAddress
+  val inactiveWorkers = mutable.Stack {
+    for (workerIndex ← 1 to workerCount) {
+      context.system.actorOf(workerProps, s"revault-wrkr-$workerIndex")
+    }
+  }
+  val activeWorkers = mutable.ArrayBuffer[(String, ActorRef)]()
   cluster.subscribe(self, initialStateMode = ClusterEvent.InitialStateAsEvents, classOf[MemberEvent])
 
-  startWith(RevaultMemberStatus.Activating, ProcessorData(Map.empty, selfAddress))
+  startWith(RevaultMemberStatus.Activating, ProcessorData(Map.empty, selfAddress, RevaultMemberStatus.Activating))
 
   when(RevaultMemberStatus.Activating) {
     case Event(MemberUp(member), data) ⇒
@@ -69,7 +104,19 @@ class ProcessorFSM extends FSM[RevaultMemberStatus, ProcessorData] {
 
     case Event(ShutdownProcessor, data) ⇒
       confirmStatus(data, RevaultMemberStatus.Deactivating, isFirst = true)
+      setSyncTimer()
       goto(RevaultMemberStatus.Deactivating)
+  }
+
+  when(RevaultMemberStatus.Deactivating) {
+    case Event(SyncTimer, data) ⇒
+      if(confirmStatus(data, RevaultMemberStatus.Deactivating, isFirst = false)) {
+        confirmStatus(data, RevaultMemberStatus.Passive, isFirst = false) // not reliable
+        stop()
+      }
+      else {
+        stay
+      }
   }
 
   whenUnhandled {
@@ -90,10 +137,19 @@ class ProcessorFSM extends FSM[RevaultMemberStatus, ProcessorData] {
       stay
   }
 
+  onTransition {
+    case a -> b ⇒ log.info(s"Changing state from $a to $b")
+  }
+
+/*  onTermination {
+    case StopEvent(reason, state, data) ⇒
+      log.warning(s"YYY $reason $state $data")
+  }*/
+
   initialize()
 
   def setSyncTimer(): Unit = {
-    setTimer("syncing", SyncTimer, 1 second) // todo: move timeout to configuration
+    setTimer("syncing", SyncTimer, 500 millisecond) // todo: move timeout to configuration
   }
 
   def introduceSelfTo(member: Member, data: ProcessorData) : Option[ProcessorData] = {
