@@ -158,11 +158,6 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
       unstashAll()
   }
 
-/*  onTermination {
-    case StopEvent(reason, state, data) ⇒
-      log.warning(s"YYY $reason $state $data")
-  }*/
-
   initialize()
 
   def setSyncTimer(): Unit = {

@@ -32,7 +32,7 @@ class TestTwoNode extends FreeSpec with ScalaFutures with Matchers with BeforeAn
   }
 
   override def afterEach {
-    println("------- SHUTTING DOWN -------- ")
+    println("------- SHUTTING DOWN ACTOR SYSTEMS -------- ")
     if (_actorSystem1 != null) TestKit.shutdownActorSystem(actorSystem1)
     _actorSystem1 = null
     if (_actorSystem2 != null) TestKit.shutdownActorSystem(actorSystem2)
