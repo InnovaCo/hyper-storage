@@ -30,6 +30,7 @@ case class RevaultMemberActor(actorRef: ActorSelection,
                               status: RevaultMemberStatus,
                               confirmedStatus: RevaultMemberStatus)
 
+// todo: rename class
 case class ProcessorData(members: Map[Address, RevaultMemberActor], selfAddress: Address, selfStatus: RevaultMemberStatus) {
   lazy val clusterHash = MurmurHash.stringHash(allMemberStatuses.map(_._1).mkString("|"))
   def + (elem: (Address, RevaultMemberActor)) = ProcessorData(members + elem, selfAddress, selfStatus)
@@ -71,15 +72,13 @@ case object ShutdownProcessor extends Events
 case object ReadyForNextTask
 
 // todo: change name
-class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemberStatus, ProcessorData] {
+class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemberStatus, ProcessorData] with Stash {
   private val cluster = Cluster(context.system)
   private val selfAddress = cluster.selfAddress
-  val inactiveWorkers = mutable.Stack {
-    for (workerIndex ← 1 to workerCount) {
-      context.system.actorOf(workerProps, s"revault-wrkr-$workerIndex")
-    }
+  val inactiveWorkers: mutable.Stack[ActorRef] = mutable.Stack.tabulate(workerCount) { workerIndex ⇒
+    context.system.actorOf(workerProps, s"revault-wrkr-$workerIndex")
   }
-  val activeWorkers = mutable.ArrayBuffer[(String, ActorRef)]()
+  val activeWorkers = mutable.ArrayBuffer[(Task, ActorRef)]()
   cluster.subscribe(self, initialStateMode = ClusterEvent.InitialStateAsEvents, classOf[MemberEvent])
 
   startWith(RevaultMemberStatus.Activating, ProcessorData(Map.empty, selfAddress, RevaultMemberStatus.Activating))
@@ -95,6 +94,10 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
       else {
         stay
       }
+
+    case Event(task: Task, data) ⇒
+      holdTask(task, data)
+      stay
   }
 
   when(RevaultMemberStatus.Active) {
@@ -106,6 +109,10 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
       confirmStatus(data, RevaultMemberStatus.Deactivating, isFirst = true)
       setSyncTimer()
       goto(RevaultMemberStatus.Deactivating)
+
+    case Event(task: Task, data) ⇒
+      processTask(task, data)
+      stay
   }
 
   when(RevaultMemberStatus.Deactivating) {
@@ -132,13 +139,23 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
     case Event(MemberRemoved(member, previousState), data) ⇒
       removeMember(member, data) andUpdate
 
+    case Event(ReadyForNextTask, data) ⇒
+      workerIsReadyForNextTask()
+      stay()
+
+    case Event(task: Task, data) ⇒
+      forwardTask(task, data)
+      stay()
+
     case Event(e, s) =>
       log.warning("received unhandled request {} in state {}/{}", e, stateName, s)
       stay
   }
 
   onTransition {
-    case a -> b ⇒ log.info(s"Changing state from $a to $b")
+    case a -> b ⇒
+      log.info(s"Changing state from $a to $b")
+      unstashAll()
   }
 
 /*  onTermination {
@@ -270,6 +287,93 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
       Some(data - member.address)
     } else {
       None
+    }
+  }
+
+  def processTask(task: Task, data: ProcessorData): Unit = {
+    if (log.isDebugEnabled) {
+      log.debug(s"Got task to process: $task")
+    }
+    if (task.content.isExpired) {
+      log.warning(s"Task is expired, dropping: $task")
+    } else {
+      if (data.taskIsFor(task) == data.selfAddress) {
+        if (data.taskWasFor(task) != data.selfAddress) {
+          if (log.isDebugEnabled) {
+            log.debug(s"Stashing task received for deactivating node: ${data.taskWasFor(task)}: $task")
+          }
+          stash()
+        } else {
+
+          activeWorkers.find(_._1 == task.key) map { activeWorker ⇒
+            if (log.isDebugEnabled) {
+              log.debug(s"Stashing task for the 'locked' URL: $task")
+            }
+            stash()
+            true
+          } getOrElse {
+            if (inactiveWorkers.isEmpty) {
+              if (log.isDebugEnabled) {
+                log.debug(s"No free worker, stashing task: $task")
+              }
+              stash()
+            } else {
+              val worker = inactiveWorkers.pop()
+              if (log.isDebugEnabled) {
+                log.debug(s"Forwarding to worker $worker task: $task")
+              }
+              worker ! task
+              activeWorkers.append((task, worker))
+            }
+          }
+        }
+      }
+      else {
+        forwardTask(task, data)
+      }
+    }
+  }
+
+  def holdTask(task: Task, data: ProcessorData): Unit = {
+    if (log.isDebugEnabled) {
+      log.debug(s"Got task to process while activating: $task")
+    }
+    if (task.content.isExpired) {
+      log.warning(s"Task is expired, dropping: $task")
+    } else {
+      if (data.taskIsFor(task) == data.selfAddress) {
+        if (log.isDebugEnabled) {
+          log.debug(s"Stashing task while activating: $task")
+        }
+        stash()
+      } else {
+        forwardTask(task, data)
+      }
+    }
+  }
+
+  def forwardTask(task: Task, data: ProcessorData): Unit = {
+    val address = data.taskIsFor(task)
+    data.members.get(address) map { rvm ⇒
+      rvm.actorRef ! task
+      true
+    } getOrElse {
+      log.error(s"Task actor is not found: $address, dropping: $task")
+    }
+  }
+
+  def workerIsReadyForNextTask(): Unit = {
+    val idx = activeWorkers.indexWhere(_._2 == sender())
+    if (idx >= 0) {
+      val (task,worker) = activeWorkers(idx)
+      if (log.isDebugEnabled) {
+        log.debug(s"Worker $worker is ready for next task. Completed task: $task")
+      }
+      activeWorkers.remove(idx)
+      inactiveWorkers.push(worker)
+      unstashAll()
+    } else {
+      log.error(s"workerIsReadyForNextTask: unknown worker actor: $sender")
     }
   }
 
