@@ -1,10 +1,11 @@
 import akka.actor.{ActorLogging, Actor, ActorSystem, Props}
-import akka.testkit.{TestKit, TestActorRef, TestFSMRef}
+import akka.cluster.Cluster
+import akka.testkit.{TestProbe, TestKit, TestActorRef, TestFSMRef}
 import akka.text.GuardianExtractor
 import com.typesafe.config.ConfigFactory
 import eu.inn.revault._
 import org.scalatest.{BeforeAndAfterEach, Matchers}
-
+import scala.concurrent.duration._
 import scala.collection.concurrent.TrieMap
 
 case class TestTaskContent(value: String, ttl: Long = System.currentTimeMillis()+10*1000) extends Expireable {
@@ -63,6 +64,25 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach {
       TestKit.shutdownActorSystem(as)
       _actorSystems.remove(index)
     }
+  }
+
+  def shutdownCluster(index: Int = 0): Unit = {
+    _actorSystems.get(index).map { as ⇒
+      val c = Cluster(as)
+      c.down(c.selfAddress)
+      Thread.sleep(1000)
+    } getOrElse {
+      fail(s"There is no actor system #$index")
+    }
+  }
+
+
+  def shutdownRevaultActor(fsm: TestFSMRef[RevaultMemberStatus, ProcessorData, ProcessorFSM])(implicit actorSystem: ActorSystem) = {
+    val probe = TestProbe()
+    probe watch fsm
+    fsm ! ShutdownProcessor
+    new TestKit(actorSystem).awaitCond(fsm.stateName == RevaultMemberStatus.Deactivating, 10.second)
+    probe.expectTerminated(fsm, 10.second)
   }
 
   override def afterEach() {
