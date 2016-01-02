@@ -37,19 +37,18 @@ object TestRegistry {
 trait TestHelpers extends Matchers with BeforeAndAfterEach {
   this : org.scalatest.BeforeAndAfterEach with org.scalatest.Suite =>
 
-  def createRevaultActor(workerCount: Int = 1)(implicit actorSystem: ActorSystem) = {
+  def createRevaultActor(workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
     val fsm = new TestFSMRef[RevaultMemberStatus, ProcessorData, ProcessorFSM](actorSystem,
       Props(new ProcessorFSM(Props[TestWorker], workerCount)).withDispatcher("deque-dispatcher"),
       GuardianExtractor.guardian(actorSystem),
       "revault"
     )
     //val fsm = TestFSMRef(new ProcessorFSM(Props[TestWorker], workerCount), "revault")
-    val processorFsm: TestActorRef[ProcessorFSM] = fsm
-
+    //val processorFsm: TestActorRef[ProcessorFSM] = fsm
     fsm.stateName should equal(RevaultMemberStatus.Activating)
-    val t = new TestKit(actorSystem)
-    t.awaitCond {
-      fsm.stateName == RevaultMemberStatus.Active
+    if (waitWhileActivates) {
+      val t = new TestKit(actorSystem)
+      t.awaitCond(fsm.stateName == RevaultMemberStatus.Active)
     }
     fsm
   }

@@ -4,8 +4,8 @@ import org.scalatest.concurrent.ScalaFutures
 
 import scala.concurrent.duration._
 
-class TestTwoNode extends FreeSpec with ScalaFutures with TestHelpers {
-  "TestProcessor in a two-node cluster" - {
+class TwoNodesActivationSpec extends FreeSpec with ScalaFutures with TestHelpers {
+  "Processor in a two-node cluster" - {
     "ProcessorFSM should become Active" in {
       val (fsm1, actorSystem1, testKit1) = {
         implicit val (actorSystem1, testKit1) = testActorSystem(1)

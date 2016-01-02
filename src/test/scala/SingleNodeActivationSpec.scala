@@ -1,10 +1,10 @@
-import eu.inn.revault._
+import eu.inn.revault.{RevaultMemberStatus, Task}
 import org.scalatest._
 import org.scalatest.concurrent.ScalaFutures
 import scala.concurrent.duration._
 
-class TestSingleNode extends FreeSpec with ScalaFutures with TestHelpers {
-  "TestProcessor in a single-node cluster" - {
+class SingleNodeActivationSpec extends FreeSpec with ScalaFutures with TestHelpers {
+  "Processor in a single-node cluster" - {
     "ProcessorFSM should become Active" in {
       implicit val (as, testKit) = testActorSystem()
       createRevaultActor()
@@ -22,6 +22,20 @@ class TestSingleNode extends FreeSpec with ScalaFutures with TestHelpers {
       val task = Task("abc", TestTaskContent("t1"))
       fsm ! task
       testKit.awaitCond(TestRegistry.processed.exists(_._2 == task))
+      shutdownRevaultActor(fsm)
+    }
+
+    "ProcessorFSM should stash task while Activating and process it later" in {
+      implicit val (as, testKit) = testActorSystem()
+      val fsm = createRevaultActor(waitWhileActivates = false)
+      val task = Task("abc", TestTaskContent("t1"))
+      fsm ! task
+      fsm.stateName should equal(RevaultMemberStatus.Activating)
+      TestRegistry.processed shouldNot contain(task)
+      testKit.awaitCond {
+        TestRegistry.processed.exists(_._2 == task)
+      }
+      fsm.stateName should equal(RevaultMemberStatus.Active)
       shutdownRevaultActor(fsm)
     }
 
@@ -50,7 +64,7 @@ class TestSingleNode extends FreeSpec with ScalaFutures with TestHelpers {
       fsm ! task2x
       testKit.awaitCond ({
         TestRegistry.processed.exists(_._2 == task1) && !TestRegistry.processed.exists(_._2 == task1x) &&
-        TestRegistry.processed.exists(_._2 == task2) && !TestRegistry.processed.exists(_._2 == task2x)
+          TestRegistry.processed.exists(_._2 == task2) && !TestRegistry.processed.exists(_._2 == task2x)
       }, 750.milli)
       testKit.awaitCond({
         TestRegistry.processed.exists(_._2 == task1x) && TestRegistry.processed.exists(_._2 == task2x)
