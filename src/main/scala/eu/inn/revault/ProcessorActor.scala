@@ -50,7 +50,7 @@ case class ProcessorData(members: Map[Address, RevaultMemberActor], selfAddress:
     }.toList :+ (selfAddress → selfStatus)
   }.sortBy(_._1)
 
-  private def VirtualNodesSize = 128 // todo: find a better value, configurable?
+  private def VirtualNodesSize = 128 // todo: find a better value, configurable? http://www.tom-e-white.com/2007/11/consistent-hashing.html
 
   private def activeMembers: Iterable[Address] = allMemberStatuses.flatMap {
       case (address, RevaultMemberStatus.Active) ⇒ Some(address)
