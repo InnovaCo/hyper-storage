@@ -8,7 +8,7 @@ import org.scalatest.{BeforeAndAfterEach, Matchers}
 import scala.concurrent.duration._
 import scala.collection.concurrent.TrieMap
 
-case class TestTaskContent(value: String, ttl: Long = System.currentTimeMillis()+10*1000) extends Expireable {
+case class TestTaskContent(value: String, sleep: Int = 0, ttl: Long = System.currentTimeMillis()+10*1000) extends Expireable {
   def isExpired = ttl < System.currentTimeMillis()
 }
 
@@ -18,8 +18,12 @@ class TestWorker extends Actor with ActorLogging {
       if (content.isExpired) {
         log.error(s"Task content is expired: $task")
       } else {
-        log.info(s"Processed task: $task")
+        log.info(s"Processing task: $task")
+        if (content.sleep > 0 ) {
+          Thread.sleep(content.sleep)
+        }
         TestRegistry.processed += (self.path.toString + ":" + task.key) → task
+        log.info(s"Task processed: $task")
       }
       sender() ! ReadyForNextTask
     }
