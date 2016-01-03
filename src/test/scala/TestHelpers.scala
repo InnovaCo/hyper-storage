@@ -12,19 +12,24 @@ import scala.collection.concurrent.TrieMap
 
 case class TestTaskContent(value: String,
                            sleep: Int = 0,
-                           ttl: Long = System.currentTimeMillis()+10*1000,
+                           ttl: Long = System.currentTimeMillis()+60*1000,
                            id: UUID = UUID.randomUUID()) extends Expireable {
   def isExpired = ttl < System.currentTimeMillis()
+  def processingStarted(actorPath: String): Unit = {
+    ProcessedRegistry.tasksStarted += id → (actorPath, this)
+  }
   def processed(actorPath: String): Unit = {
     ProcessedRegistry.tasks += id → (actorPath, this)
   }
   def isProcessed = ProcessedRegistry.tasks.get(id).isDefined
+  def isProcessingStarted = ProcessedRegistry.tasksStarted.get(id).isDefined
   def processActorPath: Option[String] = ProcessedRegistry.tasks.get(id) map { kv ⇒ kv._1 }
   override def toString = s"TestTaskContent($value, $sleep, $ttl, #${System.identityHashCode(this)}, actor: $processActorPath"
 }
 
 object ProcessedRegistry {
   val tasks = TrieMap[UUID, (String, TestTaskContent)]()
+  val tasksStarted = TrieMap[UUID, (String, TestTaskContent)]()
 }
 
 class TestWorker extends Actor with ActorLogging {
@@ -33,12 +38,13 @@ class TestWorker extends Actor with ActorLogging {
       if (content.isExpired) {
         log.error(s"Task content is expired: $task")
       } else {
+        val c = Cluster(context.system)
+        val path = c.selfAddress + "/" + self.path.toString
         log.info(s"Processing task: $task")
+        content.processingStarted(path)
         if (content.sleep > 0 ) {
           Thread.sleep(content.sleep)
         }
-        val c = Cluster(context.system)
-        val path = c.selfAddress + "/" + self.path.toString
         content.processed(path)
         log.info(s"Task processed: $task")
       }
@@ -111,6 +117,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach {
   }
 
   implicit class TaskEx(t: Task) {
+    def isProcessingStarted = t.content.asInstanceOf[TestTaskContent].isProcessingStarted
     def isProcessed = t.content.asInstanceOf[TestTaskContent].isProcessed
     def processorPath = t.content.asInstanceOf[TestTaskContent].processActorPath getOrElse ""
   }

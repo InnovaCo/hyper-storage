@@ -36,10 +36,7 @@ case class ProcessorData(members: Map[Address, RevaultMemberActor], selfAddress:
   def + (elem: (Address, RevaultMemberActor)) = ProcessorData(members + elem, selfAddress, selfStatus)
   def - (key: Address) = ProcessorData(members - key, selfAddress, selfStatus)
 
-  def taskIsFor(task: Task): Address = {
-    println(s"!---: ${task.key} -> ${consistentHash.nodeFor(task.key)} -> ${activeMembers}")
-    consistentHash.nodeFor(task.key)
-  }
+  def taskIsFor(task: Task): Address = consistentHash.nodeFor(task.key)
 
   def taskWasFor(task: Task): Address = consistentHashPrevious.nodeFor(task.key)
 
@@ -164,7 +161,7 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
   initialize()
 
   def setSyncTimer(): Unit = {
-    setTimer("syncing", SyncTimer, 500 millisecond) // todo: move timeout to configuration
+    setTimer("syncing", SyncTimer, 1000 millisecond) // todo: move timeout to configuration
   }
 
   def introduceSelfTo(member: Member, data: ProcessorData) : Option[ProcessorData] = {
@@ -247,12 +244,29 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
     } else {
       data.members.get(sync.applicantAddress) map { member ⇒
         // todo: don't confirm, until it's possible
-        val syncReply = SyncReply(selfAddress, stateName, sync.status, data.clusterHash)
-        if (log.isDebugEnabled) {
-          log.debug(s"Replying with $syncReply to $sender")
+
+        val newData: ProcessorData = data + sync.applicantAddress → member.copy(status = sync.status)
+        val allowSync = if (sync.status == RevaultMemberStatus.Activating) {
+          activeWorkers.forall { case (task, workerActor) ⇒
+            if (newData.taskIsFor(task) == sync.applicantAddress) {
+              log.info(s"Ignoring sync request $sync while processing task $task by worker $workerActor")
+              false
+            } else {
+              true
+            }
+          }
+        } else {
+          true
         }
-        sender() ! syncReply
-        data + sync.applicantAddress → member.copy(status = sync.status)
+
+        if (allowSync) {
+          val syncReply = SyncReply(selfAddress, stateName, sync.status, data.clusterHash)
+          if (log.isDebugEnabled) {
+            log.debug(s"Replying with $syncReply to $sender")
+          }
+          sender() ! syncReply
+        }
+        newData
       } orElse {
         log.error(s"Got $sync from unknown member. Current members: ${data.members}")
         sender() ! SyncReply(selfAddress, stateName, RevaultMemberStatus.Unknown, data.clusterHash)

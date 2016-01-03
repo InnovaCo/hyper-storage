@@ -143,5 +143,32 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
       task1.processorPath should include(address2)
       task2.processorPath should include(address2)
     }
+
+    "Processor should not confirm sync/activation until completes processing corresponding task" in {
+      val (fsm1, actorSystem1, testKit1, address1) = {
+        implicit val (actorSystem1, testKit1) = testActorSystem(1)
+        (createRevaultActor(), actorSystem1, testKit1, Cluster(actorSystem1).selfAddress.toString)
+      }
+
+      val task1 = Task("klm", TestTaskContent("t7", sleep = 6000))
+      fsm1 ! task1
+      val task2 = Task("klm", TestTaskContent("t8"))
+      fsm1 ! task2
+      testKit1.awaitCond(task1.isProcessingStarted)
+
+      val (fsm2, actorSystem2, testKit2, address2) = {
+        implicit val (actorSystem2, testKit2) = testActorSystem(2)
+        (createRevaultActor(waitWhileActivates = false), actorSystem2, testKit2, Cluster(actorSystem2).selfAddress.toString)
+      }
+
+      testKit1.awaitCond({
+        assert(fsm2.stateName == RevaultMemberStatus.Activating)
+        task1.isProcessed
+      }, 10 second)
+
+      task1.processorPath should include(address1)
+      testKit2.awaitCond(task2.isProcessed, 10 second)
+      task2.processorPath should include(address2)
+    }
   }
 }
