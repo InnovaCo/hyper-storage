@@ -87,8 +87,8 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
         (createRevaultActor(waitWhileActivates = false), actorSystem2, testKit2, Cluster(actorSystem2).selfAddress.toString)
       }
 
-      testKit1.awaitCond(fsm1.stateName == RevaultMemberStatus.Active && fsm1.stateData.members.nonEmpty)
-      testKit2.awaitCond(fsm2.stateName == RevaultMemberStatus.Active && fsm2.stateData.members.nonEmpty)
+      testKit1.awaitCond(fsm1.stateName == RevaultMemberStatus.Active && fsm1.stateData.members.nonEmpty, 5 second)
+      testKit2.awaitCond(fsm2.stateName == RevaultMemberStatus.Active && fsm2.stateData.members.nonEmpty, 5 second)
 
       val task1 = Task("abc", TestTaskContent("t3"))
       fsm2 ! task1
