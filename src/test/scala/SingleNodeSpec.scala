@@ -3,7 +3,7 @@ import org.scalatest._
 import org.scalatest.concurrent.ScalaFutures
 import scala.concurrent.duration._
 
-class SingleNodeActivationSpec extends FreeSpec with ScalaFutures with TestHelpers {
+class SingleNodeSpec extends FreeSpec with ScalaFutures with TestHelpers {
   "Processor in a single-node cluster" - {
     "ProcessorFSM should become Active" in {
       implicit val (as, testKit) = testActorSystem()
@@ -21,7 +21,7 @@ class SingleNodeActivationSpec extends FreeSpec with ScalaFutures with TestHelpe
       val fsm = createRevaultActor()
       val task = Task("abc", TestTaskContent("t1"))
       fsm ! task
-      testKit.awaitCond(TestRegistry.processed.exists(_._2 == task))
+      testKit.awaitCond(task.isProcessed)
       shutdownRevaultActor(fsm)
     }
 
@@ -31,10 +31,8 @@ class SingleNodeActivationSpec extends FreeSpec with ScalaFutures with TestHelpe
       val task = Task("abc", TestTaskContent("t1"))
       fsm ! task
       fsm.stateName should equal(RevaultMemberStatus.Activating)
-      TestRegistry.processed shouldNot contain(task)
-      testKit.awaitCond {
-        TestRegistry.processed.exists(_._2 == task)
-      }
+      task.isProcessed should equal (false)
+      testKit.awaitCond(task.isProcessed)
       fsm.stateName should equal(RevaultMemberStatus.Active)
       shutdownRevaultActor(fsm)
     }
@@ -46,8 +44,8 @@ class SingleNodeActivationSpec extends FreeSpec with ScalaFutures with TestHelpe
       val task2 = Task("abc2", TestTaskContent("t2"))
       fsm ! task1
       fsm ! task2
-      testKit.awaitCond(TestRegistry.processed.exists(_._2 == task1))
-      testKit.awaitCond(TestRegistry.processed.exists(_._2 == task2))
+      testKit.awaitCond(task1.isProcessed)
+      testKit.awaitCond(task2.isProcessed)
       shutdownRevaultActor(fsm)
     }
 
@@ -63,11 +61,11 @@ class SingleNodeActivationSpec extends FreeSpec with ScalaFutures with TestHelpe
       fsm ! task2
       fsm ! task2x
       testKit.awaitCond ({
-        TestRegistry.processed.exists(_._2 == task1) && !TestRegistry.processed.exists(_._2 == task1x) &&
-          TestRegistry.processed.exists(_._2 == task2) && !TestRegistry.processed.exists(_._2 == task2x)
+        task1.isProcessed && !task1x.isProcessed &&
+          task2.isProcessed && !task2x.isProcessed
       }, 750.milli)
       testKit.awaitCond({
-        TestRegistry.processed.exists(_._2 == task1x) && TestRegistry.processed.exists(_._2 == task2x)
+        task1x.isProcessed && task2x.isProcessed
       }, 2.second)
       shutdownRevaultActor(fsm)
     }

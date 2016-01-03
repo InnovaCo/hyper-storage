@@ -1,4 +1,6 @@
-import akka.actor.{ActorLogging, Actor, ActorSystem, Props}
+import java.util.UUID
+
+import akka.actor._
 import akka.cluster.Cluster
 import akka.testkit.{TestProbe, TestKit, TestActorRef, TestFSMRef}
 import akka.text.GuardianExtractor
@@ -8,8 +10,21 @@ import org.scalatest.{BeforeAndAfterEach, Matchers}
 import scala.concurrent.duration._
 import scala.collection.concurrent.TrieMap
 
-case class TestTaskContent(value: String, sleep: Int = 0, ttl: Long = System.currentTimeMillis()+10*1000) extends Expireable {
+case class TestTaskContent(value: String,
+                           sleep: Int = 0,
+                           ttl: Long = System.currentTimeMillis()+10*1000,
+                           id: UUID = UUID.randomUUID()) extends Expireable {
   def isExpired = ttl < System.currentTimeMillis()
+  def processed(actorPath: String): Unit = {
+    ProcessedRegistry.tasks += id → (actorPath, this)
+  }
+  def isProcessed = ProcessedRegistry.tasks.get(id).isDefined
+  def processActorPath: Option[String] = ProcessedRegistry.tasks.get(id) map { kv ⇒ kv._1 }
+  override def toString = s"TestTaskContent($value, $sleep, $ttl, #${System.identityHashCode(this)}, actor: $processActorPath"
+}
+
+object ProcessedRegistry {
+  val tasks = TrieMap[UUID, (String, TestTaskContent)]()
 }
 
 class TestWorker extends Actor with ActorLogging {
@@ -22,16 +37,14 @@ class TestWorker extends Actor with ActorLogging {
         if (content.sleep > 0 ) {
           Thread.sleep(content.sleep)
         }
-        TestRegistry.processed += (self.path.toString + ":" + task.key) → task
+        val c = Cluster(context.system)
+        val path = c.selfAddress + "/" + self.path.toString
+        content.processed(path)
         log.info(s"Task processed: $task")
       }
       sender() ! ReadyForNextTask
     }
   }
-}
-
-object TestRegistry {
-  val processed = TrieMap[String, Task]()
 }
 
 trait TestHelpers extends Matchers with BeforeAndAfterEach {
@@ -95,5 +108,10 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach {
     }
     _actorSystems.clear()
     Thread.sleep(500)
+  }
+
+  implicit class TaskEx(t: Task) {
+    def isProcessed = t.content.asInstanceOf[TestTaskContent].isProcessed
+    def processorPath = t.content.asInstanceOf[TestTaskContent].processActorPath getOrElse ""
   }
 }

@@ -36,7 +36,10 @@ case class ProcessorData(members: Map[Address, RevaultMemberActor], selfAddress:
   def + (elem: (Address, RevaultMemberActor)) = ProcessorData(members + elem, selfAddress, selfStatus)
   def - (key: Address) = ProcessorData(members - key, selfAddress, selfStatus)
 
-  def taskIsFor(task: Task): Address = consistentHash.nodeFor(task.key)
+  def taskIsFor(task: Task): Address = {
+    println(s"!---: ${task.key} -> ${consistentHash.nodeFor(task.key)} -> ${activeMembers}")
+    consistentHash.nodeFor(task.key)
+  }
 
   def taskWasFor(task: Task): Address = consistentHashPrevious.nodeFor(task.key)
 
@@ -108,7 +111,7 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
     case Event(ShutdownProcessor, data) ⇒
       confirmStatus(data, RevaultMemberStatus.Deactivating, isFirst = true)
       setSyncTimer()
-      goto(RevaultMemberStatus.Deactivating)
+      goto(RevaultMemberStatus.Deactivating) using data.copy(selfStatus = RevaultMemberStatus.Deactivating)
 
     case Event(task: Task, data) ⇒
       processTask(task, data)
@@ -349,6 +352,9 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
   def forwardTask(task: Task, data: ProcessorData): Unit = {
     val address = data.taskIsFor(task)
     data.members.get(address) map { rvm ⇒
+      if (log.isDebugEnabled) {
+        log.debug(s"Task is forwarded to $address: $task")
+      }
       rvm.actorRef ! task
       true
     } getOrElse {
@@ -373,10 +379,13 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
 
   protected [this] implicit class ImplicitExtender(data: Option[ProcessorData]) {
     def andUpdate: State = {
-      if (data.isDefined)
+      if (data.isDefined) {
+        unstashAll()
         stay using data.get
-      else
+      }
+      else {
         stay
+      }
     }
   }
 }
