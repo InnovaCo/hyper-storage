@@ -12,7 +12,7 @@ import scaldi.{Injectable, Injector}
 
 import eu.inn.config.ConfigExtenders._
 import scala.concurrent.Await
-import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.ExecutionContext.Implicits.global // todo: inject
 
 class RevaultService(console: Console, config: Config, implicit val injector: Injector) extends Service with Injectable {
   var log = LoggerFactory.getLogger(getClass)

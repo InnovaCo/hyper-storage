@@ -10,10 +10,10 @@ import org.scalatest.{BeforeAndAfterEach, Matchers}
 import scala.concurrent.duration._
 import scala.collection.concurrent.TrieMap
 
-case class TestTaskContent(value: String,
+case class TestTask(key: String, value: String,
                            sleep: Int = 0,
                            ttl: Long = System.currentTimeMillis()+60*1000,
-                           id: UUID = UUID.randomUUID()) extends Expireable {
+                           id: UUID = UUID.randomUUID()) extends Task {
   def isExpired = ttl < System.currentTimeMillis()
   def processingStarted(actorPath: String): Unit = {
     ProcessedRegistry.tasksStarted += id → (actorPath, this)
@@ -24,28 +24,28 @@ case class TestTaskContent(value: String,
   def isProcessed = ProcessedRegistry.tasks.get(id).isDefined
   def isProcessingStarted = ProcessedRegistry.tasksStarted.get(id).isDefined
   def processActorPath: Option[String] = ProcessedRegistry.tasks.get(id) map { kv ⇒ kv._1 }
-  override def toString = s"TestTaskContent($value, $sleep, $ttl, #${System.identityHashCode(this)}, actor: $processActorPath"
+  override def toString = s"TestTask($key, $value, $sleep, $ttl, #${System.identityHashCode(this)}, actor: $processActorPath"
 }
 
 object ProcessedRegistry {
-  val tasks = TrieMap[UUID, (String, TestTaskContent)]()
-  val tasksStarted = TrieMap[UUID, (String, TestTaskContent)]()
+  val tasks = TrieMap[UUID, (String, TestTask)]()
+  val tasksStarted = TrieMap[UUID, (String, TestTask)]()
 }
 
 class TestWorker extends Actor with ActorLogging {
   def receive = {
-    case task @ Task(key, content: TestTaskContent) => {
-      if (content.isExpired) {
-        log.error(s"Task content is expired: $task")
+    case task: TestTask => {
+      if (task.isExpired) {
+        log.error(s"Task is expired: $task")
       } else {
         val c = Cluster(context.system)
         val path = c.selfAddress + "/" + self.path.toString
         log.info(s"Processing task: $task")
-        content.processingStarted(path)
-        if (content.sleep > 0 ) {
-          Thread.sleep(content.sleep)
+        task.processingStarted(path)
+        if (task.sleep > 0 ) {
+          Thread.sleep(task.sleep)
         }
-        content.processed(path)
+        task.processed(path)
         log.info(s"Task processed: $task")
       }
       sender() ! ReadyForNextTask
@@ -117,8 +117,8 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach {
   }
 
   implicit class TaskEx(t: Task) {
-    def isProcessingStarted = t.content.asInstanceOf[TestTaskContent].isProcessingStarted
-    def isProcessed = t.content.asInstanceOf[TestTaskContent].isProcessed
-    def processorPath = t.content.asInstanceOf[TestTaskContent].processActorPath getOrElse ""
+    def isProcessingStarted = t.asInstanceOf[TestTask].isProcessingStarted
+    def isProcessed = t.asInstanceOf[TestTask].isProcessed
+    def processorPath = t.asInstanceOf[TestTask].processActorPath getOrElse ""
   }
 }

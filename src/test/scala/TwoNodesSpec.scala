@@ -65,12 +65,12 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
       testKit1.awaitCond(fsm1.stateName == RevaultMemberStatus.Active && fsm1.stateData.members.nonEmpty, 5 second)
       testKit2.awaitCond(fsm2.stateName == RevaultMemberStatus.Active && fsm2.stateData.members.nonEmpty, 5 second)
 
-      val task1 = Task("abc", TestTaskContent("t1"))
+      val task1 = TestTask("abc","t1")
       fsm1 ! task1
       testKit1.awaitCond(task1.isProcessed)
       task1.processorPath should include(address1)
 
-      val task2 = Task("klm", TestTaskContent("t2"))
+      val task2 = TestTask("klm","t2")
       fsm2 ! task2
       testKit2.awaitCond(task2.isProcessed)
       task2.processorPath should include(address2)
@@ -90,12 +90,12 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
       testKit1.awaitCond(fsm1.stateName == RevaultMemberStatus.Active && fsm1.stateData.members.nonEmpty, 5 second)
       testKit2.awaitCond(fsm2.stateName == RevaultMemberStatus.Active && fsm2.stateData.members.nonEmpty, 5 second)
 
-      val task1 = Task("abc", TestTaskContent("t3"))
+      val task1 = TestTask("abc","t3")
       fsm2 ! task1
       testKit1.awaitCond(task1.isProcessed)
       task1.processorPath should include(address1)
 
-      val task2 = Task("klm", TestTaskContent("t4"))
+      val task2 = TestTask("klm","t4")
       fsm1 ! task2
       testKit2.awaitCond(task2.isProcessed)
       task2.processorPath should include(address2)
@@ -121,10 +121,10 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
         fsm1.stateName == RevaultMemberStatus.Deactivating
       }, 10.second)
 
-      val task1 = Task("abc", TestTaskContent("t5", sleep = 500))
+      val task1 = TestTask("abc","t5", sleep = 500)
       fsm1 ! task1
 
-      val task2 = Task("abc", TestTaskContent("t6", sleep = 500))
+      val task2 = TestTask("abc","t6", sleep = 500)
       fsm2 ! task2
 
       val c1 = Cluster(actorSystem1)
@@ -150,9 +150,9 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
         (createRevaultActor(), actorSystem1, testKit1, Cluster(actorSystem1).selfAddress.toString)
       }
 
-      val task1 = Task("klm", TestTaskContent("t7", sleep = 6000))
+      val task1 = TestTask("klm","t7", sleep = 6000)
       fsm1 ! task1
-      val task2 = Task("klm", TestTaskContent("t8"))
+      val task2 = TestTask("klm","t8")
       fsm1 ! task2
       testKit1.awaitCond(task1.isProcessingStarted)
 

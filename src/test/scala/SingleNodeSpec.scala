@@ -19,7 +19,7 @@ class SingleNodeSpec extends FreeSpec with ScalaFutures with TestHelpers {
     "ProcessorFSM should process task" in {
       implicit val (as, testKit) = testActorSystem()
       val fsm = createRevaultActor()
-      val task = Task("abc", TestTaskContent("t1"))
+      val task = TestTask("abc","t1")
       fsm ! task
       testKit.awaitCond(task.isProcessed)
       shutdownRevaultActor(fsm)
@@ -28,7 +28,7 @@ class SingleNodeSpec extends FreeSpec with ScalaFutures with TestHelpers {
     "ProcessorFSM should stash task while Activating and process it later" in {
       implicit val (as, testKit) = testActorSystem()
       val fsm = createRevaultActor(waitWhileActivates = false)
-      val task = Task("abc", TestTaskContent("t1"))
+      val task = TestTask("abc","t1")
       fsm ! task
       fsm.stateName should equal(RevaultMemberStatus.Activating)
       task.isProcessed should equal (false)
@@ -40,8 +40,8 @@ class SingleNodeSpec extends FreeSpec with ScalaFutures with TestHelpers {
     "ProcessorFSM should stash task when workers are busy and process later" in {
       implicit val (as, testKit) = testActorSystem()
       val fsm = createRevaultActor()
-      val task1 = Task("abc1", TestTaskContent("t1"))
-      val task2 = Task("abc2", TestTaskContent("t2"))
+      val task1 = TestTask("abc1","t1")
+      val task2 = TestTask("abc2","t2")
       fsm ! task1
       fsm ! task2
       testKit.awaitCond(task1.isProcessed)
@@ -52,10 +52,10 @@ class SingleNodeSpec extends FreeSpec with ScalaFutures with TestHelpers {
     "ProcessorFSM should stash task when URL is 'locked' and it process later" in {
       implicit val (as, testKit) = testActorSystem()
       val fsm = createRevaultActor(2)
-      val task1 = Task("abc1", TestTaskContent("t1", 500))
-      val task1x = Task("abc1", TestTaskContent("t1x", 500))
-      val task2 = Task("abc2", TestTaskContent("t2", 500))
-      val task2x = Task("abc2", TestTaskContent("t2x", 500))
+      val task1 = TestTask("abc1","t1", 500)
+      val task1x = TestTask("abc1","t1x", 500)
+      val task2 = TestTask("abc2","t2", 500)
+      val task2x = TestTask("abc2","t2x", 500)
       fsm ! task1
       fsm ! task1x
       fsm ! task2

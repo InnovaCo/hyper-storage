@@ -8,11 +8,11 @@ import scala.collection.mutable
 import scala.concurrent.duration._
 import akka.cluster.Member.addressOrdering
 
-trait Expireable {
+// todo: rename Task
+@SerialVersionUID(1L) trait Task {
+  def key: String
   def isExpired: Boolean
 }
-
-case class Task(key: String, content: Expireable)
 
 sealed trait RevaultMemberStatus
 object RevaultMemberStatus {
@@ -306,7 +306,7 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
     if (log.isDebugEnabled) {
       log.debug(s"Got task to process: $task")
     }
-    if (task.content.isExpired) {
+    if (task.isExpired) {
       log.warning(s"Task is expired, dropping: $task")
     } else {
       if (data.taskIsFor(task) == data.selfAddress) {
@@ -349,7 +349,7 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
     if (log.isDebugEnabled) {
       log.debug(s"Got task to process while activating: $task")
     }
-    if (task.content.isExpired) {
+    if (task.isExpired) {
       log.warning(s"Task is expired, dropping: $task")
     } else {
       if (data.taskIsFor(task) == data.selfAddress) {
