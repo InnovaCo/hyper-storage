@@ -1,5 +1,7 @@
 package eu.inn.revault.protocol
 
+import java.util.Date
+
 import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.model.annotations.{body, request}
 import eu.inn.hyperbus.model.standard._
@@ -10,7 +12,7 @@ case class RevaultGet(path: String, body: EmptyBody) extends StaticGet(body)
 with DefinedResponse[Ok[DynamicBody]]
 
 @body("revault-monitor")
-case class Monitor(id: String, status: String) extends Body
+case class Monitor(id: String, status: String, completedAt: Option[Date]) extends Body
 
 @request("/revault/{path:*}")
 case class RevaultPut(path: String, body: DynamicBody) extends StaticPut(body)

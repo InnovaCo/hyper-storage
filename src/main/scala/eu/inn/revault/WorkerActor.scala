@@ -6,7 +6,7 @@ import java.util.Date
 import akka.actor.{ActorLogging, ActorRef, Actor}
 import eu.inn.hyperbus.HyperBus
 import eu.inn.hyperbus.model.standard._
-import eu.inn.hyperbus.model.{Body, Message}
+import eu.inn.hyperbus.model.{MessagingContextFactory, MessagingContext, Body, Message}
 import eu.inn.hyperbus.serialization.MessageDeserializer
 import eu.inn.hyperbus.transport.api.uri.Uri
 import eu.inn.revault.db.{Content, Monitor, Db}
@@ -107,7 +107,7 @@ class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
       owner ! ReadyForNextTask
     }
     else {
-      become(taskWaitResult(owner, task))
+      become(taskWaitResult(owner, task)(hyperBusRequest))
 
       // fetch and complete existing content
       val futureExistingContent: Future[Option[Content]] = selectAndCompletePrevious(prefix, lastSegment)
@@ -156,27 +156,31 @@ class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
 
   private def completePreviousTask(content: Content, monitor: Monitor): Future[Option[Content]] = ??? // todo: implement
 
-  private def taskWaitResult(owner: ActorRef, put: RevaultTask): Receive = {
+  private def taskWaitResult(owner: ActorRef, put: RevaultTask)(implicit mcf: MessagingContextFactory): Receive = {
     case TaskComplete(task, monitor) if task == put ⇒
       if (log.isDebugEnabled) {
         log.debug(s"Task $put is completed")
       }
-      println(s"Owner = $owner")
       owner ! ReadyForNextTask
-      put.client ! RevaultTaskResult("ha ha")
-      // todo: send result to client put.client !
+      val monId = monitor.path + ":" + monitor.revision
+      val resultContent = Ok(protocol.Monitor(monId, "complete", monitor.completedAt)).serializeToString()
+      put.client ! RevaultTaskResult(resultContent)
       unbecome()
 
     case TaskAccepted(task, monitor, e) if task == put ⇒
       log.warning(s"Task was accepted but didn't yet complete because of $e")
       // todo: send message to complete task
-      // todo: send result to client put.client !
+      val monId = monitor.path + ":" + monitor.revision
+      val resultContent = Accepted(protocol.Monitor(monId, "in-progress", None)).serializeToString()
+      put.client ! RevaultTaskResult(resultContent)
       owner ! ReadyForNextTask
       unbecome()
 
     case TaskFailed(task, e) if task == put ⇒
       log.error(e, s"Task $task is failed")
       owner ! ReadyForNextTask
+      val resultContent = InternalServerError(ErrorBody("update_failed",Some(e.toString))).serializeToString()
+      put.client ! RevaultTaskResult(resultContent)
       unbecome()
   }
 
