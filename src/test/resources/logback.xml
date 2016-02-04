@@ -1,13 +1,20 @@
 <configuration>
-    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <appender name="stdout" class="ch.qos.logback.core.ConsoleAppender">
         <withJansi>true</withJansi>
         <encoder>
             <pattern>%highlight(%.-3level) %cyan(%d{HH:mm:ss.SSS}) %yellow(%-35.35logger) %magenta(%X{subscriptionId}) %highlight(%msg) %n</pattern>
         </encoder>
     </appender>
-
-    <root level="TRACE">
-        <appender-ref ref="STDOUT"/>
+    <logger name="eu.inn.revault.WorkerActor">
+        <level value="trace" />
+    </logger>
+    <logger name="eu.inn.revault.ProcessorFSM">
+        <level value="trace" />
+    </logger>
+    <logger name="eu.inn.revault.RevaultDistributor">
+        <level value="trace" />
+    </logger>
+    <root level="warn">
+        <appender-ref ref="stdout"/>
     </root>
-
 </configuration>

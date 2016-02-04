@@ -1,7 +1,7 @@
 package eu.inn.revault
 
 import akka.actor._
-import akka.cluster.ClusterEvent.{MemberEvent, MemberRemoved, MemberUp}
+import akka.cluster.ClusterEvent.{MemberExited, MemberEvent, MemberRemoved, MemberUp}
 import akka.cluster.{Cluster, ClusterEvent, Member}
 import akka.routing.{MurmurHash, ConsistentHash}
 import scala.collection.mutable
@@ -137,6 +137,9 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
       addNewMember(member, data) andUpdate
 
     case Event(MemberRemoved(member, previousState), data) ⇒
+      removeMember(member, data) andUpdate
+
+    case Event(MemberExited(member), data) ⇒
       removeMember(member, data) andUpdate
 
     case Event(ReadyForNextTask, data) ⇒

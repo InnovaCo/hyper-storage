@@ -4,7 +4,7 @@ import java.util.Date
 
 import eu.inn.binders._
 import eu.inn.binders.cassandra._
-import eu.inn.binders.naming.SnakeCaseToCamelCaseConverter
+import eu.inn.binders.naming.{CamelCaseToSnakeCaseConverter, SnakeCaseToCamelCaseConverter}
 
 import scala.concurrent.{Future, ExecutionContext}
 
@@ -18,7 +18,7 @@ dt timestamp,
 */
 
 case class Content(
-                  path: String,
+                  path: String, // todo: rename to prefix?
                   lastSegment: String,
                   revision: Long,
                   monitorDt: Date,
@@ -34,8 +34,8 @@ case class Monitor(
                   channel: Int,
                   path: String,
                   revision: Long,
-                  body: Option[String],
-                  isComplete: Boolean
+                  body: String,
+                  completedAt: Option[Date]
                   )
 
 case class Channel(
@@ -44,15 +44,19 @@ case class Channel(
                   )
 
 class Db(session: com.datastax.driver.core.Session)(implicit ec: ExecutionContext) {
-  private [this] implicit val sessionQueryCache = new SessionQueryCache[SnakeCaseToCamelCaseConverter](session)
+  private [this] implicit val sessionQueryCache = new SessionQueryCache[CamelCaseToSnakeCaseConverter](session)
 
   def selectContent(path: String, lastSegment: String): Future[Option[Content]] = cql"""
       select path,last_segment,revision,monitor_dt,monitor_channel,body,is_deleted,created_at,modified_at from content
       where path=$path and last_segment=$lastSegment
     """.oneOption[Content]
 
+  /*def selectAllContent: Future[Iterator[Content]] = cql"""
+      select path,last_segment,revision,monitor_dt,monitor_channel,body,is_deleted,created_at,modified_at from content
+    """.all[Content]*/
+
   def selectMonitor(dt: Date, channel: Int, path: String): Future[Option[Monitor]] = cql"""
-      select dt,channel,path,revision,body,is_complete
+      select dt,channel,path,revision,body,completed_at
     """.oneOption[Monitor]
 
   def insertContent(content: Content): Future[Unit] = cql"""
@@ -61,9 +65,14 @@ class Db(session: com.datastax.driver.core.Session)(implicit ec: ExecutionContex
     """.bind(content).execute()
 
   def insertMonitor(monitor: Monitor): Future[Unit] = cql"""
-      insert into monitor(dt,channel,path,revision,body,is_complete)
+      insert into monitor(dt,channel,path,revision,body,completed_at)
       values(?,?,?,?,?,?)
     """.bind(monitor).execute()
+
+  def completeMonitor(monitor: Monitor): Future[Unit] = cql"""
+      update monitor set completed_at=dateOf(now())
+      where dt=${monitor.dt} and channel=${monitor.channel} and path=${monitor.path} and revision=${monitor.revision}
+    """.execute()
 
 /*
   def insertUser(user: User): Future[Unit] = cql"insert into users(userid, name) values (?, ?)".bind(user).execute()

@@ -17,8 +17,8 @@ create table monitor (
 	path text,
 	revision bigint,
 	body text,
-	is_complete boolean,
-	primary key ((dt,channel), path)
+	completed_at timestamp,
+	primary key ((dt, channel), path, revision)
 );
 
 create table channel (
@@ -26,8 +26,3 @@ create table channel (
 	check_date timestamp
 );
 
-insert into content(path,last_segment,revision,body,created_at,modified_at)
-values  ('plain-resource','',1,'This is plain resource',dateof(now()),null);
-
-insert into content(path,last_segment,revision,body,created_at,modified_at)
-values  ('plain-resource-incomplete','',1,'This is plain resource (incomplete)',dateof(now()),null);

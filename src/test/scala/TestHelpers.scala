@@ -1,14 +1,19 @@
-import java.util.UUID
+import java.util.{Date, UUID}
 
 import akka.actor._
 import akka.cluster.Cluster
-import akka.testkit.{TestProbe, TestKit, TestActorRef, TestFSMRef}
+import akka.testkit._
 import akka.text.GuardianExtractor
 import com.typesafe.config.ConfigFactory
+import eu.inn.hyperbus.HyperBus
+import eu.inn.hyperbus.transport.ActorSystemRegistry
+import eu.inn.hyperbus.transport.api.{TransportManager, TransportConfigurationLoader}
 import eu.inn.revault._
 import org.scalatest.{BeforeAndAfterEach, Matchers}
+import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.collection.concurrent.TrieMap
+import scala.concurrent.ExecutionContext.Implicits.global
 
 case class TestTask(key: String, value: String,
                            sleep: Int = 0,
@@ -72,29 +77,31 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach {
     fsm
   }
 
-  val _actorSystems = TrieMap[Int, ActorSystem]()
+  //val _actorSystems = TrieMap[Int, ActorSystem]()
+  val _hyperBuses = TrieMap[Int, HyperBus]()
 
   def testActorSystem(index: Int = 0) = {
-    val as = _actorSystems.getOrElseUpdate ( index,
-      ActorSystem("eu-inn-cluster", ConfigFactory.load().getConfig(s"actor-systems.eu-inn-$index"))
-    )
-    (as, new TestKit(as))
+    testHyperBus(index)
+    ActorSystemRegistry.get(s"eu-inn-$index").get
   }
 
-  def shutdownActorSystem(index: Int = 0): Unit = {
-    _actorSystems.get(index).foreach { as ⇒
-      TestKit.shutdownActorSystem(as)
-      _actorSystems.remove(index)
-    }
+  def testKit(index: Int = 0) = new TestKit(testActorSystem(index)) with ImplicitSender
+
+  def testHyperBus(index: Int = 0) = {
+    val hb = _hyperBuses.getOrElseUpdate ( index, {
+        val config = ConfigFactory.load().getConfig(s"hyperbus-$index")
+        val transportConfiguration = TransportConfigurationLoader.fromConfig(config)
+        val transportManager = new TransportManager(transportConfiguration)
+        new HyperBus(transportManager)
+      }
+    )
+    hb
   }
 
   def shutdownCluster(index: Int = 0): Unit = {
-    _actorSystems.get(index).map { as ⇒
-      val c = Cluster(as)
-      c.down(c.selfAddress)
+    _hyperBuses.get(index).foreach { hb ⇒
+      hb.shutdown(5.seconds)
       Thread.sleep(1000)
-    } getOrElse {
-      fail(s"There is no actor system #$index")
     }
   }
 
@@ -108,11 +115,13 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach {
   }
 
   override def afterEach() {
-    println("------- SHUTTING DOWN ACTOR SYSTEMS -------- ")
-    _actorSystems.foreach{
-      case (_, as) ⇒ TestKit.shutdownActorSystem(as)
+    println("------- SHUTTING DOWN HYPERBUSES -------- ")
+    _hyperBuses.foreach{
+      case (index, hb) ⇒ {
+        Await.result(hb.shutdown(10.second), 11.second)
+      }
     }
-    _actorSystems.clear()
+    _hyperBuses.clear()
     Thread.sleep(500)
   }
 
