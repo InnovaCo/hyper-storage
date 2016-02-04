@@ -195,6 +195,7 @@ class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
 
 1. Check existing resource monitor
 2. complete if previous update is not complete
+  2.2. test
 3. create & insert new monitor
 4. update resource
 5. send accepted to the client (if any)

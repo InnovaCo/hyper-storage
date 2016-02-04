@@ -32,11 +32,20 @@ class WorkerSpec extends FreeSpec
         DynamicBody(Text("Test resource value"))
       )
 
+      whenReady(db.selectContent("/test-resource-1","")) { result =>
+        result shouldBe None
+      }
+
       worker ! RevaultTask("", System.currentTimeMillis()+10000, probeClient.ref, task.serializeToString())
       expectMsg(ReadyForNextTask)
       probeClient.expectMsgPF() {
         case result: RevaultTaskResult if response(result.content).status == Status.OK &&
-          response(result.content).correlationId == task.correlationId ⇒ true
+          response(result.content).correlationId == task.correlationId ⇒ {
+          whenReady(db.selectContent("/test-resource-1","")) { result =>
+            result.get.body should equal(Some("Test resource value"))
+          }
+          true
+        }
       }
     }
   }
