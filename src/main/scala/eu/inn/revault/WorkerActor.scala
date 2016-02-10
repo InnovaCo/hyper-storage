@@ -1,18 +1,18 @@
 package eu.inn.revault
 
-import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 import java.util.Date
 
-import akka.actor.{ActorLogging, ActorRef, Actor}
+import akka.actor.{Actor, ActorLogging, ActorRef}
+import com.fasterxml.jackson.core.JsonParser
+import eu.inn.binders.dynamic.{Value, Null}
 import eu.inn.hyperbus.HyperBus
+import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.model.standard._
-import eu.inn.hyperbus.model.{MessagingContextFactory, MessagingContext, Body, Message}
-import eu.inn.hyperbus.serialization.MessageDeserializer
-import eu.inn.hyperbus.transport.api.uri.Uri
-import eu.inn.revault.db.{Content, Monitor, Db}
-import eu.inn.revault.protocol.RevaultPut
+import eu.inn.hyperbus.util.StringSerializer
+import eu.inn.revault.db.{Content, Db, Monitor}
 
 import scala.concurrent.Future
+import scala.util.Try
 import scala.util.control.NonFatal
 
 // todo: rename PutTask
@@ -23,7 +23,7 @@ import scala.util.control.NonFatal
 
 @SerialVersionUID(1L) case class RevaultTaskResult(content: String)
 
-trait WorkerMessage
+trait WorkerMessage // todo: rename
 case class TaskComplete(task: Task, monitor: Monitor) extends WorkerMessage
 case class TaskFailed(task: Task, inner: Throwable) extends WorkerMessage
 case class TaskAccepted(task: Task, monitor: Monitor, inner: Throwable) extends WorkerMessage
@@ -37,106 +37,61 @@ class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
       executeTask(sender(), task)
   }
 
-  private def createNewContent(prefix: String,
-                               lastSegment: String,
-                               newMonitor: Monitor,
-                               request: RevaultPut,
-                               existingContent: Option[Content]): Content =
-    existingContent match {
-      case None ⇒
-        Content(prefix, lastSegment, newMonitor.revision,
-          monitorDt = newMonitor.dt, monitorChannel = newMonitor.channel,
-          body = Some(request.body.serializeToString()),
-          isDeleted = false,
-          createdAt = new Date(),
-          modifiedAt = None
-        )
-
-      case Some(content) ⇒
-        Content(prefix, lastSegment, newMonitor.revision,
-          monitorDt = newMonitor.dt, monitorChannel = newMonitor.channel,
-          body = Some(request.body.serializeToString()),
-          isDeleted = false,
-          createdAt = new Date(),
-          modifiedAt = None
-        )
-    }
-
-  private def createAndInsertMonitorAndContent(prefix: String,
-                                               lastSegment: String,
-                                               request: RevaultPut,
-                                               existingContent: Option[Content]): Future[Monitor] = {
-    val newMonitor = createNewMonitor(request, existingContent)
-    val newContent = createNewContent(prefix, lastSegment, newMonitor, request, existingContent)
-    db.insertMonitor(newMonitor) flatMap { _ ⇒
-      db.insertContent(newContent) map { _ ⇒
-        newMonitor
-      }
-    }
-  }
-
-  def deserializeRequest(content: String): RevaultPut = {
-    val byteStream = new ByteArrayInputStream(content.getBytes("UTF-8"))
-    MessageDeserializer.deserializeRequestWith(byteStream) { (requestHeader, requestBodyJson) =>
-      val msgId = requestHeader.messageId
-      val cId = requestHeader.correlationId.getOrElse(msgId)
-      requestHeader.method match { // todo: move this match to hyperbus and make a universal solution
-        //case Method.GET => DynamicGet(requestHeader.uri, b, msgId, cId)
-        //case Method.POST => DynamicPost(requestHeader.uri, b, msgId, cId)
-        case Method.PUT => RevaultPut.deserializer(requestHeader, requestBodyJson)
-        //case Method.DELETE => DynamicDelete(requestHeader.uri, b, msgId, cId)
-        //case Method.PATCH => DynamicPatch(requestHeader.uri, b, msgId, cId)
-      }
-    }
-  }
-
   def executeTask(owner: ActorRef, task: RevaultTask): Unit = {
     import akka.pattern.pipe
 
-    val (prefix: String, lastSegment: String, hyperBusRequest: RevaultPut) = try {
-      val hyperBusRequest = deserializeRequest(task.content)
-      val (prefix, lastSegment) = splitPath(hyperBusRequest.path)
-      (prefix, lastSegment, hyperBusRequest)
-    }
-    catch {
-      case NonFatal(e) ⇒
-        log.error(e, s"Can't deserialize and split path for: $task")
-        ("","")
-    }
-    if (prefix == "") {
-      owner ! ReadyForNextTask
-    }
-    else {
-      become(taskWaitResult(owner, task)(hyperBusRequest))
+    Try{
+      val request = DynamicRequest(task.content)
+      val (prefix, lastSegment) = splitPath(request.path)
+      (prefix, lastSegment, request)
+    } map {
+      case (prefix: String, lastSegment: String, request: DynamicRequest) ⇒
+        become(taskWaitResult(owner, task)(request))
 
-      // fetch and complete existing content
-      val futureExistingContent: Future[Option[Content]] = selectAndCompletePrevious(prefix, lastSegment)
+        // fetch and complete existing content
+        val futureExistingContent = selectAndCompletePrevious(prefix, lastSegment)
 
-      val futureMonitor: Future[Monitor] = futureExistingContent flatMap { existingContent ⇒
-        createAndInsertMonitorAndContent(prefix, lastSegment, hyperBusRequest, existingContent)
-      }
+        val futureUpdateContent = futureExistingContent flatMap { existingContent ⇒
+          updateResource(prefix, lastSegment, request, existingContent)
+        }
 
-      futureMonitor flatMap { newMonitor ⇒
-        // todo: add publish event and other actions here
-
-        db.completeMonitor(newMonitor) map { _ ⇒
-          TaskComplete(task, newMonitor)
+        futureUpdateContent flatMap { newMonitor ⇒
+          completeTask(newMonitor) map { _ ⇒
+            TaskComplete(task, newMonitor)
+          } recover {
+            case NonFatal(e) ⇒
+              TaskAccepted(task, newMonitor, e)
+          }
         } recover {
           case NonFatal(e) ⇒
-            TaskAccepted(task, newMonitor, e)
-        }
-      } recover {
-        case NonFatal(e) ⇒
-          TaskFailed(task,e)
-      } pipeTo context.self
+            TaskFailed(task, e)
+        } pipeTo context.self
+    } recover {
+      case NonFatal(e) ⇒
+        log.error(e, s"Can't deserialize and split path for: $task")
+        owner ! ReadyForNextTask
     }
   }
 
-  private def createNewMonitor(request: RevaultPut, existingContent: Option[Content]): Monitor = existingContent match {
-    case None ⇒
-      MonitorLogic.newMonitor(request.path, 1, request.serializeToString())
-    case Some(content) ⇒
-      MonitorLogic.newMonitor(request.path, content.revision + 1, request.serializeToString())
+  private def completeTask(monitor: Monitor): Future[Unit] = {
+    // todo: protect from corrupt monitor body!
+    val event = DynamicRequest(monitor.body)
+    hyperBus <| event flatMap { publishResult ⇒
+      if (log.isDebugEnabled) {
+        log.debug(s"Event $event is published with result $publishResult")
+      }
+      db.completeMonitor(monitor)
+    }
+  }
+
+  private def createNewMonitor(request: DynamicRequest, existingContent: Option[Content]): Monitor = {
+    val revision = existingContent match {
+      case None ⇒ 1
+      case Some(content) ⇒ content.revision + 1
+    }
+    MonitorLogic.newMonitor(request.path, revision, request.copy(
+      headers = request.headers + "hyperbus:revision" → Seq(revision.toString)
+    ).serializeToString())
   }
 
   private def selectAndCompletePrevious(prefix: String, lastSegment: String): Future[Option[Content]] = {
@@ -148,13 +103,14 @@ class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
           case Some(monitor) ⇒
             if (monitor.completedAt.isDefined)
               Future(Some(content))
-            else
-              completePreviousTask(content,monitor)
+            else {
+              completeTask(monitor) map { _ ⇒
+                Some(content)
+              }
+            }
         }
     }
   }
-
-  private def completePreviousTask(content: Content, monitor: Monitor): Future[Option[Content]] = ??? // todo: implement
 
   private def taskWaitResult(owner: ActorRef, put: RevaultTask)(implicit mcf: MessagingContextFactory): Receive = {
     case TaskComplete(task, monitor) if task == put ⇒
@@ -177,45 +133,137 @@ class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
       unbecome()
 
     case TaskFailed(task, e) if task == put ⇒
-      log.error(e, s"Task $task is failed")
       owner ! ReadyForNextTask
-      val resultContent = InternalServerError(ErrorBody("update_failed",Some(e.toString))).serializeToString()
+
+      val (response:HyperBusException[ErrorBody],logException) = e match {
+        case h: NotFound[ErrorBody] ⇒ (h, false)
+        case h: HyperBusException[ErrorBody] ⇒ (h, true)
+        case other ⇒ (InternalServerError(ErrorBody("update_failed",Some(e.toString))), true)
+      }
+
+      if (logException) {
+        log.error(e, s"Task $task is failed")
+      }
+
+      val resultContent = response.serializeToString()
       put.client ! RevaultTaskResult(resultContent)
       unbecome()
   }
+
+  private def updateContent(prefix: String,
+                            lastSegment: String,
+                            newMonitor: Monitor,
+                            request: DynamicRequest,
+                            existingContent: Option[Content]): Content =
+  request.method match {
+    case Method.PUT ⇒ putContent(prefix, lastSegment, newMonitor, request, existingContent)
+    case Method.PATCH ⇒ patchContent(prefix, lastSegment, newMonitor, request, existingContent)
+  }
+
+  private def putContent(prefix: String,
+                            lastSegment: String,
+                            newMonitor: Monitor,
+                            request: DynamicRequest,
+                            existingContent: Option[Content]): Content = existingContent match {
+    case None ⇒
+      Content(prefix, lastSegment, newMonitor.revision,
+        monitorDt = newMonitor.dt, monitorChannel = newMonitor.channel,
+        body = Some(request.body.serializeToString()),
+        isDeleted = false,
+        createdAt = new Date(),
+        modifiedAt = None
+      )
+
+    case Some(content) ⇒
+      Content(prefix, lastSegment, newMonitor.revision,
+        monitorDt = newMonitor.dt, monitorChannel = newMonitor.channel,
+        body = Some(request.body.serializeToString()),
+        isDeleted = false,
+        createdAt = content.createdAt,
+        modifiedAt = Some(new Date())
+      )
+  }
+
+  private def patchContent(prefix: String,
+                         lastSegment: String,
+                         newMonitor: Monitor,
+                         request: DynamicRequest,
+                         existingContent: Option[Content]): Content = existingContent match {
+    case None ⇒ {
+      implicit val mcx = request
+      throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
+    }
+
+    case Some(content) ⇒
+      Content(prefix, lastSegment, newMonitor.revision,
+        monitorDt = newMonitor.dt, monitorChannel = newMonitor.channel,
+        body = Some(mergeBody(deserializeBody(content.body), request.body).serializeToString()),
+        isDeleted = false,
+        createdAt = content.createdAt,
+        modifiedAt = Some(new Date())
+      )
+  }
+
+  private def updateResource(prefix: String,
+                             lastSegment: String,
+                             request: DynamicRequest,
+                             existingContent: Option[Content]): Future[Monitor] = {
+    val newMonitor = createNewMonitor(request, existingContent)
+    val newContent = updateContent(prefix, lastSegment, newMonitor, request, existingContent)
+    db.insertMonitor(newMonitor) flatMap { _ ⇒
+      db.insertContent(newContent) map { _ ⇒
+        newMonitor
+      }
+    }
+  }
+
+  private def mergeBody(existing: DynamicBody, patch: DynamicBody): DynamicBody = ???
 
   // todo: describe uri to resource/collection item matching
   private def splitPath(path: String): (String,String) = {
     // todo: implement collections
     (path,"")
   }
+
+  implicit class RequestWrapper(val request: DynamicRequest) {
+    def path: String = request.uri.args("path").specific
+    def isEvent = request.uri.pattern.specific.endsWith("/feed")
+
+    def serializeToString(): String = StringSerializer.serializeToString(request)
+  }
+
+  implicit class ResponseWrapper(val response: Response[Body]) {
+    def serializeToString(): String = StringSerializer.serializeToString(response)
+  }
+
+  implicit class BodyWrapper(val body: Body) {
+    def serializeToString(): String = {
+      StringSerializer.serializeToString(body)
+    }
+  }
+
+  def deserializeBody(content: Option[String]) : DynamicBody = content match {
+    case None ⇒ DynamicBody(Null)
+    case Some(string) ⇒ {
+      import eu.inn.binders._
+      implicit val jsf = new eu.inn.hyperbus.serialization.JsonHalSerializerFactory[eu.inn.binders.naming.PlainConverter]
+      val value = eu.inn.binders.json.SerializerFactory.findFactory().withStringParser(string) { case jsonParser ⇒
+        import eu.inn.hyperbus.serialization.MessageSerializer.bindOptions // dont remove this!
+        jsonParser.unbind[Value]
+      }
+      DynamicBody(value)
+    }
+  }
 }
 
+
 /*
-
-1. Check existing resource monitor
-2. complete if previous update is not complete
-  2.2. test
-3. create & insert new monitor
-4. update resource
-5. send accepted to the client (if any)
-6. publish event
-  6.1. + revision
-  6.2. + :events path
-  6.3. + for post request add self link
-7. when event is published complete monitor
-8. request next task
-
-
-plan:
-  + monitor body content
-  + methods
-  + pipeTo logic
-  + kafka event generator
-  + get method
-  + test put + get
-  * other methods
-  * collections
-  *
-
+private[revault] object SerializerMap {
+  val deserializers: Map[(Boolean,String),(RequestHeader, JsonParser) => RevaultRequest] = Map(
+    (false,Method.PUT) → RevaultPut.deserializer,
+    (true,Method.PUT) → RevaultFeedPut.deserializer,
+    (false,Method.PATCH) → RevaultPatch.deserializer,
+    (true,Method.PATCH) → RevaultFeedPatch.deserializer
+  )
+}
 */

@@ -7,7 +7,7 @@ import org.scalatest.{BeforeAndAfterAll, BeforeAndAfter, Suite}
 import scala.concurrent.ExecutionContext.Implicits.global
 
 object Cassandra extends CassandraCQLUnit(
-    new ClassPathCQLDataSet("schema.cql","revault_test"), null, "127.0.0.1", 9142, 20000
+    new ClassPathCQLDataSet("schema.cql","revault_test"), null, "127.0.0.1", 9142, 30000
   ) {
   lazy val start = {
     before()
