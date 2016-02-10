@@ -34,19 +34,17 @@ case class RevaultPatch(path: String, body: DynamicBody) extends StaticPatch(bod
 @request("/revault/{path:*}/feed")
 case class RevaultFeedPatch(path: String, body: DynamicBody) extends StaticPatch(body)
 
-/*
-@request("/revault")
-case class RevaultPatch(body: DynamicBody) extends StaticPatch(body)
-with DefinedResponse[(
-    Accepted[Monitor],
-    NoContent[EmptyBody]
-  )]
+@request("/revault/{path:*}")
+case class RevaultDelete(path: String, body: EmptyBody) extends StaticDelete(body)
+  with DefinedResponse[(
+      Accepted[Monitor],
+      NoContent[EmptyBody]
+    )]
 
-@request("/revault/{path}")
-case class RevaultDelete(body: Query) extends StaticDelete(body)
-with DefinedResponse[(
-    Accepted[Monitor],
-    NoContent[EmptyBody]
-  )]
+@request("/revault/{path:*}/feed")
+case class RevaultFeedDelete(path: String, body: EmptyBody) extends StaticDelete(body)
+
+/*
+
 */
 // collection is specified by _links.parent -> ... parent

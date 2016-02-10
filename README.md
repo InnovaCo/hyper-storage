@@ -43,6 +43,7 @@
 todo:
   + kafka event generator
     + test
+  + event fail test
   + get method
     + test put + get
   * return created/accepted

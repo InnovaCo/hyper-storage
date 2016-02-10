@@ -56,7 +56,8 @@ class Db(session: com.datastax.driver.core.Session)(implicit ec: ExecutionContex
     """.all[Content]*/
 
   def selectMonitor(dt: Date, channel: Int, path: String): Future[Option[Monitor]] = cql"""
-      select dt,channel,path,revision,body,completed_at
+      select dt,channel,path,revision,body,completed_at from monitor
+      where dt=$dt and channel=$channel and path=$path
     """.oneOption[Monitor]
 
   def insertContent(content: Content): Future[Unit] = cql"""

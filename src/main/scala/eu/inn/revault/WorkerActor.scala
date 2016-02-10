@@ -4,10 +4,11 @@ import java.util.Date
 
 import akka.actor.{Actor, ActorLogging, ActorRef}
 import com.fasterxml.jackson.core.JsonParser
-import eu.inn.binders.dynamic.{Value, Null}
+import eu.inn.binders.dynamic._
 import eu.inn.hyperbus.HyperBus
 import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.model.standard._
+import eu.inn.hyperbus.transport.api.uri.{SpecificValue, UriPart, Uri}
 import eu.inn.hyperbus.util.StringSerializer
 import eu.inn.revault.db.{Content, Db, Monitor}
 
@@ -90,6 +91,9 @@ class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
       case Some(content) ⇒ content.revision + 1
     }
     MonitorLogic.newMonitor(request.path, revision, request.copy(
+      uri = request.uri.copy(
+        pattern = SpecificValue(request.uri.pattern.specific + "/feed")
+      ),
       headers = request.headers + "hyperbus:revision" → Seq(revision.toString)
     ).serializeToString())
   }
@@ -158,6 +162,7 @@ class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
   request.method match {
     case Method.PUT ⇒ putContent(prefix, lastSegment, newMonitor, request, existingContent)
     case Method.PATCH ⇒ patchContent(prefix, lastSegment, newMonitor, request, existingContent)
+    case Method.DELETE ⇒ deleteContent(prefix, lastSegment, newMonitor, request, existingContent)
   }
 
   private def putContent(prefix: String,
@@ -168,7 +173,7 @@ class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
     case None ⇒
       Content(prefix, lastSegment, newMonitor.revision,
         monitorDt = newMonitor.dt, monitorChannel = newMonitor.channel,
-        body = Some(request.body.serializeToString()),
+        body = Some(filterNulls(request.body).serializeToString()),
         isDeleted = false,
         createdAt = new Date(),
         modifiedAt = None
@@ -177,7 +182,7 @@ class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
     case Some(content) ⇒
       Content(prefix, lastSegment, newMonitor.revision,
         monitorDt = newMonitor.dt, monitorChannel = newMonitor.channel,
-        body = Some(request.body.serializeToString()),
+        body = Some(filterNulls(request.body).serializeToString()),
         isDeleted = false,
         createdAt = content.createdAt,
         modifiedAt = Some(new Date())
@@ -204,6 +209,26 @@ class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
       )
   }
 
+  private def deleteContent(prefix: String,
+                           lastSegment: String,
+                           newMonitor: Monitor,
+                           request: DynamicRequest,
+                           existingContent: Option[Content]): Content = existingContent match {
+    case None ⇒ {
+      implicit val mcx = request
+      throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
+    }
+
+    case Some(content) ⇒
+      Content(prefix, lastSegment, newMonitor.revision,
+        monitorDt = newMonitor.dt, monitorChannel = newMonitor.channel,
+        body = None,
+        isDeleted = true,
+        createdAt = content.createdAt,
+        modifiedAt = Some(new Date())
+      )
+  }
+
   private def updateResource(prefix: String,
                              lastSegment: String,
                              request: DynamicRequest,
@@ -217,7 +242,9 @@ class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
     }
   }
 
-  private def mergeBody(existing: DynamicBody, patch: DynamicBody): DynamicBody = ???
+  private def mergeBody(existing: DynamicBody, patch: DynamicBody): DynamicBody = {
+    DynamicBody(filterNulls(existing.content.merge(patch.content)))
+  }
 
   // todo: describe uri to resource/collection item matching
   private def splitPath(path: String): (String,String) = {
@@ -240,6 +267,26 @@ class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
     def serializeToString(): String = {
       StringSerializer.serializeToString(body)
     }
+  }
+
+  val filterNullsVisitor = new ValueVisitor[Value]{
+    override def visitNumber(d: Number): Value = d
+    override def visitNull(): Value = Null
+    override def visitBool(d: Bool): Value = d
+    override def visitObj(d: Obj): Value = Obj(d.v.flatMap {
+      case (k,Null) ⇒ None
+      case (k,other) ⇒ Some(k → filterNulls(other))
+    })
+    override def visitText(d: Text): Value = d
+    override def visitLst(d: Lst): Value = d
+  }
+
+  def filterNulls(content: Value): Value = {
+    content.accept[Value](filterNullsVisitor)
+  }
+
+  def filterNulls(body: DynamicBody): DynamicBody = {
+    body.copy(content = body.content.accept[Value](filterNullsVisitor))
   }
 
   def deserializeBody(content: Option[String]) : DynamicBody = content match {

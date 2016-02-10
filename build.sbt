@@ -30,7 +30,7 @@ libraryDependencies ++= Seq(
   "eu.inn" %% "hyperbus" % "0.1.SNAPSHOT",
   "eu.inn" %% "hyperbus-t-distributed-akka" % "0.1.SNAPSHOT",
   "eu.inn" %% "hyperbus-akka" % "0.1.SNAPSHOT",
-  "eu.inn" %% "binders-core" % "0.10.72",
+  "eu.inn" %% "binders-core" % "0.10.73",
   "eu.inn" %% "binders-cassandra" % "0.8.39",
   "com.datastax.cassandra" % "cassandra-driver-core" % "2.1.9",
   "org.slf4j" % "slf4j-api" % "1.7.12",
