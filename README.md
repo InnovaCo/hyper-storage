@@ -41,18 +41,22 @@
 
 
 todo:
-  + kafka event generator
-    + test
-  + event fail test
+  - remove // todo: shit method!
   + get method
     + test put + get
-  * return created/accepted
-  * other methods
   * url validator and splitter
   * collections
     + partitioning collection events
+  * recovery test
   * null patch tests
+  * revault monitor query/link
+  * recovery job
   * performance test
+  * facade JS test
+  * shutdown on failed start (С*)
+  * dependency injection (C*)
   * cache results
   * define base classes for a RAML generated classes
-
+  * split tests (port numbers) workerspec
+  * integration test
+    + kafka + recovery + switch

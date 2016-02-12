@@ -2,16 +2,20 @@ package eu.inn.revault
 
 import akka.actor.{PoisonPill, Props}
 import akka.cluster.Cluster
+import akka.util.Timeout
 import com.typesafe.config.Config
 import eu.inn.hyperbus.HyperBus
 import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportManager, TransportConfigurationLoader}
+import eu.inn.revault.db.Db
 import eu.inn.servicecontrol.api.{Service, Console}
 import org.slf4j.{LoggerFactory, Logger}
 import scaldi.{Injectable, Injector}
 
 import eu.inn.config.ConfigExtenders._
 import scala.concurrent.Await
+import scala.concurrent.duration._
+import eu.inn.hyperbus.akkaservice._
 import scala.concurrent.ExecutionContext.Implicits.global // todo: inject
 
 class RevaultService(console: Console, config: Config, implicit val injector: Injector) extends Service with Injectable {
@@ -31,12 +35,26 @@ class RevaultService(console: Console, config: Config, implicit val injector: In
   val actorSystem = ActorSystemRegistry.get("eu-inn").get
   val cluster = Cluster(actorSystem)
 
+  log.info(s"Initializing database connection...")
+  val cassandraSession = CassandraLoader.createCassandraSession(config.getConfig("cassandra"), "revault")
+  val db = new Db(cassandraSession)
+
+  // worker actor todo: recovery job
+  val workerProps = Props(classOf[WorkerActor], hyperBus, db, actorSystem.deadLetters)
+
   // processor actor
-  val processorActorRef = actorSystem.actorOf(Props(new ProcessorFSM(null, 1)))
+  val processorActorRef = actorSystem.actorOf(Props(new ProcessorFSM(workerProps, 1)))
+
+  val distributor = actorSystem.actorOf(Props(classOf[RevaultDistributor], processorActorRef))
+  implicit val timeout = Timeout(20.seconds)
+  val subscriptions = hyperBus.routeTo[RevaultDistributor](distributor)
+  log.info("Started!")
 
   // shutdown
   override def stopService(controlBreak: Boolean): Unit = {
     log.info("Stopping Revault service...")
+
+    subscriptions.foreach(hyperBus.off)
 
     try {
       akka.pattern.gracefulStop(processorActorRef, shutdownTimeout*4/5, PoisonPill)
@@ -51,5 +69,9 @@ class RevaultService(console: Console, config: Config, implicit val injector: In
       case t: Throwable ⇒
         log.error("HyperBus didn't shutdown gracefully", t)
     }
+    val cluster = cassandraSession.getCluster
+    cassandraSession.close()
+    cluster.close()
+    log.info("Stopped!")
   }
 }

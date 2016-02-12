@@ -2,6 +2,7 @@ package eu.inn.revault.db
 
 import java.util.Date
 
+import com.typesafe.config.Config
 import eu.inn.binders._
 import eu.inn.binders.cassandra._
 import eu.inn.binders.naming.{CamelCaseToSnakeCaseConverter, SnakeCaseToCamelCaseConverter}

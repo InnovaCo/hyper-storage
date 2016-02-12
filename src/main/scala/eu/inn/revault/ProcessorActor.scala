@@ -69,16 +69,19 @@ case class ProcessorData(members: Map[Address, RevaultMemberActor], selfAddress:
 sealed trait Events
 case object SyncTimer extends Events
 case object ShutdownProcessor extends Events
-case object ReadyForNextTask
+case class WorkerTaskComplete(result: Option[Any])
 
 // todo: change name
 class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemberStatus, ProcessorData] with Stash {
   private val cluster = Cluster(context.system)
+  if (!cluster.selfRoles.contains("revault")) {
+    log.error("Cluster doesn't containt 'revault' role. Please configure.")
+  }
   private val selfAddress = cluster.selfAddress
   val inactiveWorkers: mutable.Stack[ActorRef] = mutable.Stack.tabulate(workerCount) { workerIndex ⇒
     context.system.actorOf(workerProps, s"revault-wrkr-$workerIndex")
   }
-  val activeWorkers = mutable.ArrayBuffer[(Task, ActorRef)]()
+  val activeWorkers = mutable.ArrayBuffer[(Task, ActorRef, ActorRef)]()
   cluster.subscribe(self, initialStateMode = ClusterEvent.InitialStateAsEvents, classOf[MemberEvent])
 
   startWith(RevaultMemberStatus.Activating, ProcessorData(Map.empty, selfAddress, RevaultMemberStatus.Activating))
@@ -142,8 +145,8 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
     case Event(MemberExited(member), data) ⇒
       removeMember(member, data) andUpdate
 
-    case Event(ReadyForNextTask, data) ⇒
-      workerIsReadyForNextTask()
+    case Event(WorkerTaskComplete(result), data) ⇒
+      workerIsReadyForNextTask(result)
       stay()
 
     case Event(task: Task, data) ⇒
@@ -250,7 +253,7 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
 
         val newData: ProcessorData = data + sync.applicantAddress → member.copy(status = sync.status)
         val allowSync = if (sync.status == RevaultMemberStatus.Activating) {
-          activeWorkers.forall { case (task, workerActor) ⇒
+          activeWorkers.forall { case (task, workerActor, _) ⇒
             if (newData.taskIsFor(task) == sync.applicantAddress) {
               log.info(s"Ignoring sync request $sync while processing task $task by worker $workerActor")
               false
@@ -319,7 +322,7 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
           }
           stash()
         } else {
-          activeWorkers.find(_._1.key == task.key) map { case (_, activeWorker) ⇒
+          activeWorkers.find(_._1.key == task.key) map { case (_, activeWorker, _) ⇒
             if (log.isDebugEnabled) {
               log.debug(s"Stashing task for the 'locked' URL: $task worker: $activeWorker")
             }
@@ -334,10 +337,10 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
             } else {
               val worker = inactiveWorkers.pop()
               if (log.isDebugEnabled) {
-                log.debug(s"Forwarding to worker $worker task: $task")
+                log.debug(s"Forwarding task from ${sender()} to worker $worker: $task")
               }
               worker ! task
-              activeWorkers.append((task, worker))
+              activeWorkers.append((task, worker, sender()))
             }
           }
         }
@@ -379,10 +382,11 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
     }
   }
 
-  def workerIsReadyForNextTask(): Unit = {
+  def workerIsReadyForNextTask(result: Option[Any]): Unit = {
     val idx = activeWorkers.indexWhere(_._2 == sender())
     if (idx >= 0) {
-      val (task,worker) = activeWorkers(idx)
+      val (task,worker,client) = activeWorkers(idx)
+      result.foreach(r ⇒ client ! r)
       if (log.isDebugEnabled) {
         log.debug(s"Worker $worker is ready for next task. Completed task: $task")
       }

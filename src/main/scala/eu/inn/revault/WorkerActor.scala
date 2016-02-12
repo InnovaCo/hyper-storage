@@ -4,33 +4,42 @@ import java.util.Date
 
 import akka.actor.{Actor, ActorLogging, ActorRef}
 import com.fasterxml.jackson.core.JsonParser
+import com.oracle.webservices.internal.api.message.MessageContextFactory
 import eu.inn.binders.dynamic._
 import eu.inn.hyperbus.HyperBus
 import eu.inn.hyperbus.model._
+import eu.inn.hyperbus.model.annotations.request
 import eu.inn.hyperbus.model.standard._
 import eu.inn.hyperbus.transport.api.uri.{SpecificValue, UriPart, Uri}
 import eu.inn.hyperbus.util.StringSerializer
 import eu.inn.revault.db.{Content, Db, Monitor}
-
+import akka.pattern.pipe
 import scala.concurrent.Future
 import scala.util.Try
 import scala.util.control.NonFatal
 
 // todo: rename PutTask
 // todo: rename client
-@SerialVersionUID(1L) case class RevaultTask(key: String, ttl: Long, client: ActorRef, content: String) extends Task {
+@SerialVersionUID(1L) case class RevaultTask(key: String, ttl: Long, content: String) extends Task {
   def isExpired = ttl < System.currentTimeMillis()
 }
 
 @SerialVersionUID(1L) case class RevaultTaskResult(content: String)
 
-trait WorkerMessage // todo: rename
+sealed trait WorkerMessage // todo: rename
 case class TaskComplete(task: Task, monitor: Monitor) extends WorkerMessage
 case class TaskFailed(task: Task, inner: Throwable) extends WorkerMessage
 case class TaskAccepted(task: Task, monitor: Monitor, inner: Throwable) extends WorkerMessage
 
+// this sent to recovery actor
+// todo: rename
+case class RevaultTaskAccepted(monitor: db.Monitor)
+
+@request("fix:{path:*}")
+case class RevaultFix(path: String, body: EmptyBody) extends StaticPost(body)
+
 // todo: rename WorkerActor
-class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
+class WorkerActor(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends Actor with ActorLogging {
   import context._
 
   def receive = {
@@ -39,8 +48,6 @@ class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
   }
 
   def executeTask(owner: ActorRef, task: RevaultTask): Unit = {
-    import akka.pattern.pipe
-
     Try{
       val request = DynamicRequest(task.content)
       val (prefix, lastSegment) = splitPath(request.path)
@@ -50,28 +57,59 @@ class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
         become(taskWaitResult(owner, task)(request))
 
         // fetch and complete existing content
-        val futureExistingContent = selectAndCompletePrevious(prefix, lastSegment)
-
-        val futureUpdateContent = futureExistingContent flatMap { existingContent ⇒
-          updateResource(prefix, lastSegment, request, existingContent)
+        if (request.uri.pattern == RevaultFix.uriPattern) {
+          executeRecourceFixTask(prefix, lastSegment, task, request)
         }
-
-        futureUpdateContent flatMap { newMonitor ⇒
-          completeTask(newMonitor) map { _ ⇒
-            TaskComplete(task, newMonitor)
-          } recover {
-            case NonFatal(e) ⇒
-              TaskAccepted(task, newMonitor, e)
-          }
-        } recover {
-          case NonFatal(e) ⇒
-            TaskFailed(task, e)
-        } pipeTo context.self
+        else {
+          executeResourceUpdateTask(prefix, lastSegment, task, request)
+        }
     } recover {
       case NonFatal(e) ⇒
         log.error(e, s"Can't deserialize and split path for: $task")
-        owner ! ReadyForNextTask
+        owner ! WorkerTaskComplete(Some(hyperbusException(e, task)))
     }
+  }
+
+  def executeResourceUpdateTask(prefix: String, lastSegment: String, task: RevaultTask, request: DynamicRequest) = {
+    val futureUpdateContent = selectAndCompletePrevious(prefix, lastSegment) flatMap {
+      case (existingContent, _) ⇒
+        updateResource(prefix, lastSegment, request, existingContent)
+    }
+
+    futureUpdateContent flatMap { newMonitor ⇒
+      completeTask(newMonitor) map { _ ⇒
+        TaskComplete(task, newMonitor)
+      } recover {
+        case NonFatal(e) ⇒
+          TaskAccepted(task, newMonitor, e)
+      }
+    } recover {
+      case NonFatal(e) ⇒
+        TaskFailed(task, e)
+    } pipeTo context.self
+  }
+
+  private def executeRecourceFixTask(prefix: String, lastSegment: String, task: RevaultTask, request: DynamicRequest): Unit = {
+    val futureExistingContent = selectAndCompletePrevious(prefix, lastSegment)
+    futureExistingContent map {
+      case (_, Some(previousMonitor)) ⇒
+        TaskComplete(task, previousMonitor)
+      case (Some(existing), None) ⇒ {
+        // todo: {} is not correct body of monoitor here.
+        val mon = Monitor(existing.monitorDt, existing.monitorChannel, request.path, existing.revision, "{}",
+          Some(existing.modifiedAt.getOrElse(existing.createdAt))
+        )
+        TaskComplete(task, mon)
+      }
+      case _ ⇒ {
+          implicit val mcx: MessagingContextFactory = request
+          val error = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
+          TaskFailed(task, error)
+        }
+    } recover {
+      case NonFatal(e) ⇒
+        TaskFailed(task, e)
+    } pipeTo context.self
   }
 
   private def completeTask(monitor: Monitor): Future[Unit] = {
@@ -98,60 +136,59 @@ class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
     ).serializeToString())
   }
 
-  private def selectAndCompletePrevious(prefix: String, lastSegment: String): Future[Option[Content]] = {
-    db.selectContent(prefix,lastSegment) flatMap {
-      case None ⇒ Future(None)
+  private def selectAndCompletePrevious(prefix: String, lastSegment: String): Future[(Option[Content], Option[Monitor])] = {
+    db.selectContent(prefix, lastSegment) flatMap {
+      case None ⇒ Future((None, None))
       case Some(content) ⇒
         db.selectMonitor(content.monitorDt, content.monitorChannel, prefix + "/" + lastSegment) flatMap {
-          case None ⇒ Future(Some(content)) // If no monitor, consider that it's complete
+          case None ⇒ Future(Some(content), None) // If no monitor, consider that it's complete
           case Some(monitor) ⇒
             if (monitor.completedAt.isDefined)
-              Future(Some(content))
+              Future((Some(content), Some(monitor)))
             else {
               completeTask(monitor) map { _ ⇒
-                Some(content)
+                (Some(content), Some(monitor))
               }
             }
         }
     }
   }
 
-  private def taskWaitResult(owner: ActorRef, put: RevaultTask)(implicit mcf: MessagingContextFactory): Receive = {
-    case TaskComplete(task, monitor) if task == put ⇒
+  private def taskWaitResult(owner: ActorRef, originalTask: RevaultTask)(implicit mcf: MessagingContextFactory): Receive = {
+    case TaskComplete(task, monitor) if task == originalTask ⇒
       if (log.isDebugEnabled) {
-        log.debug(s"Task $put is completed")
+        log.debug(s"Task $originalTask is completed")
       }
-      owner ! ReadyForNextTask
       val monId = monitor.path + ":" + monitor.revision
       val resultContent = Ok(protocol.Monitor(monId, "complete", monitor.completedAt)).serializeToString()
-      put.client ! RevaultTaskResult(resultContent)
+      owner ! WorkerTaskComplete(Some(RevaultTaskResult(resultContent)))
       unbecome()
 
-    case TaskAccepted(task, monitor, e) if task == put ⇒
-      log.warning(s"Task was accepted but didn't yet complete because of $e")
-      // todo: send message to complete task
+    case TaskAccepted(task, monitor, e) if task == originalTask ⇒
+      log.warning(s"Task $originalTask was accepted but didn't yet complete because of $e")
+      recoveryActor ! RevaultTaskAccepted(monitor)
       val monId = monitor.path + ":" + monitor.revision
       val resultContent = Accepted(protocol.Monitor(monId, "in-progress", None)).serializeToString()
-      put.client ! RevaultTaskResult(resultContent)
-      owner ! ReadyForNextTask
+      owner ! WorkerTaskComplete(Some(RevaultTaskResult(resultContent)))
       unbecome()
 
-    case TaskFailed(task, e) if task == put ⇒
-      owner ! ReadyForNextTask
-
-      val (response:HyperBusException[ErrorBody],logException) = e match {
-        case h: NotFound[ErrorBody] ⇒ (h, false)
-        case h: HyperBusException[ErrorBody] ⇒ (h, true)
-        case other ⇒ (InternalServerError(ErrorBody("update_failed",Some(e.toString))), true)
-      }
-
-      if (logException) {
-        log.error(e, s"Task $task is failed")
-      }
-
-      val resultContent = response.serializeToString()
-      put.client ! RevaultTaskResult(resultContent)
+    case TaskFailed(task, e) if task == originalTask ⇒
+      owner ! WorkerTaskComplete(Some(hyperbusException(e, task)))
       unbecome()
+  }
+
+  private def hyperbusException(e: Throwable, task: Task): RevaultTaskResult = {
+    val (response:HyperBusException[ErrorBody], logException) = e match {
+      case h: NotFound[ErrorBody] ⇒ (h, false)
+      case h: HyperBusException[ErrorBody] ⇒ (h, true)
+      case other ⇒ (InternalServerError(ErrorBody("update_failed",Some(e.toString))), true)
+    }
+
+    if (logException) {
+      log.error(e, s"Task $task is failed")
+    }
+
+    RevaultTaskResult(response.serializeToString())
   }
 
   private def updateContent(prefix: String,
@@ -302,15 +339,3 @@ class WorkerActor(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
     }
   }
 }
-
-
-/*
-private[revault] object SerializerMap {
-  val deserializers: Map[(Boolean,String),(RequestHeader, JsonParser) => RevaultRequest] = Map(
-    (false,Method.PUT) → RevaultPut.deserializer,
-    (true,Method.PUT) → RevaultFeedPut.deserializer,
-    (false,Method.PATCH) → RevaultPatch.deserializer,
-    (true,Method.PATCH) → RevaultFeedPatch.deserializer
-  )
-}
-*/

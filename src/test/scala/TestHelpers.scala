@@ -53,7 +53,7 @@ class TestWorker extends Actor with ActorLogging {
         task.processed(path)
         log.info(s"Task processed: $task")
       }
-      sender() ! ReadyForNextTask
+      sender() ! WorkerTaskComplete(None)
     }
   }
 }
