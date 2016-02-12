@@ -41,6 +41,9 @@
 
 
 todo:
+  * EmptyBody without content-type!
+  * StringDeserializer -> accept Message
+  * plain string serializer?
   - remove // todo: shit method!
   + get method
     + test put + get

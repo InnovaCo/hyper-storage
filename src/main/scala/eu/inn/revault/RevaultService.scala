@@ -45,7 +45,7 @@ class RevaultService(console: Console, config: Config, implicit val injector: In
   // processor actor
   val processorActorRef = actorSystem.actorOf(Props(new ProcessorFSM(workerProps, 1)))
 
-  val distributor = actorSystem.actorOf(Props(classOf[RevaultDistributor], processorActorRef))
+  val distributor = actorSystem.actorOf(Props(classOf[RevaultDistributor], processorActorRef, db))
   implicit val timeout = Timeout(20.seconds)
   val subscriptions = hyperBus.routeTo[RevaultDistributor](distributor)
   log.info("Started!")

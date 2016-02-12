@@ -239,7 +239,7 @@ class WorkerActor(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends A
     case Some(content) ⇒
       Content(prefix, lastSegment, newMonitor.revision,
         monitorDt = newMonitor.dt, monitorChannel = newMonitor.channel,
-        body = Some(mergeBody(deserializeBody(content.body), request.body).serializeToString()),
+        body = Some(mergeBody(DeserializerHelpers.deserializeBody(content.body), request.body).serializeToString()),
         isDeleted = false,
         createdAt = content.createdAt,
         modifiedAt = Some(new Date())
@@ -325,7 +325,10 @@ class WorkerActor(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends A
   def filterNulls(body: DynamicBody): DynamicBody = {
     body.copy(content = body.content.accept[Value](filterNullsVisitor))
   }
+}
 
+// todo: move to some class
+object DeserializerHelpers {
   def deserializeBody(content: Option[String]) : DynamicBody = content match {
     case None ⇒ DynamicBody(Null)
     case Some(string) ⇒ {

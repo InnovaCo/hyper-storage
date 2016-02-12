@@ -11,22 +11,23 @@ import eu.inn.hyperbus.model.{DynamicBody, Body, Response}
 import eu.inn.hyperbus.model.standard._
 import eu.inn.hyperbus.serialization.MessageDeserializer
 import eu.inn.hyperbus.util.StringSerializer
+import eu.inn.revault.db.Db
 import eu.inn.revault.protocol.{RevaultPut, RevaultGet}
 import scala.concurrent.duration._
 import scala.concurrent.Future
 import scala.concurrent.ExecutionContext.Implicits.global // todo: inject
 import akka.pattern.ask
 
-class RevaultDistributor(revaultProcessor: ActorRef) extends Actor with ActorLogging {
+class RevaultDistributor(revaultProcessor: ActorRef, db: Db) extends Actor with ActorLogging {
 
   def receive = AkkaHyperService.dispatch(this)
 
-  def ~> (implicit request: RevaultGet) = {
-      Future {
-        val result = DynamicBody(Text("Yey"))
-        Ok(result)
-      }
-    }
+  def ~> (implicit request: RevaultGet) =  db.selectContent(request.path, "") map {
+    case None ⇒ NotFound(ErrorBody("not_found", Some(s"Resource ${request.path} is not found")))
+    case Some(content) ⇒
+      val body = DeserializerHelpers.deserializeBody(content.body)
+      Ok(body, Map("hyperbus:revision" → Seq(content.revision.toString)))
+  }
 
   def ~> (implicit request: RevaultPut) = {
 
