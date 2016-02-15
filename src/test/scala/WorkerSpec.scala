@@ -3,6 +3,7 @@ import java.util.UUID
 
 import akka.testkit.{ImplicitSender, TestActorRef, TestProbe}
 import eu.inn.binders.dynamic.{Null, Obj, Text}
+import eu.inn.hyperbus.model.serialization.util.StringDeserializer
 import eu.inn.hyperbus.model.{Body, Response, DynamicBody}
 import eu.inn.hyperbus.model.standard._
 import eu.inn.hyperbus.serialization.MessageDeserializer
@@ -277,16 +278,5 @@ class WorkerSpec extends FreeSpec
     }
   }
 
-  def response(content: String): Response[Body] = {
-    val byteStream = new ByteArrayInputStream(content.getBytes("UTF-8"))
-    MessageDeserializer.deserializeResponseWith(byteStream) { (responseHeader, responseBodyJson) =>
-      val body: Body = if (responseHeader.status >= 400) {
-        ErrorBody(responseHeader.contentType, responseBodyJson)
-      }
-      else {
-        DynamicBody(responseHeader.contentType, responseBodyJson)
-      }
-      StandardResponse(responseHeader, body)
-    }
-  }
+  def response(content: String): Response[Body] = StringDeserializer.dynamicResponse(content)
 }

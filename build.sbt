@@ -37,7 +37,7 @@ libraryDependencies ++= Seq(
   "ch.qos.logback" % "logback-classic" % "1.1.3",
   "org.scalatest" %% "scalatest" % "2.2.1" % "test",
   "org.mockito" % "mockito-all" % "1.10.19" % "test",
-  "com.typesafe.akka" %% "akka-testkit" % "2.3.11" % "test",
+  "com.typesafe.akka" %% "akka-testkit" % "2.4.1" % "test",
   "org.cassandraunit" % "cassandra-unit" % "2.1.3.1" % "test",
   "junit" % "junit" % "4.12" % "test"
 )

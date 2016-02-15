@@ -7,6 +7,7 @@ import akka.util.Timeout
 import eu.inn.binders.dynamic.Text
 import eu.inn.hyperbus.HyperBus
 import eu.inn.hyperbus.akkaservice.AkkaHyperService
+import eu.inn.hyperbus.model.serialization.util.StringDeserializer
 import eu.inn.hyperbus.model.{DynamicBody, Body, Response}
 import eu.inn.hyperbus.model.standard._
 import eu.inn.hyperbus.serialization.MessageDeserializer
@@ -25,7 +26,7 @@ class RevaultDistributor(revaultProcessor: ActorRef, db: Db) extends Actor with 
   def ~> (implicit request: RevaultGet) =  db.selectContent(request.path, "") map {
     case None ⇒ NotFound(ErrorBody("not_found", Some(s"Resource ${request.path} is not found")))
     case Some(content) ⇒
-      val body = DeserializerHelpers.deserializeBody(content.body)
+      val body = StringDeserializer.dynamicBody(content.body)
       Ok(body, Map("hyperbus:revision" → Seq(content.revision.toString)))
   }
 
@@ -35,27 +36,10 @@ class RevaultDistributor(revaultProcessor: ActorRef, db: Db) extends Actor with 
     val task = RevaultTask(request.path, System.currentTimeMillis() + 10000, str)
     implicit val timeout = Timeout(20.seconds)
 
-    log.info(s"sending task from ${self} to ${revaultProcessor}. sender is: ${sender()}") // todo: remove
     revaultProcessor ? task map {
       case RevaultTaskResult(content) ⇒
-        log.info(s"received: $content") //todo: remove
-        response(content)
+        StringDeserializer.dynamicResponse(content)
       case other ⇒
-        log.error(s"Received: $other") // todo: eliminate
-    }
-  }
-
-  // todo: shit method!
-  def response(content: String): Response[Body] = {
-    val byteStream = new ByteArrayInputStream(content.getBytes("UTF-8"))
-    MessageDeserializer.deserializeResponseWith(byteStream) { (responseHeader, responseBodyJson) =>
-      val body: Body = if (responseHeader.status >= 400) {
-        ErrorBody(responseHeader.contentType, responseBodyJson)
-      }
-      else {
-        DynamicBody(responseHeader.contentType, responseBodyJson)
-      }
-      StandardResponse(responseHeader, body)
     }
   }
 }

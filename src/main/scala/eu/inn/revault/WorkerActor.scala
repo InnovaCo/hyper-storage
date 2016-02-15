@@ -9,6 +9,7 @@ import eu.inn.binders.dynamic._
 import eu.inn.hyperbus.HyperBus
 import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.model.annotations.request
+import eu.inn.hyperbus.model.serialization.util.StringDeserializer
 import eu.inn.hyperbus.model.standard._
 import eu.inn.hyperbus.transport.api.uri.{SpecificValue, UriPart, Uri}
 import eu.inn.hyperbus.util.StringSerializer
@@ -239,7 +240,7 @@ class WorkerActor(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends A
     case Some(content) ⇒
       Content(prefix, lastSegment, newMonitor.revision,
         monitorDt = newMonitor.dt, monitorChannel = newMonitor.channel,
-        body = Some(mergeBody(DeserializerHelpers.deserializeBody(content.body), request.body).serializeToString()),
+        body = Some(mergeBody(StringDeserializer.dynamicBody(content.body), request.body).serializeToString()),
         isDeleted = false,
         createdAt = content.createdAt,
         modifiedAt = Some(new Date())
@@ -324,21 +325,5 @@ class WorkerActor(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends A
 
   def filterNulls(body: DynamicBody): DynamicBody = {
     body.copy(content = body.content.accept[Value](filterNullsVisitor))
-  }
-}
-
-// todo: move to some class
-object DeserializerHelpers {
-  def deserializeBody(content: Option[String]) : DynamicBody = content match {
-    case None ⇒ DynamicBody(Null)
-    case Some(string) ⇒ {
-      import eu.inn.binders._
-      implicit val jsf = new eu.inn.hyperbus.serialization.JsonHalSerializerFactory[eu.inn.binders.naming.PlainConverter]
-      val value = eu.inn.binders.json.SerializerFactory.findFactory().withStringParser(string) { case jsonParser ⇒
-        import eu.inn.hyperbus.serialization.MessageSerializer.bindOptions // dont remove this!
-        jsonParser.unbind[Value]
-      }
-      DynamicBody(value)
-    }
   }
 }
