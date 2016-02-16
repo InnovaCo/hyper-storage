@@ -3,22 +3,21 @@ import java.util.{Date, UUID}
 import akka.actor._
 import akka.cluster.Cluster
 import akka.testkit._
-import akka.text.GuardianExtractor
 import com.typesafe.config.ConfigFactory
 import eu.inn.hyperbus.HyperBus
 import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportManager, TransportConfigurationLoader}
-import eu.inn.revault._
+import eu.inn.revault.sharding._
 import org.scalatest.{BeforeAndAfterEach, Matchers}
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.collection.concurrent.TrieMap
 import scala.concurrent.ExecutionContext.Implicits.global
 
-case class TestTask(key: String, value: String,
-                           sleep: Int = 0,
-                           ttl: Long = System.currentTimeMillis()+60*1000,
-                           id: UUID = UUID.randomUUID()) extends Task {
+case class TestShardTask(key: String, value: String,
+                         sleep: Int = 0,
+                         ttl: Long = System.currentTimeMillis()+60*1000,
+                         id: UUID = UUID.randomUUID()) extends ShardTask {
   def isExpired = ttl < System.currentTimeMillis()
   def processingStarted(actorPath: String): Unit = {
     ProcessedRegistry.tasksStarted += id → (actorPath, this)
@@ -33,13 +32,13 @@ case class TestTask(key: String, value: String,
 }
 
 object ProcessedRegistry {
-  val tasks = TrieMap[UUID, (String, TestTask)]()
-  val tasksStarted = TrieMap[UUID, (String, TestTask)]()
+  val tasks = TrieMap[UUID, (String, TestShardTask)]()
+  val tasksStarted = TrieMap[UUID, (String, TestShardTask)]()
 }
 
 class TestWorker extends Actor with ActorLogging {
   def receive = {
-    case task: TestTask => {
+    case task: TestShardTask => {
       if (task.isExpired) {
         log.error(s"Task is expired: $task")
       } else {
@@ -53,7 +52,7 @@ class TestWorker extends Actor with ActorLogging {
         task.processed(path)
         log.info(s"Task processed: $task")
       }
-      sender() ! WorkerTaskComplete(None)
+      sender() ! ShardTaskComplete(None)
     }
   }
 }
@@ -62,17 +61,17 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach {
   this : org.scalatest.BeforeAndAfterEach with org.scalatest.Suite =>
 
   def createRevaultActor(workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
-    val fsm = new TestFSMRef[RevaultMemberStatus, ProcessorData, ProcessorFSM](actorSystem,
-      Props(new ProcessorFSM(Props[TestWorker], workerCount)).withDispatcher("deque-dispatcher"),
+    val fsm = new TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor](actorSystem,
+      Props(new ShardProcessor(Props[TestWorker], workerCount, "revault")).withDispatcher("deque-dispatcher"),
       GuardianExtractor.guardian(actorSystem),
       "revault"
     )
     //val fsm = TestFSMRef(new ProcessorFSM(Props[TestWorker], workerCount), "revault")
     //val processorFsm: TestActorRef[ProcessorFSM] = fsm
-    fsm.stateName should equal(RevaultMemberStatus.Activating)
+    fsm.stateName should equal(ShardMemberStatus.Activating)
     if (waitWhileActivates) {
       val t = new TestKit(actorSystem)
-      t.awaitCond(fsm.stateName == RevaultMemberStatus.Active)
+      t.awaitCond(fsm.stateName == ShardMemberStatus.Active)
     }
     fsm
   }
@@ -106,11 +105,11 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach {
   }
 
 
-  def shutdownRevaultActor(fsm: TestFSMRef[RevaultMemberStatus, ProcessorData, ProcessorFSM])(implicit actorSystem: ActorSystem) = {
+  def shutdownRevaultActor(fsm: TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor])(implicit actorSystem: ActorSystem) = {
     val probe = TestProbe()
     probe watch fsm
     fsm ! ShutdownProcessor
-    new TestKit(actorSystem).awaitCond(fsm.stateName == RevaultMemberStatus.Deactivating, 10.second)
+    new TestKit(actorSystem).awaitCond(fsm.stateName == ShardMemberStatus.Deactivating, 10.second)
     probe.expectTerminated(fsm, 10.second)
   }
 
@@ -125,9 +124,9 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach {
     Thread.sleep(500)
   }
 
-  implicit class TaskEx(t: Task) {
-    def isProcessingStarted = t.asInstanceOf[TestTask].isProcessingStarted
-    def isProcessed = t.asInstanceOf[TestTask].isProcessed
-    def processorPath = t.asInstanceOf[TestTask].processActorPath getOrElse ""
+  implicit class TaskEx(t: ShardTask) {
+    def isProcessingStarted = t.asInstanceOf[TestShardTask].isProcessingStarted
+    def isProcessed = t.asInstanceOf[TestShardTask].isProcessed
+    def processorPath = t.asInstanceOf[TestShardTask].processActorPath getOrElse ""
   }
 }

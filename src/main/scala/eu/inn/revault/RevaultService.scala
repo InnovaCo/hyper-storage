@@ -8,6 +8,7 @@ import eu.inn.hyperbus.HyperBus
 import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportManager, TransportConfigurationLoader}
 import eu.inn.revault.db.Db
+import eu.inn.revault.sharding.ShardProcessor
 import eu.inn.servicecontrol.api.{Service, Console}
 import org.slf4j.{LoggerFactory, Logger}
 import scaldi.{Injectable, Injector}
@@ -36,14 +37,14 @@ class RevaultService(console: Console, config: Config, implicit val injector: In
   val cluster = Cluster(actorSystem)
 
   log.info(s"Initializing database connection...")
-  val cassandraSession = CassandraLoader.createCassandraSession(config.getConfig("cassandra"), "revault")
+  val cassandraSession = CassandraConnector.createCassandraSession(config.getConfig("cassandra"), "revault")
   val db = new Db(cassandraSession)
 
   // worker actor todo: recovery job
-  val workerProps = Props(classOf[WorkerActor], hyperBus, db, actorSystem.deadLetters)
+  val workerProps = Props(classOf[RevaultWorker], hyperBus, db, actorSystem.deadLetters)
 
   // processor actor
-  val processorActorRef = actorSystem.actorOf(Props(new ProcessorFSM(workerProps, 1)))
+  val processorActorRef = actorSystem.actorOf(Props(new ShardProcessor(workerProps, 1, "revault")))
 
   val distributor = actorSystem.actorOf(Props(classOf[RevaultDistributor], processorActorRef, db))
   implicit val timeout = Timeout(20.seconds)

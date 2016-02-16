@@ -15,40 +15,37 @@ import eu.inn.hyperbus.transport.api.uri.{SpecificValue, UriPart, Uri}
 import eu.inn.hyperbus.util.StringSerializer
 import eu.inn.revault.db.{Content, Db, Monitor}
 import akka.pattern.pipe
+import eu.inn.revault.sharding.{ShardTaskComplete, ShardTask}
 import scala.concurrent.Future
 import scala.util.Try
 import scala.util.control.NonFatal
 
-// todo: rename PutTask
-// todo: rename client
-@SerialVersionUID(1L) case class RevaultTask(key: String, ttl: Long, content: String) extends Task {
+@SerialVersionUID(1L) case class RevaultShardTask(key: String, ttl: Long, content: String) extends ShardTask {
   def isExpired = ttl < System.currentTimeMillis()
 }
 
 @SerialVersionUID(1L) case class RevaultTaskResult(content: String)
 
-sealed trait WorkerMessage // todo: rename
-case class TaskComplete(task: Task, monitor: Monitor) extends WorkerMessage
-case class TaskFailed(task: Task, inner: Throwable) extends WorkerMessage
-case class TaskAccepted(task: Task, monitor: Monitor, inner: Throwable) extends WorkerMessage
+case class RevaultWorkerTaskComplete(task: ShardTask, monitor: Monitor)
+case class RevaultWorkerTaskFailed(task: ShardTask, inner: Throwable)
+case class RevaultWorkerTaskAccepted(task: ShardTask, monitor: Monitor, inner: Throwable)
 
-// this sent to recovery actor
-// todo: rename
-case class RevaultTaskAccepted(monitor: db.Monitor)
+// this is sent to recovery actor when task was accepted but failed to complete
+case class RevaultTaskIncomplete(monitor: db.Monitor)
 
+// this is sent from recovery actor when it detects that there is incomplete task
 @request("fix:{path:*}")
 case class RevaultFix(path: String, body: EmptyBody) extends StaticPost(body)
 
-// todo: rename WorkerActor
-class WorkerActor(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends Actor with ActorLogging {
+class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends Actor with ActorLogging {
   import context._
 
   def receive = {
-    case task: RevaultTask ⇒
+    case task: RevaultShardTask ⇒
       executeTask(sender(), task)
   }
 
-  def executeTask(owner: ActorRef, task: RevaultTask): Unit = {
+  def executeTask(owner: ActorRef, task: RevaultShardTask): Unit = {
     Try{
       val request = DynamicRequest(task.content)
       val (prefix, lastSegment) = splitPath(request.path)
@@ -67,11 +64,11 @@ class WorkerActor(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends A
     } recover {
       case NonFatal(e) ⇒
         log.error(e, s"Can't deserialize and split path for: $task")
-        owner ! WorkerTaskComplete(Some(hyperbusException(e, task)))
+        owner ! ShardTaskComplete(Some(hyperbusException(e, task)))
     }
   }
 
-  def executeResourceUpdateTask(prefix: String, lastSegment: String, task: RevaultTask, request: DynamicRequest) = {
+  def executeResourceUpdateTask(prefix: String, lastSegment: String, task: RevaultShardTask, request: DynamicRequest) = {
     val futureUpdateContent = selectAndCompletePrevious(prefix, lastSegment) flatMap {
       case (existingContent, _) ⇒
         updateResource(prefix, lastSegment, request, existingContent)
@@ -79,37 +76,37 @@ class WorkerActor(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends A
 
     futureUpdateContent flatMap { newMonitor ⇒
       completeTask(newMonitor) map { _ ⇒
-        TaskComplete(task, newMonitor)
+        RevaultWorkerTaskComplete(task, newMonitor)
       } recover {
         case NonFatal(e) ⇒
-          TaskAccepted(task, newMonitor, e)
+          RevaultWorkerTaskAccepted(task, newMonitor, e)
       }
     } recover {
       case NonFatal(e) ⇒
-        TaskFailed(task, e)
+        RevaultWorkerTaskFailed(task, e)
     } pipeTo context.self
   }
 
-  private def executeRecourceFixTask(prefix: String, lastSegment: String, task: RevaultTask, request: DynamicRequest): Unit = {
+  private def executeRecourceFixTask(prefix: String, lastSegment: String, task: RevaultShardTask, request: DynamicRequest): Unit = {
     val futureExistingContent = selectAndCompletePrevious(prefix, lastSegment)
     futureExistingContent map {
       case (_, Some(previousMonitor)) ⇒
-        TaskComplete(task, previousMonitor)
+        RevaultWorkerTaskComplete(task, previousMonitor)
       case (Some(existing), None) ⇒ {
         // todo: {} is not correct body of monoitor here.
         val mon = Monitor(existing.monitorDt, existing.monitorChannel, request.path, existing.revision, "{}",
           Some(existing.modifiedAt.getOrElse(existing.createdAt))
         )
-        TaskComplete(task, mon)
+        RevaultWorkerTaskComplete(task, mon)
       }
       case _ ⇒ {
           implicit val mcx: MessagingContextFactory = request
           val error = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
-          TaskFailed(task, error)
+          RevaultWorkerTaskFailed(task, error)
         }
     } recover {
       case NonFatal(e) ⇒
-        TaskFailed(task, e)
+        RevaultWorkerTaskFailed(task, e)
     } pipeTo context.self
   }
 
@@ -155,30 +152,30 @@ class WorkerActor(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends A
     }
   }
 
-  private def taskWaitResult(owner: ActorRef, originalTask: RevaultTask)(implicit mcf: MessagingContextFactory): Receive = {
-    case TaskComplete(task, monitor) if task == originalTask ⇒
+  private def taskWaitResult(owner: ActorRef, originalTask: RevaultShardTask)(implicit mcf: MessagingContextFactory): Receive = {
+    case RevaultWorkerTaskComplete(task, monitor) if task == originalTask ⇒
       if (log.isDebugEnabled) {
         log.debug(s"Task $originalTask is completed")
       }
-      val monId = monitor.path + ":" + monitor.revision
+      val monId = monitor.uri + ":" + monitor.revision
       val resultContent = Ok(protocol.Monitor(monId, "complete", monitor.completedAt)).serializeToString()
-      owner ! WorkerTaskComplete(Some(RevaultTaskResult(resultContent)))
+      owner ! ShardTaskComplete(Some(RevaultTaskResult(resultContent)))
       unbecome()
 
-    case TaskAccepted(task, monitor, e) if task == originalTask ⇒
+    case RevaultWorkerTaskAccepted(task, monitor, e) if task == originalTask ⇒
       log.warning(s"Task $originalTask was accepted but didn't yet complete because of $e")
-      recoveryActor ! RevaultTaskAccepted(monitor)
-      val monId = monitor.path + ":" + monitor.revision
+      recoveryActor ! RevaultTaskIncomplete(monitor)
+      val monId = monitor.uri + ":" + monitor.revision
       val resultContent = Accepted(protocol.Monitor(monId, "in-progress", None)).serializeToString()
-      owner ! WorkerTaskComplete(Some(RevaultTaskResult(resultContent)))
+      owner ! ShardTaskComplete(Some(RevaultTaskResult(resultContent)))
       unbecome()
 
-    case TaskFailed(task, e) if task == originalTask ⇒
-      owner ! WorkerTaskComplete(Some(hyperbusException(e, task)))
+    case RevaultWorkerTaskFailed(task, e) if task == originalTask ⇒
+      owner ! ShardTaskComplete(Some(hyperbusException(e, task)))
       unbecome()
   }
 
-  private def hyperbusException(e: Throwable, task: Task): RevaultTaskResult = {
+  private def hyperbusException(e: Throwable, task: ShardTask): RevaultTaskResult = {
     val (response:HyperBusException[ErrorBody], logException) = e match {
       case h: NotFound[ErrorBody] ⇒ (h, false)
       case h: HyperBusException[ErrorBody] ⇒ (h, true)

@@ -1,6 +1,4 @@
-package akka.text
-
-import akka.actor.{ActorSystem, ActorSystemImpl}
+package akka.actor
 
 object GuardianExtractor {
   def guardian(system: ActorSystem) = system.asInstanceOf[ActorSystemImpl].guardian

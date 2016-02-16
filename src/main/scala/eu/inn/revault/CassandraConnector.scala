@@ -10,7 +10,7 @@ import org.slf4j.LoggerFactory
 import scala.collection.JavaConversions._
 import scala.util.control.NonFatal
 
-object CassandraLoader {
+object CassandraConnector {
   var log = LoggerFactory.getLogger(getClass)
 
   def createCassandraSession(hosts: Seq[String], datacenter: String, keyspace: String, connectTimeoutMillis: Int = 3000, readTimeoutMillis: Int = 500) =
@@ -100,7 +100,6 @@ object CassandraLoader {
 
 
   private class HostListener(connectTimeoutMillis: Long) extends Host.StateListener {
-
     private val latch = new CountDownLatch(1)
 
     def waitForConnection() {

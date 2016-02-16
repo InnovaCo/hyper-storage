@@ -1,50 +1,49 @@
-package eu.inn.revault
+package eu.inn.revault.sharding
 
 import akka.actor._
-import akka.cluster.ClusterEvent.{MemberExited, MemberEvent, MemberRemoved, MemberUp}
+import akka.cluster.ClusterEvent.{MemberEvent, MemberExited, MemberRemoved, MemberUp}
+import akka.cluster.Member.addressOrdering
 import akka.cluster.{Cluster, ClusterEvent, Member}
-import akka.routing.{MurmurHash, ConsistentHash}
+import akka.routing.{ConsistentHash, MurmurHash}
+
 import scala.collection.mutable
 import scala.concurrent.duration._
-import akka.cluster.Member.addressOrdering
 
-// todo: rename Task
-@SerialVersionUID(1L) trait Task {
+@SerialVersionUID(1L) trait ShardTask {
   def key: String
   def isExpired: Boolean
 }
 
-sealed trait RevaultMemberStatus
-object RevaultMemberStatus {
-  @SerialVersionUID(1L) case object Unknown extends RevaultMemberStatus
-  @SerialVersionUID(1L) case object Passive extends RevaultMemberStatus
-  @SerialVersionUID(1L) case object Activating extends RevaultMemberStatus
-  @SerialVersionUID(1L) case object Active extends RevaultMemberStatus
-  @SerialVersionUID(1L) case object Deactivating extends RevaultMemberStatus
+sealed trait ShardMemberStatus
+object ShardMemberStatus {
+  @SerialVersionUID(1L) case object Unknown extends ShardMemberStatus
+  @SerialVersionUID(1L) case object Passive extends ShardMemberStatus
+  @SerialVersionUID(1L) case object Activating extends ShardMemberStatus
+  @SerialVersionUID(1L) case object Active extends ShardMemberStatus
+  @SerialVersionUID(1L) case object Deactivating extends ShardMemberStatus
 }
 
-@SerialVersionUID(1L) case class Sync(applicantAddress: Address, status: RevaultMemberStatus, clusterHash: Int)
-@SerialVersionUID(1L) case class SyncReply(confirmerAddress: Address, status: RevaultMemberStatus, confirmedStatus: RevaultMemberStatus, clusterHash: Int)
+@SerialVersionUID(1L) case class Sync(applicantAddress: Address, status: ShardMemberStatus, clusterHash: Int)
+@SerialVersionUID(1L) case class SyncReply(acceptorAddress: Address, status: ShardMemberStatus, acceptedStatus: ShardMemberStatus, clusterHash: Int)
 
-case class RevaultMemberActor(actorRef: ActorSelection,
-                              status: RevaultMemberStatus,
-                              confirmedStatus: RevaultMemberStatus)
+case class ShardMember(actorRef: ActorSelection,
+                       status: ShardMemberStatus,
+                       confirmedStatus: ShardMemberStatus)
 
-// todo: rename class
-case class ProcessorData(members: Map[Address, RevaultMemberActor], selfAddress: Address, selfStatus: RevaultMemberStatus) {
+case class ShardedClusterData(members: Map[Address, ShardMember], selfAddress: Address, selfStatus: ShardMemberStatus) {
   lazy val clusterHash = MurmurHash.stringHash(allMemberStatuses.map(_._1).mkString("|"))
-  def + (elem: (Address, RevaultMemberActor)) = ProcessorData(members + elem, selfAddress, selfStatus)
-  def - (key: Address) = ProcessorData(members - key, selfAddress, selfStatus)
+  def + (elem: (Address, ShardMember)) = ShardedClusterData(members + elem, selfAddress, selfStatus)
+  def - (key: Address) = ShardedClusterData(members - key, selfAddress, selfStatus)
 
-  def taskIsFor(task: Task): Address = consistentHash.nodeFor(task.key)
+  def taskIsFor(task: ShardTask): Address = consistentHash.nodeFor(task.key)
 
-  def taskWasFor(task: Task): Address = consistentHashPrevious.nodeFor(task.key)
+  def taskWasFor(task: ShardTask): Address = consistentHashPrevious.nodeFor(task.key)
 
   private lazy val consistentHash = ConsistentHash(activeMembers, VirtualNodesSize)
 
   private lazy val consistentHashPrevious = ConsistentHash(previouslyActiveMembers, VirtualNodesSize)
 
-  private lazy val allMemberStatuses: List[(Address, RevaultMemberStatus)] = {
+  private lazy val allMemberStatuses: List[(Address, ShardMemberStatus)] = {
     members.map {
       case (address, rvm) ⇒ address → rvm.status
     }.toList :+ (selfAddress → selfStatus)
@@ -53,75 +52,74 @@ case class ProcessorData(members: Map[Address, RevaultMemberActor], selfAddress:
   private def VirtualNodesSize = 128 // todo: find a better value, configurable? http://www.tom-e-white.com/2007/11/consistent-hashing.html
 
   private def activeMembers: Iterable[Address] = allMemberStatuses.flatMap {
-      case (address, RevaultMemberStatus.Active) ⇒ Some(address)
-      case (address, RevaultMemberStatus.Activating) ⇒ Some(address)
+      case (address, ShardMemberStatus.Active) ⇒ Some(address)
+      case (address, ShardMemberStatus.Activating) ⇒ Some(address)
       case _ ⇒ None
     }
 
   private def previouslyActiveMembers: Iterable[Address] = allMemberStatuses.flatMap {
-    case (address, RevaultMemberStatus.Active) ⇒ Some(address)
-    case (address, RevaultMemberStatus.Activating) ⇒ Some(address)
-    case (address, RevaultMemberStatus.Deactivating) ⇒ Some(address)
+    case (address, ShardMemberStatus.Active) ⇒ Some(address)
+    case (address, ShardMemberStatus.Activating) ⇒ Some(address)
+    case (address, ShardMemberStatus.Deactivating) ⇒ Some(address)
     case _ ⇒ None
   }
 }
 
-sealed trait Events
-case object SyncTimer extends Events
-case object ShutdownProcessor extends Events
-case class WorkerTaskComplete(result: Option[Any])
+private [sharding] case object ShardSyncTimer
+case object ShutdownProcessor
+case class ShardTaskComplete(result: Option[Any])
 
-// todo: change name
-class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemberStatus, ProcessorData] with Stash {
+class ShardProcessor(workerProps: Props, workerCount: Int, roleName: String) extends FSM[ShardMemberStatus, ShardedClusterData] with Stash {
   private val cluster = Cluster(context.system)
-  if (!cluster.selfRoles.contains("revault")) {
-    log.error("Cluster doesn't containt 'revault' role. Please configure.")
+  if (!cluster.selfRoles.contains(roleName)) {
+    log.error(s"Cluster doesn't containt '$roleName' role. Please configure.")
   }
   private val selfAddress = cluster.selfAddress
+  // todo: don't precreate workers
   val inactiveWorkers: mutable.Stack[ActorRef] = mutable.Stack.tabulate(workerCount) { workerIndex ⇒
-    context.system.actorOf(workerProps, s"revault-wrkr-$workerIndex")
+    context.system.actorOf(workerProps, s"shard-wrkr-$workerIndex")
   }
-  val activeWorkers = mutable.ArrayBuffer[(Task, ActorRef, ActorRef)]()
+  val activeWorkers = mutable.ArrayBuffer[(ShardTask, ActorRef, ActorRef)]()
   cluster.subscribe(self, initialStateMode = ClusterEvent.InitialStateAsEvents, classOf[MemberEvent])
 
-  startWith(RevaultMemberStatus.Activating, ProcessorData(Map.empty, selfAddress, RevaultMemberStatus.Activating))
+  startWith(ShardMemberStatus.Activating, ShardedClusterData(Map.empty, selfAddress, ShardMemberStatus.Activating))
 
-  when(RevaultMemberStatus.Activating) {
+  when(ShardMemberStatus.Activating) {
     case Event(MemberUp(member), data) ⇒
       introduceSelfTo(member, data) andUpdate
 
-    case Event(SyncTimer, data) ⇒
+    case Event(ShardSyncTimer, data) ⇒
       if (isActivationAllowed(data)) {
-        goto(RevaultMemberStatus.Active)
+        goto(ShardMemberStatus.Active)
       }
       else {
         stay
       }
 
-    case Event(task: Task, data) ⇒
+    case Event(task: ShardTask, data) ⇒
       holdTask(task, data)
       stay
   }
 
-  when(RevaultMemberStatus.Active) {
-    case Event(SyncTimer, data) ⇒
-      confirmStatus(data, RevaultMemberStatus.Active, isFirst = false)
+  when(ShardMemberStatus.Active) {
+    case Event(ShardSyncTimer, data) ⇒
+      confirmStatus(data, ShardMemberStatus.Active, isFirst = false)
       stay
 
     case Event(ShutdownProcessor, data) ⇒
-      confirmStatus(data, RevaultMemberStatus.Deactivating, isFirst = true)
+      confirmStatus(data, ShardMemberStatus.Deactivating, isFirst = true)
       setSyncTimer()
-      goto(RevaultMemberStatus.Deactivating) using data.copy(selfStatus = RevaultMemberStatus.Deactivating)
+      goto(ShardMemberStatus.Deactivating) using data.copy(selfStatus = ShardMemberStatus.Deactivating)
 
-    case Event(task: Task, data) ⇒
+    case Event(task: ShardTask, data) ⇒
       processTask(task, data)
       stay
   }
 
-  when(RevaultMemberStatus.Deactivating) {
-    case Event(SyncTimer, data) ⇒
-      if(confirmStatus(data, RevaultMemberStatus.Deactivating, isFirst = false)) {
-        confirmStatus(data, RevaultMemberStatus.Passive, isFirst = false) // not reliable
+  when(ShardMemberStatus.Deactivating) {
+    case Event(ShardSyncTimer, data) ⇒
+      if(confirmStatus(data, ShardMemberStatus.Deactivating, isFirst = false)) {
+        confirmStatus(data, ShardMemberStatus.Passive, isFirst = false) // not reliable
         stop()
       }
       else {
@@ -145,11 +143,11 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
     case Event(MemberExited(member), data) ⇒
       removeMember(member, data) andUpdate
 
-    case Event(WorkerTaskComplete(result), data) ⇒
+    case Event(ShardTaskComplete(result), data) ⇒
       workerIsReadyForNextTask(result)
       stay()
 
-    case Event(task: Task, data) ⇒
+    case Event(task: ShardTask, data) ⇒
       forwardTask(task, data)
       stay()
 
@@ -167,35 +165,33 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
   initialize()
 
   def setSyncTimer(): Unit = {
-    setTimer("syncing", SyncTimer, 1000 millisecond) // todo: move timeout to configuration
+    setTimer("syncing", ShardSyncTimer, 1000 millisecond) // todo: move timeout to configuration
   }
 
-  def introduceSelfTo(member: Member, data: ProcessorData) : Option[ProcessorData] = {
-    if (member.hasRole("revault") && member.address != selfAddress) {
-        val actor = context.actorSelection(RootActorPath(member.address) / "user" / "revault")
-        val newData = data + member.address → RevaultMemberActor(
-          actor, RevaultMemberStatus.Unknown, RevaultMemberStatus.Unknown
+  def introduceSelfTo(member: Member, data: ShardedClusterData) : Option[ShardedClusterData] = {
+    if (member.hasRole(roleName) && member.address != selfAddress) {
+        val actor = context.actorSelection(RootActorPath(member.address) / "user" / roleName)
+        val newData = data + member.address → ShardMember(
+          actor, ShardMemberStatus.Unknown, ShardMemberStatus.Unknown
         )
-        val sync = Sync(selfAddress, RevaultMemberStatus.Activating, newData.clusterHash)
+        val sync = Sync(selfAddress, ShardMemberStatus.Activating, newData.clusterHash)
         actor ! sync
         setSyncTimer()
-        if (log.isDebugEnabled) {
-          log.debug(s"New member: $member. $sync was sent to $actor")
-        }
+        log.info(s"New member of shard cluster $roleName: $member. $sync was sent to $actor")
         Some(newData)
       }
-    else if (member.hasRole("revault") && member.address == selfAddress) {
-      log.debug(s"Self is up: $member")
+    else if (member.hasRole(roleName) && member.address == selfAddress) {
+      log.info(s"Self is up: $member on role $roleName")
       setSyncTimer()
       None
     }
     else {
-      log.debug(s"Non revault member: $member is ignored")
+      log.debug(s"Non shard member in $roleName is ignored: $member")
       None
     }
   }
 
-  def processReply(syncReply: SyncReply, data: ProcessorData) : Option[ProcessorData] = {
+  def processReply(syncReply: SyncReply, data: ShardedClusterData) : Option[ShardedClusterData] = {
     if (log.isDebugEnabled) {
       log.debug(s"$syncReply received from $sender")
     }
@@ -203,20 +199,20 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
       log.info(s"ClusterHash (${data.clusterHash}) is not matched for $syncReply. SyncReply is ignored")
       None
     } else {
-      data.members.get(syncReply.confirmerAddress) map { member ⇒
-        data + syncReply.confirmerAddress →
-          member.copy(status = syncReply.status, confirmedStatus = syncReply.confirmedStatus)
+      data.members.get(syncReply.acceptorAddress) map { member ⇒
+        data + syncReply.acceptorAddress →
+          member.copy(status = syncReply.status, confirmedStatus = syncReply.acceptedStatus)
       } orElse {
-        log.warning(s"Got $syncReply from unknown member. Current members: ${data.members}")
+        log.warning(s"Got $syncReply from unknown member of $roleName. Current members: ${data.members}")
         None
       }
     }
   }
 
-  def isActivationAllowed(data: ProcessorData): Boolean = {
-    if (confirmStatus(data, RevaultMemberStatus.Activating, isFirst = false)) {
+  def isActivationAllowed(data: ShardedClusterData): Boolean = {
+    if (confirmStatus(data, ShardMemberStatus.Activating, isFirst = false)) {
       log.info(s"Synced with all members: ${data.members}. Activating")
-      confirmStatus(data, RevaultMemberStatus.Active, isFirst = true)
+      confirmStatus(data, ShardMemberStatus.Active, isFirst = true)
       true
     }
     else {
@@ -224,7 +220,7 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
     }
   }
 
-  def confirmStatus(data: ProcessorData, status: RevaultMemberStatus, isFirst: Boolean) : Boolean = {
+  def confirmStatus(data: ShardedClusterData, status: ShardMemberStatus, isFirst: Boolean) : Boolean = {
     var syncedWithAllMembers = true
     data.members.foreach { case (address, member) ⇒
       if (member.confirmedStatus != status) {
@@ -240,7 +236,7 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
     syncedWithAllMembers
   }
 
-  def incomingSync(sync: Sync, data: ProcessorData): Option[ProcessorData] = {
+  def incomingSync(sync: Sync, data: ShardedClusterData): Option[ShardedClusterData] = {
     if (log.isDebugEnabled) {
       log.debug(s"$sync received from $sender")
     }
@@ -251,8 +247,8 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
       data.members.get(sync.applicantAddress) map { member ⇒
         // todo: don't confirm, until it's possible
 
-        val newData: ProcessorData = data + sync.applicantAddress → member.copy(status = sync.status)
-        val allowSync = if (sync.status == RevaultMemberStatus.Activating) {
+        val newData: ShardedClusterData = data + sync.applicantAddress → member.copy(status = sync.status)
+        val allowSync = if (sync.status == ShardMemberStatus.Activating) {
           activeWorkers.forall { case (task, workerActor, _) ⇒
             if (newData.taskIsFor(task) == sync.applicantAddress) {
               log.info(s"Ignoring sync request $sync while processing task $task by worker $workerActor")
@@ -275,20 +271,20 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
         newData
       } orElse {
         log.error(s"Got $sync from unknown member. Current members: ${data.members}")
-        sender() ! SyncReply(selfAddress, stateName, RevaultMemberStatus.Unknown, data.clusterHash)
+        sender() ! SyncReply(selfAddress, stateName, ShardMemberStatus.Unknown, data.clusterHash)
         None
       }
     }
   }
 
-  def addNewMember(member: Member, data: ProcessorData): Option[ProcessorData] = {
-    if (member.hasRole("revault") && member.address != selfAddress) {
-      val actor = context.actorSelection(RootActorPath(member.address) / "user" / "revault")
-      val newData = data + member.address → RevaultMemberActor(
-        actor, RevaultMemberStatus.Unknown, RevaultMemberStatus.Unknown
+  def addNewMember(member: Member, data: ShardedClusterData): Option[ShardedClusterData] = {
+    if (member.hasRole(roleName) && member.address != selfAddress) {
+      val actor = context.actorSelection(RootActorPath(member.address) / "user" / roleName)
+      val newData = data + member.address → ShardMember(
+        actor, ShardMemberStatus.Unknown, ShardMemberStatus.Unknown
       )
       if (log.isDebugEnabled) {
-        log.debug(s"New member: $member. State is unknown yet")
+        log.info(s"New member in $roleName $member. State is unknown yet")
       }
       Some(newData)
     }
@@ -297,10 +293,10 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
     }
   }
 
-  def removeMember(member: Member, data: ProcessorData): Option[ProcessorData] = {
-    if (member.hasRole("revault")) {
+  def removeMember(member: Member, data: ShardedClusterData): Option[ShardedClusterData] = {
+    if (member.hasRole(roleName)) {
       if (log.isDebugEnabled) {
-        log.debug(s"Member removed: $member.")
+        log.info(s"Member removed from $roleName: $member.")
       }
       Some(data - member.address)
     } else {
@@ -308,7 +304,7 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
     }
   }
 
-  def processTask(task: Task, data: ProcessorData): Unit = {
+  def processTask(task: ShardTask, data: ShardedClusterData): Unit = {
     if (log.isDebugEnabled) {
       log.debug(s"Got task to process: $task")
     }
@@ -351,7 +347,7 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
     }
   }
 
-  def holdTask(task: Task, data: ProcessorData): Unit = {
+  def holdTask(task: ShardTask, data: ShardedClusterData): Unit = {
     if (log.isDebugEnabled) {
       log.debug(s"Got task to process while activating: $task")
     }
@@ -369,7 +365,7 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
     }
   }
 
-  def forwardTask(task: Task, data: ProcessorData): Unit = {
+  def forwardTask(task: ShardTask, data: ShardedClusterData): Unit = {
     val address = data.taskIsFor(task)
     data.members.get(address) map { rvm ⇒
       if (log.isDebugEnabled) {
@@ -398,7 +394,7 @@ class ProcessorFSM(workerProps: Props, workerCount: Int) extends FSM[RevaultMemb
     }
   }
 
-  protected [this] implicit class ImplicitExtender(data: Option[ProcessorData]) {
+  protected [this] implicit class ImplicitExtender(data: Option[ShardedClusterData]) {
     def andUpdate: State = {
       if (data.isDefined) {
         unstashAll()

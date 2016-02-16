@@ -14,6 +14,8 @@ import scala.concurrent.duration._
 import eu.inn.hyperbus.akkaservice._
 
 /*
+todo: implement revaultspec
+
 class RevaultSpec extends FreeSpec with Matchers with ScalaFutures with BeforeAndAfterAll {
   var hyperBus: HyperBus = null
   implicit var actorSystem: ActorSystem = null

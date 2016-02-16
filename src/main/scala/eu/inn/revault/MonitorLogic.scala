@@ -12,7 +12,7 @@ object MonitorLogic {
   def newMonitor(path: String, revision: Long, body: String) = Monitor(
     dt = roundDate,
     channel = channelFromPath(path),
-    path = path,
+    uri = path,
     revision = revision,
     body = body,
     completedAt = None

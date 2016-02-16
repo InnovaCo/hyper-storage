@@ -5,10 +5,10 @@
             <pattern>%highlight(%.-3level) %cyan(%d{HH:mm:ss.SSS}) %yellow(%-35.35logger) %magenta(%X{subscriptionId}) %highlight(%msg) %n</pattern>
         </encoder>
     </appender>
-    <logger name="eu.inn.revault.WorkerActor">
+    <logger name="eu.inn.revault.RevaultWorker">
         <level value="trace" />
     </logger>
-    <logger name="eu.inn.revault.ProcessorFSM">
+    <logger name="eu.inn.revault.sharding.ShardProcessor">
         <level value="trace" />
     </logger>
     <logger name="eu.inn.revault.RevaultDistributor">

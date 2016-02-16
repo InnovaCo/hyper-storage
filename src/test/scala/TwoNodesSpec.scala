@@ -1,6 +1,5 @@
 import akka.cluster.Cluster
-import akka.testkit.{TestKit, TestProbe}
-import eu.inn.revault.{ShutdownProcessor, Task, RevaultMemberStatus}
+import eu.inn.revault.sharding.{ShardMemberStatus, ShutdownProcessor}
 import org.scalatest._
 import org.scalatest.concurrent.ScalaFutures
 
@@ -19,8 +18,8 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
         (createRevaultActor(waitWhileActivates = false), actorSystem2, testKit(2))
       }
 
-      testKit1.awaitCond(fsm1.stateName == RevaultMemberStatus.Active && fsm1.stateData.members.nonEmpty)
-      testKit2.awaitCond(fsm2.stateName == RevaultMemberStatus.Active && fsm2.stateData.members.nonEmpty)
+      testKit1.awaitCond(fsm1.stateName == ShardMemberStatus.Active && fsm1.stateData.members.nonEmpty)
+      testKit2.awaitCond(fsm2.stateName == ShardMemberStatus.Active && fsm2.stateData.members.nonEmpty)
 
       shutdownRevaultActor(fsm1)(actorSystem1)
       shutdownCluster(1)
@@ -34,20 +33,20 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
         (createRevaultActor(waitWhileActivates = false), actorSystem1, testKit(1))
       }
 
-      testKit1.awaitCond(fsm1.stateName == RevaultMemberStatus.Active && fsm1.stateData.members.isEmpty)
+      testKit1.awaitCond(fsm1.stateName == ShardMemberStatus.Active && fsm1.stateData.members.isEmpty)
 
       val (fsm2, actorSystem2, testKit2) = {
         implicit val actorSystem2 = testActorSystem(2)
         (createRevaultActor(waitWhileActivates = false), actorSystem2, testKit(2))
       }
 
-      testKit2.awaitCond(fsm2.stateName == RevaultMemberStatus.Active && fsm2.stateData.members.nonEmpty, 5 second)
+      testKit2.awaitCond(fsm2.stateName == ShardMemberStatus.Active && fsm2.stateData.members.nonEmpty, 5 second)
 
       shutdownRevaultActor(fsm1)(actorSystem1)
       shutdownCluster(1)
       //shutdownActorSystem(1)
 
-      testKit2.awaitCond(fsm2.stateName == RevaultMemberStatus.Active && fsm2.stateData.members.isEmpty, 10 second)
+      testKit2.awaitCond(fsm2.stateName == ShardMemberStatus.Active && fsm2.stateData.members.isEmpty, 10 second)
       shutdownRevaultActor(fsm2)(actorSystem2)
     }
 
@@ -62,15 +61,15 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
         (createRevaultActor(waitWhileActivates = false), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
       }
 
-      testKit1.awaitCond(fsm1.stateName == RevaultMemberStatus.Active && fsm1.stateData.members.nonEmpty, 5 second)
-      testKit2.awaitCond(fsm2.stateName == RevaultMemberStatus.Active && fsm2.stateData.members.nonEmpty, 5 second)
+      testKit1.awaitCond(fsm1.stateName == ShardMemberStatus.Active && fsm1.stateData.members.nonEmpty, 5 second)
+      testKit2.awaitCond(fsm2.stateName == ShardMemberStatus.Active && fsm2.stateData.members.nonEmpty, 5 second)
 
-      val task1 = TestTask("abc","t1")
+      val task1 = TestShardTask("abc","t1")
       fsm1 ! task1
       testKit1.awaitCond(task1.isProcessed)
       task1.processorPath should include(address1)
 
-      val task2 = TestTask("klm","t2")
+      val task2 = TestShardTask("klm","t2")
       fsm2 ! task2
       testKit2.awaitCond(task2.isProcessed)
       task2.processorPath should include(address2)
@@ -87,15 +86,15 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
         (createRevaultActor(waitWhileActivates = false), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
       }
 
-      testKit1.awaitCond(fsm1.stateName == RevaultMemberStatus.Active && fsm1.stateData.members.nonEmpty, 5 second)
-      testKit2.awaitCond(fsm2.stateName == RevaultMemberStatus.Active && fsm2.stateData.members.nonEmpty, 5 second)
+      testKit1.awaitCond(fsm1.stateName == ShardMemberStatus.Active && fsm1.stateData.members.nonEmpty, 5 second)
+      testKit2.awaitCond(fsm2.stateName == ShardMemberStatus.Active && fsm2.stateData.members.nonEmpty, 5 second)
 
-      val task1 = TestTask("abc","t3")
+      val task1 = TestShardTask("abc","t3")
       fsm2 ! task1
       testKit1.awaitCond(task1.isProcessed)
       task1.processorPath should include(address1)
 
-      val task2 = TestTask("klm","t4")
+      val task2 = TestShardTask("klm","t4")
       fsm1 ! task2
       testKit2.awaitCond(task2.isProcessed)
       task2.processorPath should include(address2)
@@ -112,19 +111,19 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
         (createRevaultActor(waitWhileActivates = false), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
       }
 
-      testKit1.awaitCond(fsm1.stateName == RevaultMemberStatus.Active && fsm1.stateData.members.nonEmpty)
-      testKit2.awaitCond(fsm2.stateName == RevaultMemberStatus.Active && fsm2.stateData.members.nonEmpty)
+      testKit1.awaitCond(fsm1.stateName == ShardMemberStatus.Active && fsm1.stateData.members.nonEmpty)
+      testKit2.awaitCond(fsm2.stateName == ShardMemberStatus.Active && fsm2.stateData.members.nonEmpty)
 
       fsm1 ! ShutdownProcessor
 
       testKit1.awaitCond({
-        fsm1.stateName == RevaultMemberStatus.Deactivating
+        fsm1.stateName == ShardMemberStatus.Deactivating
       }, 10.second)
 
-      val task1 = TestTask("abc","t5", sleep = 500)
+      val task1 = TestShardTask("abc","t5", sleep = 500)
       fsm1 ! task1
 
-      val task2 = TestTask("abc","t6", sleep = 500)
+      val task2 = TestShardTask("abc","t6", sleep = 500)
       fsm2 ! task2
 
       val c1 = Cluster(actorSystem1)
@@ -132,7 +131,7 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
 
       testKit2.awaitCond({
         assert(!(
-          fsm2.stateData.members.filterNot(_._2.status == RevaultMemberStatus.Passive).nonEmpty
+          fsm2.stateData.members.filterNot(_._2.status == ShardMemberStatus.Passive).nonEmpty
           &&
           (task2.isProcessed || task1.isProcessed)
           ))
@@ -150,9 +149,9 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
         (createRevaultActor(), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
       }
 
-      val task1 = TestTask("klm","t7", sleep = 6000)
+      val task1 = TestShardTask("klm","t7", sleep = 6000)
       fsm1 ! task1
-      val task2 = TestTask("klm","t8")
+      val task2 = TestShardTask("klm","t8")
       fsm1 ! task2
       testKit1.awaitCond(task1.isProcessingStarted)
 
@@ -162,7 +161,7 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
       }
 
       testKit1.awaitCond({
-        assert(fsm2.stateName == RevaultMemberStatus.Activating)
+        assert(fsm2.stateName == ShardMemberStatus.Activating)
         task1.isProcessed
       }, 10 second)
 
