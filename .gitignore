@@ -1,5 +1,11 @@
 *.class
 *.log
+*.idea
+*.idea_modules
+*.iml
+
+# mac os specific
+.DS_Store
 
 # sbt specific
 dist/*
@@ -8,11 +14,11 @@ lib_managed/
 src_managed/
 project/boot/
 project/plugins/project/
+local.sbt
 
 # Scala-IDE specific
 .scala_dependencies
-.idea/
-.idea_modules/
-
-inn-oss-private.asc
-inn-oss-public.asc
+.classpath
+.project
+.settings
+.cache

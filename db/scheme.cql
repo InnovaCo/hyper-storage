@@ -2,7 +2,8 @@ create table content (
 	document_uri text,
 	item_segment text,
 	revision bigint static,
-	monitor_dt timestamp static,
+	monitor_dt_quantum timestamp static,
+	monitor_uuid timeuuid static,
 	monitor_channel int static,
 	body text,
 	is_deleted boolean,
@@ -12,17 +13,18 @@ create table content (
 );
 
 create table monitor (
-	dt timestamp,
+	dt_quantum timestamp,
 	channel int,
 	uri text,
 	revision bigint,
+	uuid timeuuid,
 	body text,
 	completed_at timestamp,
-	primary key ((dt, channel), uri, revision)
+	primary key ((dt_quantum, channel), uri, revision, uuid)
 );
 
 create table channel (
 	channel int primary key,
-	check_date timestamp
+	last_quantum timestamp
 );
 

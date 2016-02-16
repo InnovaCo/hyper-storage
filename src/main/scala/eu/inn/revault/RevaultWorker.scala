@@ -94,7 +94,8 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
         RevaultWorkerTaskComplete(task, previousMonitor)
       case (Some(existing), None) ⇒ {
         // todo: {} is not correct body of monoitor here.
-        val mon = Monitor(existing.monitorDt, existing.monitorChannel, request.path, existing.revision, "{}",
+        val mon = Monitor(existing.monitorDtQuantum, existing.monitorChannel, request.path, existing.revision,
+          existing.monitorUuid, "{}",
           Some(existing.modifiedAt.getOrElse(existing.createdAt))
         )
         RevaultWorkerTaskComplete(task, mon)
@@ -138,7 +139,11 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
     db.selectContent(prefix, lastSegment) flatMap {
       case None ⇒ Future((None, None))
       case Some(content) ⇒
-        db.selectMonitor(content.monitorDt, content.monitorChannel, prefix + "/" + lastSegment) flatMap {
+        db.selectMonitor(content.monitorDtQuantum,
+          content.monitorChannel,
+          prefix + "/" + lastSegment,
+          content.revision,
+          content.monitorUuid) flatMap {
           case None ⇒ Future(Some(content), None) // If no monitor, consider that it's complete
           case Some(monitor) ⇒
             if (monitor.completedAt.isDefined)
@@ -207,7 +212,9 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
                             existingContent: Option[Content]): Content = existingContent match {
     case None ⇒
       Content(prefix, lastSegment, newMonitor.revision,
-        monitorDt = newMonitor.dt, monitorChannel = newMonitor.channel,
+        monitorDtQuantum = newMonitor.dtQuantum,
+        monitorChannel = newMonitor.channel,
+        monitorUuid = newMonitor.uuid,
         body = Some(filterNulls(request.body).serializeToString()),
         isDeleted = false,
         createdAt = new Date(),
@@ -216,7 +223,9 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
 
     case Some(content) ⇒
       Content(prefix, lastSegment, newMonitor.revision,
-        monitorDt = newMonitor.dt, monitorChannel = newMonitor.channel,
+        monitorDtQuantum = newMonitor.dtQuantum,
+        monitorChannel = newMonitor.channel,
+        monitorUuid = newMonitor.uuid,
         body = Some(filterNulls(request.body).serializeToString()),
         isDeleted = false,
         createdAt = content.createdAt,
@@ -236,7 +245,8 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
 
     case Some(content) ⇒
       Content(prefix, lastSegment, newMonitor.revision,
-        monitorDt = newMonitor.dt, monitorChannel = newMonitor.channel,
+        monitorDtQuantum = newMonitor.dtQuantum, monitorChannel = newMonitor.channel,
+        monitorUuid = newMonitor.uuid,
         body = Some(mergeBody(StringDeserializer.dynamicBody(content.body), request.body).serializeToString()),
         isDeleted = false,
         createdAt = content.createdAt,
@@ -256,7 +266,9 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
 
     case Some(content) ⇒
       Content(prefix, lastSegment, newMonitor.revision,
-        monitorDt = newMonitor.dt, monitorChannel = newMonitor.channel,
+        monitorDtQuantum = newMonitor.dtQuantum,
+        monitorChannel = newMonitor.channel,
+        monitorUuid = newMonitor.uuid,
         body = None,
         isDeleted = true,
         createdAt = content.createdAt,

@@ -3,6 +3,7 @@ package eu.inn.revault
 import java.util.{GregorianCalendar, Calendar, TimeZone, Date}
 import java.util.zip.CRC32
 
+import com.datastax.driver.core.utils.UUIDs
 import eu.inn.revault.db.Monitor
 
 object MonitorLogic {
@@ -10,10 +11,11 @@ object MonitorLogic {
   val timeZone = TimeZone.getTimeZone("UTC")
 
   def newMonitor(path: String, revision: Long, body: String) = Monitor(
-    dt = roundDate,
+    dtQuantum = roundDate,
     channel = channelFromPath(path),
     uri = path,
     revision = revision,
+    uuid = UUIDs.timeBased(),
     body = body,
     completedAt = None
   )

@@ -270,9 +270,11 @@ class WorkerSpec extends FreeSpec
       result.get.body should equal(Some("""{"text":"Test resource value"}"""))
 
       val monitorChannel = result.get.monitorChannel
-      val monitorDr = result.get.monitorDt
+      val monitorDr = result.get.monitorDtQuantum
+      val revision = result.get.revision
+      val monitorUuid = result.get.monitorUuid
 
-      whenReady(db.selectMonitor(monitorDr, monitorChannel, "/faulty")) { result =>
+      whenReady(db.selectMonitor(monitorDr, monitorChannel, "/faulty", revision, monitorUuid)) { result =>
         result.get.completedAt shouldBe None
       }
     }
