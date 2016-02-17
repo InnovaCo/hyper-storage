@@ -23,6 +23,7 @@ import scala.util.control.NonFatal
 
 @SerialVersionUID(1L) case class RevaultShardTask(key: String, ttl: Long, content: String) extends ShardTask {
   def isExpired = ttl < System.currentTimeMillis()
+  def group = "revault"
 }
 
 @SerialVersionUID(1L) case class RevaultTaskResult(content: String)
@@ -65,7 +66,7 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
     } recover {
       case NonFatal(e) ⇒
         log.error(e, s"Can't deserialize and split path for: $task")
-        owner ! ShardTaskComplete(Some(hyperbusException(e, task)))
+        owner ! ShardTaskComplete(task, hyperbusException(e, task))
     }
   }
 
@@ -95,6 +96,7 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
         RevaultWorkerTaskComplete(task, previousMonitor)
       case (Some(existing), None) ⇒ {
         // todo: fake monitor here may lead to problems
+
         val monitorUuid = existing.monitorList.headOption.getOrElse(UUIDs.endOf(
           existing.modifiedAt.getOrElse(existing.createdAt).getTime
         ))
@@ -176,7 +178,7 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
       }
       val monId = monitor.uri + ":" + monitor.revision
       val resultContent = Ok(protocol.Monitor(monId, "complete", monitor.completedAt)).serializeToString()
-      owner ! ShardTaskComplete(Some(RevaultTaskResult(resultContent)))
+      owner ! ShardTaskComplete(task, RevaultTaskResult(resultContent))
       unbecome()
 
     case RevaultWorkerTaskAccepted(task, monitor, e) if task == originalTask ⇒
@@ -184,11 +186,11 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
       recoveryActor ! RevaultTaskIncomplete(monitor)
       val monId = monitor.uri + ":" + monitor.revision
       val resultContent = Accepted(protocol.Monitor(monId, "in-progress", None)).serializeToString()
-      owner ! ShardTaskComplete(Some(RevaultTaskResult(resultContent)))
+      owner ! ShardTaskComplete(task, RevaultTaskResult(resultContent))
       unbecome()
 
     case RevaultWorkerTaskFailed(task, e) if task == originalTask ⇒
-      owner ! ShardTaskComplete(Some(hyperbusException(e, task)))
+      owner ! ShardTaskComplete(task, hyperbusException(e, task))
       unbecome()
   }
 

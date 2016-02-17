@@ -10,12 +10,12 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
     "ProcessorFSM should become Active" in {
       val (fsm1, actorSystem1, testKit1) = {
         implicit val actorSystem1 = testActorSystem(1)
-        (createRevaultActor(waitWhileActivates = false), actorSystem1, testKit(1))
+        (createRevaultActor("test-group", waitWhileActivates = false), actorSystem1, testKit(1))
       }
 
       val (fsm2, actorSystem2, testKit2) = {
         implicit val actorSystem2 = testActorSystem(2)
-        (createRevaultActor(waitWhileActivates = false), actorSystem2, testKit(2))
+        (createRevaultActor("test-group", waitWhileActivates = false), actorSystem2, testKit(2))
       }
 
       testKit1.awaitCond(fsm1.stateName == ShardMemberStatus.Active && fsm1.stateData.members.nonEmpty)
@@ -30,14 +30,14 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
     "ProcessorFSM should become Active sequentially" in {
       val (fsm1, actorSystem1, testKit1) = {
         implicit val actorSystem1 = testActorSystem(1)
-        (createRevaultActor(waitWhileActivates = false), actorSystem1, testKit(1))
+        (createRevaultActor("test-group", waitWhileActivates = false), actorSystem1, testKit(1))
       }
 
       testKit1.awaitCond(fsm1.stateName == ShardMemberStatus.Active && fsm1.stateData.members.isEmpty)
 
       val (fsm2, actorSystem2, testKit2) = {
         implicit val actorSystem2 = testActorSystem(2)
-        (createRevaultActor(waitWhileActivates = false), actorSystem2, testKit(2))
+        (createRevaultActor("test-group", waitWhileActivates = false), actorSystem2, testKit(2))
       }
 
       testKit2.awaitCond(fsm2.stateName == ShardMemberStatus.Active && fsm2.stateData.members.nonEmpty, 5 second)
@@ -53,12 +53,12 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
     "Tasks should distribute to corresponding actors" in {
       val (fsm1, actorSystem1, testKit1, address1) = {
         implicit val actorSystem1= testActorSystem(1)
-        (createRevaultActor(waitWhileActivates = false), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
+        (createRevaultActor("test-group", waitWhileActivates = false), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
       }
 
       val (fsm2, actorSystem2, testKit2, address2) = {
         implicit val actorSystem2  = testActorSystem(2)
-        (createRevaultActor(waitWhileActivates = false), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
+        (createRevaultActor("test-group", waitWhileActivates = false), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
       }
 
       testKit1.awaitCond(fsm1.stateName == ShardMemberStatus.Active && fsm1.stateData.members.nonEmpty, 5 second)
@@ -78,12 +78,12 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
     "Tasks should be forwarded to corresponding actors" in {
       val (fsm1, actorSystem1, testKit1, address1) = {
         implicit val actorSystem1 = testActorSystem(1)
-        (createRevaultActor(waitWhileActivates = false), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
+        (createRevaultActor("test-group", waitWhileActivates = false), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
       }
 
       val (fsm2, actorSystem2, testKit2, address2) = {
         implicit val actorSystem2 = testActorSystem(2)
-        (createRevaultActor(waitWhileActivates = false), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
+        (createRevaultActor("test-group", waitWhileActivates = false), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
       }
 
       testKit1.awaitCond(fsm1.stateName == ShardMemberStatus.Active && fsm1.stateData.members.nonEmpty, 5 second)
@@ -103,12 +103,12 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
     "Tasks for deactivating actor shouldn't be processed before deactivation complete" in {
       val (fsm1, actorSystem1, testKit1, address1) = {
         implicit val actorSystem1 = testActorSystem(1)
-        (createRevaultActor(waitWhileActivates = false), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
+        (createRevaultActor("test-group", waitWhileActivates = false), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
       }
 
       val (fsm2, actorSystem2, testKit2, address2) = {
         implicit val actorSystem2 = testActorSystem(2)
-        (createRevaultActor(waitWhileActivates = false), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
+        (createRevaultActor("test-group", waitWhileActivates = false), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
       }
 
       testKit1.awaitCond(fsm1.stateName == ShardMemberStatus.Active && fsm1.stateData.members.nonEmpty)
@@ -146,7 +146,7 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
     "Processor should not confirm sync/activation until completes processing corresponding task" in {
       val (fsm1, actorSystem1, testKit1, address1) = {
         implicit val actorSystem1 = testActorSystem(1)
-        (createRevaultActor(), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
+        (createRevaultActor("test-group"), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
       }
 
       val task1 = TestShardTask("klm","t7", sleep = 6000)
@@ -157,7 +157,7 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
 
       val (fsm2, actorSystem2, testKit2, address2) = {
         implicit val actorSystem2 = testActorSystem(2)
-        (createRevaultActor(waitWhileActivates = false), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
+        (createRevaultActor("test-group", waitWhileActivates = false), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
       }
 
       testKit1.awaitCond({

@@ -45,7 +45,9 @@
 
 todo:
   * move kafka out of worker + allow multiple monitors
-  * update event format 
+  * update event format
+  * history period support, remove older monitors
+    + (content monitorList delta updates)
   * EmptyBody without content-type!
   * StringDeserializer -> accept Message
   * plain string serializer?

@@ -8,9 +8,11 @@ import akka.routing.{ConsistentHash, MurmurHash}
 
 import scala.collection.mutable
 import scala.concurrent.duration._
+import scala.util.control.NonFatal
 
 @SerialVersionUID(1L) trait ShardTask {
   def key: String
+  def group: String
   def isExpired: Boolean
 }
 
@@ -25,6 +27,7 @@ object ShardMemberStatus {
 
 @SerialVersionUID(1L) case class Sync(applicantAddress: Address, status: ShardMemberStatus, clusterHash: Int)
 @SerialVersionUID(1L) case class SyncReply(acceptorAddress: Address, status: ShardMemberStatus, acceptedStatus: ShardMemberStatus, clusterHash: Int)
+@SerialVersionUID(1L) case class NoSuchGroupWorkerException(groupName: String) extends RuntimeException(s"No such worker group: $groupName")
 
 case class ShardMember(actorRef: ActorSelection,
                        status: ShardMemberStatus,
@@ -67,19 +70,21 @@ case class ShardedClusterData(members: Map[Address, ShardMember], selfAddress: A
 
 private [sharding] case object ShardSyncTimer
 case object ShutdownProcessor
-case class ShardTaskComplete(result: Option[Any])
+case class ShardTaskComplete(task: ShardTask, result: Any)
 
-class ShardProcessor(workerProps: Props, workerCount: Int, roleName: String) extends FSM[ShardMemberStatus, ShardedClusterData] with Stash {
+class ShardProcessor(workersSettings: Map[String, (Props, Int)], roleName: String) extends FSM[ShardMemberStatus, ShardedClusterData] with Stash {
   private val cluster = Cluster(context.system)
   if (!cluster.selfRoles.contains(roleName)) {
     log.error(s"Cluster doesn't containt '$roleName' role. Please configure.")
   }
   private val selfAddress = cluster.selfAddress
   // todo: don't precreate workers
-  val inactiveWorkers: mutable.Stack[ActorRef] = mutable.Stack.tabulate(workerCount) { workerIndex ⇒
+  /*val inactiveWorkers: mutable.Stack[ActorRef] = mutable.Stack.tabulate(workerCount) { workerIndex ⇒
     context.system.actorOf(workerProps, s"shard-wrkr-$workerIndex")
+  }*/
+  val activeWorkers = workersSettings.map { case (groupName, (props, maxCount)) ⇒
+    groupName → mutable.ArrayBuffer[(ShardTask, ActorRef, ActorRef)]()
   }
-  val activeWorkers = mutable.ArrayBuffer[(ShardTask, ActorRef, ActorRef)]()
   cluster.subscribe(self, initialStateMode = ClusterEvent.InitialStateAsEvents, classOf[MemberEvent])
 
   startWith(ShardMemberStatus.Activating, ShardedClusterData(Map.empty, selfAddress, ShardMemberStatus.Activating))
@@ -143,8 +148,8 @@ class ShardProcessor(workerProps: Props, workerCount: Int, roleName: String) ext
     case Event(MemberExited(member), data) ⇒
       removeMember(member, data) andUpdate
 
-    case Event(ShardTaskComplete(result), data) ⇒
-      workerIsReadyForNextTask(result)
+    case Event(ShardTaskComplete(task, result), data) ⇒
+      workerIsReadyForNextTask(task, result)
       stay()
 
     case Event(task: ShardTask, data) ⇒
@@ -249,7 +254,7 @@ class ShardProcessor(workerProps: Props, workerCount: Int, roleName: String) ext
 
         val newData: ShardedClusterData = data + sync.applicantAddress → member.copy(status = sync.status)
         val allowSync = if (sync.status == ShardMemberStatus.Activating) {
-          activeWorkers.forall { case (task, workerActor, _) ⇒
+          activeWorkers.values.flatten.forall { case (task, workerActor, _) ⇒
             if (newData.taskIsFor(task) == sync.applicantAddress) {
               log.info(s"Ignoring sync request $sync while processing task $task by worker $workerActor")
               false
@@ -318,26 +323,41 @@ class ShardProcessor(workerProps: Props, workerCount: Int, roleName: String) ext
           }
           stash()
         } else {
-          activeWorkers.find(_._1.key == task.key) map { case (_, activeWorker, _) ⇒
-            if (log.isDebugEnabled) {
-              log.debug(s"Stashing task for the 'locked' URL: $task worker: $activeWorker")
-            }
-            stash()
-            true
-          } getOrElse {
-            if (inactiveWorkers.isEmpty) {
-              if (log.isDebugEnabled) {
-                log.debug(s"No free worker, stashing task: $task")
+          activeWorkers.get(task.group) match {
+            case Some(activeGroupWorkers) ⇒
+              activeGroupWorkers.find(_._1.key == task.key) map { case (_, activeWorker, _) ⇒
+                if (log.isDebugEnabled) {
+                  log.debug(s"Stashing task for the 'locked' URL: $task worker: $activeWorker")
+                }
+                stash()
+                true
+              } getOrElse {
+                val maxCount = workersSettings(task.group)._2
+                // todo: create worker actor for a group!
+                if (activeGroupWorkers.size >= maxCount) {
+                  if (log.isDebugEnabled) {
+                    log.debug(s"Worker limit for group '${task.group}' is reached ($maxCount), stashing task: $task")
+                  }
+                  stash()
+                } else {
+                  val workerProps = workersSettings(task.group)._1
+                  try {
+                    val worker = context.system.actorOf(workerProps)
+                    if (log.isDebugEnabled) {
+                      log.debug(s"Forwarding task from ${sender()} to worker $worker: $task")
+                    }
+                    worker ! task
+                    activeGroupWorkers.append((task, worker, sender()))
+                  } catch {
+                    case NonFatal(e) ⇒
+                      log.error(e, s"Can't create worker from props $workerProps")
+                      sender() ! e
+                  }
+                }
               }
-              stash()
-            } else {
-              val worker = inactiveWorkers.pop()
-              if (log.isDebugEnabled) {
-                log.debug(s"Forwarding task from ${sender()} to worker $worker: $task")
-              }
-              worker ! task
-              activeWorkers.append((task, worker, sender()))
-            }
+            case None ⇒
+              log.error(s"No such worker group: ${task.group}. Task is dismissed: $task")
+              sender() ! new NoSuchGroupWorkerException(task.group)
           }
         }
       }
@@ -378,19 +398,27 @@ class ShardProcessor(workerProps: Props, workerCount: Int, roleName: String) ext
     }
   }
 
-  def workerIsReadyForNextTask(result: Option[Any]): Unit = {
-    val idx = activeWorkers.indexWhere(_._2 == sender())
-    if (idx >= 0) {
-      val (task,worker,client) = activeWorkers(idx)
-      result.foreach(r ⇒ client ! r)
-      if (log.isDebugEnabled) {
-        log.debug(s"Worker $worker is ready for next task. Completed task: $task")
-      }
-      activeWorkers.remove(idx)
-      inactiveWorkers.push(worker)
-      unstashAll()
-    } else {
-      log.error(s"workerIsReadyForNextTask: unknown worker actor: $sender")
+  def workerIsReadyForNextTask(task: ShardTask, result: Any): Unit = {
+    activeWorkers.get(task.group) match {
+      case Some(activeGroupWorkers) ⇒
+        val idx = activeGroupWorkers.indexWhere(_._2 == sender())
+        if (idx >= 0) {
+          val (task,worker,client) = activeGroupWorkers(idx)
+          result match {
+            case None ⇒ // no result
+            case other ⇒ client ! other
+          }
+          if (log.isDebugEnabled) {
+            log.debug(s"Worker $worker is ready for next task. Completed task: $task")
+          }
+          activeGroupWorkers.remove(idx)
+          worker ! PoisonPill
+          unstashAll()
+        } else {
+          log.error(s"workerIsReadyForNextTask: unknown worker actor: $sender")
+        }
+      case None ⇒
+        log.error(s"No such worker group: ${task.group}. Task result from $sender is ignored: $result. Task: $task")
     }
   }
 

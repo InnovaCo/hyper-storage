@@ -26,18 +26,18 @@ class WorkerSpec extends FreeSpec
     "Processor in a single-node cluster" - {
       "ProcessorFSM should become Active" in {
         implicit val as = testActorSystem()
-        createRevaultActor()
+        createRevaultActor("test-group")
       }
 
       "ProcessorFSM should shutdown gracefully" in {
         implicit val as = testActorSystem()
-        val fsm = createRevaultActor()
+        val fsm = createRevaultActor("test-group")
         shutdownRevaultActor(fsm)
       }
 
       "ProcessorFSM should process task" in {
         implicit val as = testActorSystem()
-        val fsm = createRevaultActor()
+        val fsm = createRevaultActor("test-group")
         val task = TestShardTask("abc", "t1")
         fsm ! task
         testKit().awaitCond(task.isProcessed)
@@ -46,7 +46,7 @@ class WorkerSpec extends FreeSpec
 
       "ProcessorFSM should stash task while Activating and process it later" in {
         implicit val as = testActorSystem()
-        val fsm = createRevaultActor(waitWhileActivates = false)
+        val fsm = createRevaultActor("test-group", waitWhileActivates = false)
         val task = TestShardTask("abc", "t1")
         fsm ! task
         fsm.stateName should equal(ShardMemberStatus.Activating)
@@ -59,7 +59,7 @@ class WorkerSpec extends FreeSpec
       "ProcessorFSM should stash task when workers are busy and process later" in {
         implicit val as = testActorSystem()
         val tk = testKit()
-        val fsm = createRevaultActor()
+        val fsm = createRevaultActor("test-group")
         val task1 = TestShardTask("abc1", "t1")
         val task2 = TestShardTask("abc2", "t2")
         fsm ! task1
@@ -72,7 +72,7 @@ class WorkerSpec extends FreeSpec
       "ProcessorFSM should stash task when URL is 'locked' and it process later" in {
         implicit val as = testActorSystem()
         val tk = testKit()
-        val fsm = createRevaultActor(2)
+        val fsm = createRevaultActor("test-group", 2)
         val task1 = TestShardTask("abc1", "t1", 500)
         val task1x = TestShardTask("abc1", "t1x", 500)
         val task2 = TestShardTask("abc2", "t2", 500)
@@ -111,7 +111,7 @@ class WorkerSpec extends FreeSpec
       val taskStr = StringSerializer.serializeToString(task)
       worker ! RevaultShardTask("", System.currentTimeMillis() + 10000, taskStr)
       expectMsgPF() {
-        case ShardTaskComplete(Some(result : RevaultTaskResult)) if response(result.content).status == Status.OK &&
+        case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.OK &&
           response(result.content).correlationId == task.correlationId ⇒ {
           true
         }
@@ -137,7 +137,7 @@ class WorkerSpec extends FreeSpec
       val taskStr = StringSerializer.serializeToString(task)
       worker ! RevaultShardTask("", System.currentTimeMillis() + 10000, taskStr)
       expectMsgPF() {
-        case ShardTaskComplete(Some(result: RevaultTaskResult)) if response(result.content).status == Status.NOT_FOUND &&
+        case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.NOT_FOUND &&
           response(result.content).correlationId == task.correlationId ⇒ {
           true
         }
@@ -170,7 +170,7 @@ class WorkerSpec extends FreeSpec
 
       worker ! RevaultShardTask("", System.currentTimeMillis() + 10000, taskPatchStr)
       expectMsgPF() {
-        case ShardTaskComplete(Some(result: RevaultTaskResult)) if response(result.content).status == Status.OK &&
+        case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.OK &&
           response(result.content).correlationId == task.correlationId ⇒ {
           true
         }
@@ -193,7 +193,7 @@ class WorkerSpec extends FreeSpec
       val taskStr = StringSerializer.serializeToString(task)
       worker ! RevaultShardTask("", System.currentTimeMillis() + 10000, taskStr)
       expectMsgPF() {
-        case ShardTaskComplete(Some(result: RevaultTaskResult)) if response(result.content).status == Status.NOT_FOUND &&
+        case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.NOT_FOUND &&
           response(result.content).correlationId == task.correlationId ⇒ {
           true
         }
@@ -228,7 +228,7 @@ class WorkerSpec extends FreeSpec
       val taskStr = StringSerializer.serializeToString(task)
       worker ! RevaultShardTask("", System.currentTimeMillis() + 10000, taskStr)
       expectMsgPF() {
-        case ShardTaskComplete(Some(result: RevaultTaskResult)) if response(result.content).status == Status.OK &&
+        case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.OK &&
           response(result.content).correlationId == task.correlationId ⇒ {
           true
         }
@@ -260,7 +260,7 @@ class WorkerSpec extends FreeSpec
     val taskStr = StringSerializer.serializeToString(task)
     worker ! RevaultShardTask("", System.currentTimeMillis() + 10000, taskStr)
     expectMsgPF() {
-      case ShardTaskComplete(Some(result: RevaultTaskResult)) if response(result.content).status == Status.ACCEPTED &&
+      case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.ACCEPTED &&
         response(result.content).correlationId == task.correlationId ⇒ {
         true
       }

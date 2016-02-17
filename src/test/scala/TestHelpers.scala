@@ -18,6 +18,7 @@ case class TestShardTask(key: String, value: String,
                          sleep: Int = 0,
                          ttl: Long = System.currentTimeMillis()+60*1000,
                          id: UUID = UUID.randomUUID()) extends ShardTask {
+  def group = "test-group"
   def isExpired = ttl < System.currentTimeMillis()
   def processingStarted(actorPath: String): Unit = {
     ProcessedRegistry.tasksStarted += id → (actorPath, this)
@@ -52,7 +53,7 @@ class TestWorker extends Actor with ActorLogging {
         task.processed(path)
         log.info(s"Task processed: $task")
       }
-      sender() ! ShardTaskComplete(None)
+      sender() ! ShardTaskComplete(task, None)
     }
   }
 }
@@ -60,9 +61,10 @@ class TestWorker extends Actor with ActorLogging {
 trait TestHelpers extends Matchers with BeforeAndAfterEach {
   this : org.scalatest.BeforeAndAfterEach with org.scalatest.Suite =>
 
-  def createRevaultActor(workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
+  def createRevaultActor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
+    val workerSettings = Map(groupName → (Props[TestWorker], workerCount))
     val fsm = new TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor](actorSystem,
-      Props(new ShardProcessor(Props[TestWorker], workerCount, "revault")).withDispatcher("deque-dispatcher"),
+      Props(new ShardProcessor(workerSettings, "revault")).withDispatcher("deque-dispatcher"),
       GuardianExtractor.guardian(actorSystem),
       "revault"
     )

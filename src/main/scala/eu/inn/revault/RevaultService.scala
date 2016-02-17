@@ -42,9 +42,10 @@ class RevaultService(console: Console, config: Config, implicit val injector: In
 
   // worker actor todo: recovery job
   val workerProps = Props(classOf[RevaultWorker], hyperBus, db, actorSystem.deadLetters)
+  val workerSettings = Map("revault" → (workerProps, 1)) // todo: configure max worker settings
 
   // processor actor
-  val processorActorRef = actorSystem.actorOf(Props(new ShardProcessor(workerProps, 1, "revault")))
+  val processorActorRef = actorSystem.actorOf(Props(new ShardProcessor(workerSettings, "revault")))
 
   val distributor = actorSystem.actorOf(Props(classOf[RevaultDistributor], processorActorRef, db))
   implicit val timeout = Timeout(20.seconds)
