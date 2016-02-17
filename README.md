@@ -4,17 +4,20 @@
     {
         "request": {
             "uri": {
-                "pattern":"/revault/{path:*}:events",
+                "pattern":"/revault/{path:*}/feed",
                 "args": {
                     "path": "about-author"
                 }
             },
-            "method":"put",
+            "method":"post",
             "contentType":"about-author",
-            "messageId":"123"
+            "messageId":"123",
+            "headers": {
+                "hyperbus-revision": ["100500"],
+                "hyperbus-original-method": "put"
+            }
         },
         "body": {
-            "_revision": "100500",
             "authorName": "Jack London",
             "books": {
                 "1": "The Call of the Wild",
@@ -41,6 +44,8 @@
 
 
 todo:
+  * move kafka out of worker + allow multiple monitors
+  * update event format 
   * EmptyBody without content-type!
   * StringDeserializer -> accept Message
   * plain string serializer?

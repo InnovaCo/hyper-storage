@@ -1,6 +1,7 @@
 import java.util.UUID
 
 import akka.testkit.{TestActorRef, TestProbe}
+import com.datastax.driver.core.utils.UUIDs
 import eu.inn.binders.dynamic.{Null, Obj, Text}
 import eu.inn.hyperbus.model.serialization.util.StringDeserializer
 import eu.inn.hyperbus.model.standard._
@@ -269,12 +270,12 @@ class WorkerSpec extends FreeSpec
     whenReady(db.selectContent("/faulty", "")) { result =>
       result.get.body should equal(Some("""{"text":"Test resource value"}"""))
 
-      val monitorChannel = result.get.monitorChannel
-      val monitorDr = result.get.monitorDtQuantum
+      val monitorUuid = result.get.monitorList.head
+      val monitorDtQuantum = MonitorLogic.getDtQuantum(UUIDs.unixTimestamp(monitorUuid))
+      val monitorChannel = MonitorLogic.channelFromUri("/faulty")
       val revision = result.get.revision
-      val monitorUuid = result.get.monitorUuid
 
-      whenReady(db.selectMonitor(monitorDr, monitorChannel, "/faulty", revision, monitorUuid)) { result =>
+      whenReady(db.selectMonitor(monitorDtQuantum, monitorChannel, "/faulty", revision, monitorUuid)) { result =>
         result.get.completedAt shouldBe None
       }
     }

@@ -3,6 +3,7 @@ package eu.inn.revault
 import java.util.Date
 
 import akka.actor.{Actor, ActorLogging, ActorRef}
+import com.datastax.driver.core.utils.UUIDs
 import com.fasterxml.jackson.core.JsonParser
 import com.oracle.webservices.internal.api.message.MessageContextFactory
 import eu.inn.binders.dynamic._
@@ -56,7 +57,7 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
 
         // fetch and complete existing content
         if (request.uri.pattern == RevaultFix.uriPattern) {
-          executeRecourceFixTask(prefix, lastSegment, task, request)
+          executeResourceFixTask(prefix, lastSegment, task, request)
         }
         else {
           executeResourceUpdateTask(prefix, lastSegment, task, request)
@@ -87,15 +88,21 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
     } pipeTo context.self
   }
 
-  private def executeRecourceFixTask(prefix: String, lastSegment: String, task: RevaultShardTask, request: DynamicRequest): Unit = {
+  private def executeResourceFixTask(prefix: String, lastSegment: String, task: RevaultShardTask, request: DynamicRequest): Unit = {
     val futureExistingContent = selectAndCompletePrevious(prefix, lastSegment)
     futureExistingContent map {
       case (_, Some(previousMonitor)) ⇒
         RevaultWorkerTaskComplete(task, previousMonitor)
       case (Some(existing), None) ⇒ {
-        // todo: {} is not correct body of monoitor here.
-        val mon = Monitor(existing.monitorDtQuantum, existing.monitorChannel, request.path, existing.revision,
-          existing.monitorUuid, "{}",
+        // todo: fake monitor here may lead to problems
+        val monitorUuid = existing.monitorList.headOption.getOrElse(UUIDs.endOf(
+          existing.modifiedAt.getOrElse(existing.createdAt).getTime
+        ))
+        val monitorChannel = MonitorLogic.channelFromUri(existing.uri)
+        val monitorDtQuantum = MonitorLogic.getDtQuantum(UUIDs.unixTimestamp(monitorUuid))
+
+        val mon = Monitor(monitorDtQuantum, monitorChannel, request.path, existing.revision,
+          monitorUuid, "{}",
           Some(existing.modifiedAt.getOrElse(existing.createdAt))
         )
         RevaultWorkerTaskComplete(task, mon)
@@ -139,20 +146,25 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
     db.selectContent(prefix, lastSegment) flatMap {
       case None ⇒ Future((None, None))
       case Some(content) ⇒
-        db.selectMonitor(content.monitorDtQuantum,
-          content.monitorChannel,
-          prefix + "/" + lastSegment,
-          content.revision,
-          content.monitorUuid) flatMap {
-          case None ⇒ Future(Some(content), None) // If no monitor, consider that it's complete
-          case Some(monitor) ⇒
-            if (monitor.completedAt.isDefined)
-              Future((Some(content), Some(monitor)))
-            else {
-              completeTask(monitor) map { _ ⇒
-                (Some(content), Some(monitor))
+        content.monitorList.headOption map { monitorUuid ⇒
+          val monitorDtQuantum = MonitorLogic.getDtQuantum(UUIDs.unixTimestamp(monitorUuid))
+          db.selectMonitor(monitorDtQuantum,
+            content.monitorChannel,
+            content.uri,
+            content.revision,
+            monitorUuid) flatMap {
+            case None ⇒ Future(Some(content), None) // If no monitor, consider that it's complete
+            case Some(monitor) ⇒
+              if (monitor.completedAt.isDefined)
+                Future((Some(content), Some(monitor)))
+              else {
+                completeTask(monitor) map { _ ⇒
+                  (Some(content), Some(monitor))
+                }
               }
-            }
+          }
+        } getOrElse {
+          Future((Some(content), None))
         }
     }
   }
@@ -212,9 +224,7 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
                             existingContent: Option[Content]): Content = existingContent match {
     case None ⇒
       Content(prefix, lastSegment, newMonitor.revision,
-        monitorDtQuantum = newMonitor.dtQuantum,
-        monitorChannel = newMonitor.channel,
-        monitorUuid = newMonitor.uuid,
+        monitorList = List(newMonitor.uuid),
         body = Some(filterNulls(request.body).serializeToString()),
         isDeleted = false,
         createdAt = new Date(),
@@ -223,9 +233,7 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
 
     case Some(content) ⇒
       Content(prefix, lastSegment, newMonitor.revision,
-        monitorDtQuantum = newMonitor.dtQuantum,
-        monitorChannel = newMonitor.channel,
-        monitorUuid = newMonitor.uuid,
+        monitorList = newMonitor.uuid +: content.monitorList,
         body = Some(filterNulls(request.body).serializeToString()),
         isDeleted = false,
         createdAt = content.createdAt,
@@ -245,8 +253,7 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
 
     case Some(content) ⇒
       Content(prefix, lastSegment, newMonitor.revision,
-        monitorDtQuantum = newMonitor.dtQuantum, monitorChannel = newMonitor.channel,
-        monitorUuid = newMonitor.uuid,
+        monitorList = newMonitor.uuid +: content.monitorList,
         body = Some(mergeBody(StringDeserializer.dynamicBody(content.body), request.body).serializeToString()),
         isDeleted = false,
         createdAt = content.createdAt,
@@ -266,9 +273,7 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
 
     case Some(content) ⇒
       Content(prefix, lastSegment, newMonitor.revision,
-        monitorDtQuantum = newMonitor.dtQuantum,
-        monitorChannel = newMonitor.channel,
-        monitorUuid = newMonitor.uuid,
+        monitorList = newMonitor.uuid +: content.monitorList,
         body = None,
         isDeleted = true,
         createdAt = content.createdAt,
@@ -314,6 +319,16 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
     def serializeToString(): String = {
       StringSerializer.serializeToString(body)
     }
+  }
+
+  implicit class ContentWrapper(val content: Content) {
+    def uri = {
+      if (content.itemSegment.isEmpty)
+        content.documentUri
+      else
+        content.documentUri + "/" + content.itemSegment
+    }
+    def monitorChannel = MonitorLogic.channelFromUri(uri)
   }
 
   val filterNullsVisitor = new ValueVisitor[Value]{
