@@ -41,6 +41,7 @@ case class RevaultFix(path: String, body: EmptyBody) extends StaticPost(body)
 
 class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends Actor with ActorLogging {
   import context._
+  import ContentLogic._
 
   def receive = {
     case task: RevaultShardTask ⇒
@@ -50,18 +51,18 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
   def executeTask(owner: ActorRef, task: RevaultShardTask): Unit = {
     Try{
       val request = DynamicRequest(task.content)
-      val (prefix, lastSegment) = splitPath(request.path)
-      (prefix, lastSegment, request)
+      val (documentUri, itemSegment) = splitPath(request.path)
+      (documentUri, itemSegment, request)
     } map {
-      case (prefix: String, lastSegment: String, request: DynamicRequest) ⇒
+      case (documentUri: String, itemSegment: String, request: DynamicRequest) ⇒
         become(taskWaitResult(owner, task)(request))
 
         // fetch and complete existing content
         if (request.uri.pattern == RevaultFix.uriPattern) {
-          executeResourceFixTask(prefix, lastSegment, task, request)
+          executeResourceFixTask(documentUri, itemSegment, task, request)
         }
         else {
-          executeResourceUpdateTask(prefix, lastSegment, task, request)
+          executeResourceUpdateTask(documentUri, itemSegment, task, request)
         }
     } recover {
       case NonFatal(e) ⇒
@@ -70,10 +71,10 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
     }
   }
 
-  def executeResourceUpdateTask(prefix: String, lastSegment: String, task: RevaultShardTask, request: DynamicRequest) = {
-    val futureUpdateContent = selectAndCompletePrevious(prefix, lastSegment) flatMap {
+  def executeResourceUpdateTask(documentUri: String, itemSegment: String, task: RevaultShardTask, request: DynamicRequest) = {
+    val futureUpdateContent = selectAndCompletePrevious(documentUri, itemSegment) flatMap {
       case (existingContent, _) ⇒
-        updateResource(prefix, lastSegment, request, existingContent)
+        updateResource(documentUri, itemSegment, request, existingContent)
     }
 
     futureUpdateContent flatMap { newMonitor ⇒
@@ -89,8 +90,8 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
     } pipeTo context.self
   }
 
-  private def executeResourceFixTask(prefix: String, lastSegment: String, task: RevaultShardTask, request: DynamicRequest): Unit = {
-    val futureExistingContent = selectAndCompletePrevious(prefix, lastSegment)
+  private def executeResourceFixTask(documentUri: String, itemSegment: String, task: RevaultShardTask, request: DynamicRequest): Unit = {
+    val futureExistingContent = selectAndCompletePrevious(documentUri, itemSegment)
     futureExistingContent map {
       case (_, Some(previousMonitor)) ⇒
         RevaultWorkerTaskComplete(task, previousMonitor)
@@ -144,8 +145,8 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
     ).serializeToString())
   }
 
-  private def selectAndCompletePrevious(prefix: String, lastSegment: String): Future[(Option[Content], Option[Monitor])] = {
-    db.selectContent(prefix, lastSegment) flatMap {
+  private def selectAndCompletePrevious(documentUri: String, itemSegment: String): Future[(Option[Content], Option[Monitor])] = {
+    db.selectContent(documentUri, itemSegment) flatMap {
       case None ⇒ Future((None, None))
       case Some(content) ⇒
         content.monitorList.headOption map { monitorUuid ⇒
@@ -208,24 +209,24 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
     RevaultTaskResult(response.serializeToString())
   }
 
-  private def updateContent(prefix: String,
-                            lastSegment: String,
+  private def updateContent(documentUri: String,
+                            itemSegment: String,
                             newMonitor: Monitor,
                             request: DynamicRequest,
                             existingContent: Option[Content]): Content =
   request.method match {
-    case Method.PUT ⇒ putContent(prefix, lastSegment, newMonitor, request, existingContent)
-    case Method.PATCH ⇒ patchContent(prefix, lastSegment, newMonitor, request, existingContent)
-    case Method.DELETE ⇒ deleteContent(prefix, lastSegment, newMonitor, request, existingContent)
+    case Method.PUT ⇒ putContent(documentUri, itemSegment, newMonitor, request, existingContent)
+    case Method.PATCH ⇒ patchContent(documentUri, itemSegment, newMonitor, request, existingContent)
+    case Method.DELETE ⇒ deleteContent(documentUri, itemSegment, newMonitor, request, existingContent)
   }
 
-  private def putContent(prefix: String,
-                            lastSegment: String,
+  private def putContent(documentUri: String,
+                            itemSegment: String,
                             newMonitor: Monitor,
                             request: DynamicRequest,
                             existingContent: Option[Content]): Content = existingContent match {
     case None ⇒
-      Content(prefix, lastSegment, newMonitor.revision,
+      Content(documentUri, itemSegment, newMonitor.revision,
         monitorList = List(newMonitor.uuid),
         body = Some(filterNulls(request.body).serializeToString()),
         isDeleted = false,
@@ -234,7 +235,7 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
       )
 
     case Some(content) ⇒
-      Content(prefix, lastSegment, newMonitor.revision,
+      Content(documentUri, itemSegment, newMonitor.revision,
         monitorList = newMonitor.uuid +: content.monitorList,
         body = Some(filterNulls(request.body).serializeToString()),
         isDeleted = false,
@@ -243,8 +244,8 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
       )
   }
 
-  private def patchContent(prefix: String,
-                         lastSegment: String,
+  private def patchContent(documentUri: String,
+                         itemSegment: String,
                          newMonitor: Monitor,
                          request: DynamicRequest,
                          existingContent: Option[Content]): Content = existingContent match {
@@ -254,7 +255,7 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
     }
 
     case Some(content) ⇒
-      Content(prefix, lastSegment, newMonitor.revision,
+      Content(documentUri, itemSegment, newMonitor.revision,
         monitorList = newMonitor.uuid +: content.monitorList,
         body = Some(mergeBody(StringDeserializer.dynamicBody(content.body), request.body).serializeToString()),
         isDeleted = false,
@@ -263,8 +264,8 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
       )
   }
 
-  private def deleteContent(prefix: String,
-                           lastSegment: String,
+  private def deleteContent(documentUri: String,
+                           itemSegment: String,
                            newMonitor: Monitor,
                            request: DynamicRequest,
                            existingContent: Option[Content]): Content = existingContent match {
@@ -274,7 +275,7 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
     }
 
     case Some(content) ⇒
-      Content(prefix, lastSegment, newMonitor.revision,
+      Content(documentUri, itemSegment, newMonitor.revision,
         monitorList = newMonitor.uuid +: content.monitorList,
         body = None,
         isDeleted = true,
@@ -283,12 +284,12 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
       )
   }
 
-  private def updateResource(prefix: String,
-                             lastSegment: String,
+  private def updateResource(documentUri: String,
+                             itemSegment: String,
                              request: DynamicRequest,
                              existingContent: Option[Content]): Future[Monitor] = {
     val newMonitor = createNewMonitor(request, existingContent)
-    val newContent = updateContent(prefix, lastSegment, newMonitor, request, existingContent)
+    val newContent = updateContent(documentUri, itemSegment, newMonitor, request, existingContent)
     db.insertMonitor(newMonitor) flatMap { _ ⇒
       db.insertContent(newContent) map { _ ⇒
         newMonitor
@@ -298,12 +299,6 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
 
   private def mergeBody(existing: DynamicBody, patch: DynamicBody): DynamicBody = {
     DynamicBody(filterNulls(existing.content.merge(patch.content)))
-  }
-
-  // todo: describe uri to resource/collection item matching
-  private def splitPath(path: String): (String,String) = {
-    // todo: implement collections
-    (path,"")
   }
 
   implicit class RequestWrapper(val request: DynamicRequest) {
@@ -321,16 +316,6 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, recoveryActor: ActorRef) extends
     def serializeToString(): String = {
       StringSerializer.serializeToString(body)
     }
-  }
-
-  implicit class ContentWrapper(val content: Content) {
-    def uri = {
-      if (content.itemSegment.isEmpty)
-        content.documentUri
-      else
-        content.documentUri + "/" + content.itemSegment
-    }
-    def monitorChannel = MonitorLogic.channelFromUri(uri)
   }
 
   val filterNullsVisitor = new ValueVisitor[Value]{
