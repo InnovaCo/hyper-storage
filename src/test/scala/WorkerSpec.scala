@@ -10,7 +10,7 @@ import eu.inn.hyperbus.model.standard._
 import eu.inn.hyperbus.model.{DynamicRequest, Body, DynamicBody, Response}
 import eu.inn.hyperbus.util.StringSerializer
 import eu.inn.revault._
-import eu.inn.revault.protocol.{RevaultDelete, RevaultPatch, RevaultPut}
+import eu.inn.revault.protocol.{RevaultGet, RevaultDelete, RevaultPatch, RevaultPut}
 import eu.inn.revault.sharding.{ShardProcessor, ShardMemberStatus, ShardTaskComplete}
 import mock.FaultClientTransport
 import org.scalatest.concurrent.ScalaFutures
@@ -19,6 +19,7 @@ import org.scalatest.{FreeSpec, Matchers}
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.control.NonFatal
+import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 
 // todo: split revault and shardprocessor
 class WorkerSpec extends FreeSpec
@@ -104,7 +105,7 @@ class WorkerSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(new RevaultWorker(hyperBus, db))
+      val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
 
       val task = RevaultPut(
         path = "/test-resource-1",
@@ -152,7 +153,7 @@ class WorkerSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(new RevaultWorker(hyperBus, db))
+      val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
 
       val task = RevaultPatch(
         path = "/not-existing",
@@ -178,7 +179,7 @@ class WorkerSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(new RevaultWorker(hyperBus, db))
+      val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
 
       val path = "/test-resource-" + UUID.randomUUID().toString
       val taskPutStr = StringSerializer.serializeToString(RevaultPut(path,
@@ -213,7 +214,7 @@ class WorkerSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(new RevaultWorker(hyperBus, db))
+      val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
 
       val task = RevaultDelete(path = "/not-existing", body = EmptyBody)
 
@@ -236,7 +237,7 @@ class WorkerSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(new RevaultWorker(hyperBus, db))
+      val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
 
       val path = "/test-resource-" + UUID.randomUUID().toString
       val taskPutStr = StringSerializer.serializeToString(RevaultPut(path,
@@ -274,7 +275,7 @@ class WorkerSpec extends FreeSpec
     val tk = testKit()
     import tk._
 
-    val worker = TestActorRef(new RevaultWorker(hyperBus, db))
+    val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
     val path = "/abcde"
     val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
       DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
@@ -303,7 +304,7 @@ class WorkerSpec extends FreeSpec
     }
 
     selectMonitors(monitors, path, db) foreach { monitor ⇒
-      monitor.completedAt shouldNot be(None)
+      monitor.completedAt should be(None)
     }
 
     val completer = TestActorRef(new RevaultCompleter(hyperBus, db))
@@ -323,7 +324,7 @@ class WorkerSpec extends FreeSpec
     val tk = testKit()
     import tk._
 
-    val worker = TestActorRef(new RevaultWorker(hyperBus, db))
+    val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
     val path = "/faulty"
     val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
       DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
@@ -400,18 +401,21 @@ class WorkerSpec extends FreeSpec
     )
 
     val processor = TestActorRef(new ShardProcessor(workerSettings, "revault"))
-    val distributor = TestActorRef(new RevaultDistributor(processor, db))
+    val distributor = TestActorRef(new RevaultDistributor(processor, db, 20 seconds))
     import eu.inn.hyperbus.akkaservice._
     implicit val timeout = Timeout(20.seconds)
     hyperBus.routeTo[RevaultDistributor](distributor)
-    Thread.sleep(1000)
+    Thread.sleep(2000)
 
-    val timeout2 = org.scalatest.concurrent.PatienceConfiguration.Timeout(20.seconds)
-    val f = hyperBus <~ RevaultPut("/revault-spec", DynamicBody(Text("Hello")))
-    whenReady(f, timeout2) { response ⇒
-      println(response)
+    val path = "/" + UUID.randomUUID().toString
+    whenReady(hyperBus <~ RevaultPut(path, DynamicBody(Text("Hello"))), TestTimeout(10.seconds)) { response ⇒
+      response.status should equal (Status.ACCEPTED)
     }
-    1 should equal(1)
+
+    whenReady(hyperBus <~ RevaultGet(path, EmptyBody), TestTimeout(10.seconds)) { response ⇒
+      response.status should equal (Status.OK)
+      response.body.content should equal(Text("Hello"))
+    }
   }
 
   def response(content: String): Response[Body] = StringDeserializer.dynamicResponse(content)

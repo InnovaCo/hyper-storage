@@ -6,8 +6,11 @@ import com.typesafe.config.Config
 import eu.inn.binders._
 import eu.inn.binders.cassandra._
 import eu.inn.binders.naming.{CamelCaseToSnakeCaseConverter, SnakeCaseToCamelCaseConverter}
+import eu.inn.revault.CassandraConnector
+import org.slf4j.LoggerFactory
 
 import scala.concurrent.{Future, ExecutionContext}
+import scala.util.control.NonFatal
 
 case class Content(
                     documentUri: String,
@@ -35,8 +38,26 @@ case class Channel(
                     lastQuantum: Date
                   )
 
-class Db(session: com.datastax.driver.core.Session)(implicit ec: ExecutionContext) {
-  private [this] implicit val sessionQueryCache = new SessionQueryCache[CamelCaseToSnakeCaseConverter](session)
+class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
+  private [this] lazy val session: com.datastax.driver.core.Session = connector.connect()
+  private [this] lazy implicit val sessionQueryCache = new SessionQueryCache[CamelCaseToSnakeCaseConverter](session)
+  val log = LoggerFactory.getLogger(getClass)
+
+  def preStart(): Unit = {
+    session
+  }
+
+  def close() = {
+    try {
+      val cluster = session.getCluster
+      session.close()
+      cluster.close()
+    }
+    catch {
+      case NonFatal(e) ⇒
+        log.error(s"Can't close C* session", e)
+    }
+  }
 
   def selectContent(documentUri: String, itemSegment: String): Future[Option[Content]] = cql"""
       select document_uri,item_segment,revision,monitor_list,body,is_deleted,created_at,modified_at from content

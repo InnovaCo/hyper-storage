@@ -28,7 +28,7 @@ import scala.util.control.NonFatal
 case class RevaultWorkerTaskFailed(task: ShardTask, inner: Throwable)
 case class RevaultWorkerTaskAccepted(task: ShardTask, monitor: Monitor)
 
-class RevaultWorker(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
+class RevaultWorker(hyperBus: HyperBus, db: Db, completerTaskTtl: Long) extends Actor with ActorLogging {
   import ContentLogic._
   import context._
 
@@ -84,7 +84,7 @@ class RevaultWorker(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging 
       if (log.isDebugEnabled) {
         log.debug(s"Task $originalTask is accepted")
       }
-      owner ! RevaultCompleterTask(task.key, System.currentTimeMillis() + 10000, monitor.uri) // todo: ttl config
+      owner ! RevaultCompleterTask(task.key, System.currentTimeMillis() + completerTaskTtl, monitor.uri)
       val monId = monitor.uri + ":" + monitor.revision
       val resultContent = Accepted(protocol.Monitor(monId, "in-progress", None)).serializeToString()
       owner ! ShardTaskComplete(task, RevaultTaskResult(resultContent))

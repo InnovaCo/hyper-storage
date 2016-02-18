@@ -72,16 +72,16 @@ private [sharding] case object ShardSyncTimer
 case object ShutdownProcessor
 case class ShardTaskComplete(task: ShardTask, result: Any)
 
-class ShardProcessor(workersSettings: Map[String, (Props, Int)], roleName: String) extends FSM[ShardMemberStatus, ShardedClusterData] with Stash {
+class ShardProcessor(workersSettings: Map[String, (Props, Int)],
+                     roleName: String,
+                     syncTimeout: FiniteDuration = 1000 millisecond)
+                     extends FSM[ShardMemberStatus, ShardedClusterData] with Stash {
+
   private val cluster = Cluster(context.system)
   if (!cluster.selfRoles.contains(roleName)) {
     log.error(s"Cluster doesn't containt '$roleName' role. Please configure.")
   }
   private val selfAddress = cluster.selfAddress
-  // todo: don't precreate workers
-  /*val inactiveWorkers: mutable.Stack[ActorRef] = mutable.Stack.tabulate(workerCount) { workerIndex ⇒
-    context.system.actorOf(workerProps, s"shard-wrkr-$workerIndex")
-  }*/
   val activeWorkers = workersSettings.map { case (groupName, (props, maxCount)) ⇒
     groupName → mutable.ArrayBuffer[(ShardTask, ActorRef, ActorRef)]()
   }
@@ -170,7 +170,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)], roleName: Strin
   initialize()
 
   def setSyncTimer(): Unit = {
-    setTimer("syncing", ShardSyncTimer, 1000 millisecond) // todo: move timeout to configuration
+    setTimer("syncing", ShardSyncTimer, syncTimeout)
   }
 
   def introduceSelfTo(member: Member, data: ShardedClusterData) : Option[ShardedClusterData] = {
@@ -250,8 +250,6 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)], roleName: Strin
       None
     } else {
       data.members.get(sync.applicantAddress) map { member ⇒
-        // todo: don't confirm, until it's possible
-
         val newData: ShardedClusterData = data + sync.applicantAddress → member.copy(status = sync.status)
         val allowSync = if (sync.status == ShardMemberStatus.Activating) {
           activeWorkers.values.flatten.forall { case (task, workerActor, _) ⇒
@@ -333,7 +331,6 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)], roleName: Strin
                 true
               } getOrElse {
                 val maxCount = workersSettings(task.group)._2
-                // todo: create worker actor for a group!
                 if (activeGroupWorkers.size >= maxCount) {
                   if (log.isDebugEnabled) {
                     log.debug(s"Worker limit for group '${task.group}' is reached ($maxCount), stashing task: $task")

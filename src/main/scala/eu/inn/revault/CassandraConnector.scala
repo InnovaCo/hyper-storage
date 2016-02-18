@@ -10,6 +10,10 @@ import org.slf4j.LoggerFactory
 import scala.collection.JavaConversions._
 import scala.util.control.NonFatal
 
+trait CassandraConnector {
+  def connect(): Session
+}
+
 object CassandraConnector {
   var log = LoggerFactory.getLogger(getClass)
 

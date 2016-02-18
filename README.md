@@ -44,8 +44,8 @@
 
 
 todo:
-  * move kafka out of worker + allow multiple monitors
   * update event format
+  * limit stash size
   * history period support, remove older monitors
     + (content monitorList delta updates)
   * EmptyBody without content-type!

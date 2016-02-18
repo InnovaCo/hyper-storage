@@ -6,11 +6,12 @@
             <pattern>%highlight(%.-3level) %cyan(%d{HH:mm:ss.SSS}) %yellow(%-35.35logger) %highlight(%msg) %n</pattern>
         </encoder>
     </appender>
-    <root level="DEBUG">
-        <appender-ref ref="STDOUT"/>
-    </root>
 
     <logger name="akka.cluster.ClusterHeartbeatSender">
         <level value="INFO" />
     </logger>
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT"/>
+    </root>
 </configuration>

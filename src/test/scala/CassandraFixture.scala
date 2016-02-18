@@ -1,9 +1,10 @@
 import com.datastax.driver.core.Session
+import eu.inn.revault.CassandraConnector
 import eu.inn.revault.db.Db
 import org.cassandraunit.CassandraCQLUnit
 import org.cassandraunit.dataset.cql.ClassPathCQLDataSet
-import org.cassandraunit.utils.EmbeddedCassandraServerHelper
-import org.scalatest.{BeforeAndAfterAll, BeforeAndAfter, Suite}
+import org.scalatest.{BeforeAndAfterAll, Suite}
+
 import scala.concurrent.ExecutionContext.Implicits.global
 
 object Cassandra extends CassandraCQLUnit(
@@ -21,8 +22,10 @@ trait CassandraFixture extends BeforeAndAfterAll {
 
   override def beforeAll() {
     Cassandra.start
-    session = Cassandra.session
-    db = new Db(session)
+    val connector = new CassandraConnector {
+      override def connect(): Session = Cassandra.session
+    }
+    db = new Db(connector)
   }
 
   override def afterAll() {
