@@ -5,11 +5,12 @@ import com.datastax.driver.core.utils.UUIDs
 import eu.inn.binders.dynamic.{Null, Obj, Text}
 import eu.inn.hyperbus.model.serialization.util.StringDeserializer
 import eu.inn.hyperbus.model.standard._
-import eu.inn.hyperbus.model.{Body, DynamicBody, Response}
+import eu.inn.hyperbus.model.{DynamicRequest, Body, DynamicBody, Response}
 import eu.inn.hyperbus.util.StringSerializer
 import eu.inn.revault._
 import eu.inn.revault.protocol.{RevaultDelete, RevaultPatch, RevaultPut}
 import eu.inn.revault.sharding.{ShardMemberStatus, ShardTaskComplete}
+import mock.FaultClientTransport
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{FreeSpec, Matchers}
 
@@ -21,6 +22,8 @@ class WorkerSpec extends FreeSpec
   with ScalaFutures
   with CassandraFixture
   with TestHelpers {
+
+  import ContentLogic._
 
   "Revault" - {
     "Processor in a single-node cluster" - {
@@ -97,7 +100,7 @@ class WorkerSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(new RevaultWorker(hyperBus, db, system.deadLetters))
+      val worker = TestActorRef(new RevaultWorker(hyperBus, db))
 
       val task = RevaultPut(
         path = "/test-resource-1",
@@ -109,16 +112,34 @@ class WorkerSpec extends FreeSpec
       }
 
       val taskStr = StringSerializer.serializeToString(task)
-      worker ! RevaultShardTask("", System.currentTimeMillis() + 10000, taskStr)
-      expectMsgPF() {
-        case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.OK &&
-          response(result.content).correlationId == task.correlationId ⇒ {
-          true
+      worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr)
+      val completerTask = expectMsgType[RevaultCompleterTask]
+      completerTask.path should equal(task.path)
+      val workerResult = expectMsgType[ShardTaskComplete]
+      val r = response(workerResult.result.asInstanceOf[RevaultTaskResult].content)
+      r.status should equal(Status.ACCEPTED)
+      r.correlationId should equal(task.correlationId)
+
+      val uuid = whenReady(db.selectContent("/test-resource-1", "")) { result =>
+        result.get.body should equal(Some("""{"text":"Test resource value"}"""))
+        result.get.monitorList.size should equal(1)
+
+        selectMonitors(result.get.monitorList, result.get.uri, db) foreach { monitor ⇒
+          monitor.completedAt shouldBe None
+          monitor.revision should equal(result.get.revision)
         }
+        result.get.monitorList.head
       }
 
-      whenReady(db.selectContent("/test-resource-1", "")) { result =>
-        result.get.body should equal(Some("""{"text":"Test resource value"}"""))
+      val completer = TestActorRef(new RevaultCompleter(hyperBus, db))
+      completer ! completerTask
+      val completerResult = expectMsgType[ShardTaskComplete]
+      val rc = completerResult.result.asInstanceOf[RevaultCompleterTaskResult]
+      rc.path should equal("/test-resource-1")
+      rc.monitors should contain(uuid)
+      selectMonitors(rc.monitors, "/test-resource-1", db) foreach { monitor ⇒
+        monitor.completedAt shouldNot be(None)
+        monitor.revision should equal(1)
       }
     }
 
@@ -127,7 +148,7 @@ class WorkerSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(new RevaultWorker(hyperBus, db, system.deadLetters))
+      val worker = TestActorRef(new RevaultWorker(hyperBus, db))
 
       val task = RevaultPatch(
         path = "/not-existing",
@@ -135,7 +156,7 @@ class WorkerSpec extends FreeSpec
       )
 
       val taskStr = StringSerializer.serializeToString(task)
-      worker ! RevaultShardTask("", System.currentTimeMillis() + 10000, taskStr)
+      worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr)
       expectMsgPF() {
         case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.NOT_FOUND &&
           response(result.content).correlationId == task.correlationId ⇒ {
@@ -153,14 +174,15 @@ class WorkerSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(new RevaultWorker(hyperBus, db, system.deadLetters))
+      val worker = TestActorRef(new RevaultWorker(hyperBus, db))
 
       val path = "/test-resource-" + UUID.randomUUID().toString
       val taskPutStr = StringSerializer.serializeToString(RevaultPut(path,
         DynamicBody(Obj(Map("text1" → Text("abc"), "text2" → Text("klmn"))))
       ))
 
-      worker ! RevaultShardTask("", System.currentTimeMillis() + 10000, taskPutStr)
+      worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskPutStr)
+      expectMsgType[RevaultCompleterTask]
       expectMsgType[ShardTaskComplete]
 
       val task = RevaultPatch(path,
@@ -168,9 +190,10 @@ class WorkerSpec extends FreeSpec
       )
       val taskPatchStr = StringSerializer.serializeToString(task)
 
-      worker ! RevaultShardTask("", System.currentTimeMillis() + 10000, taskPatchStr)
+      worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskPatchStr)
+      expectMsgType[RevaultCompleterTask]
       expectMsgPF() {
-        case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.OK &&
+        case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.ACCEPTED &&
           response(result.content).correlationId == task.correlationId ⇒ {
           true
         }
@@ -186,12 +209,12 @@ class WorkerSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(new RevaultWorker(hyperBus, db, system.deadLetters))
+      val worker = TestActorRef(new RevaultWorker(hyperBus, db))
 
       val task = RevaultDelete(path = "/not-existing", body = EmptyBody)
 
       val taskStr = StringSerializer.serializeToString(task)
-      worker ! RevaultShardTask("", System.currentTimeMillis() + 10000, taskStr)
+      worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr)
       expectMsgPF() {
         case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.NOT_FOUND &&
           response(result.content).correlationId == task.correlationId ⇒ {
@@ -209,14 +232,15 @@ class WorkerSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(new RevaultWorker(hyperBus, db, system.deadLetters))
+      val worker = TestActorRef(new RevaultWorker(hyperBus, db))
 
       val path = "/test-resource-" + UUID.randomUUID().toString
       val taskPutStr = StringSerializer.serializeToString(RevaultPut(path,
         DynamicBody(Obj(Map("text1" → Text("abc"), "text2" → Text("klmn"))))
       ))
 
-      worker ! RevaultShardTask("", System.currentTimeMillis() + 10000, taskPutStr)
+      worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskPutStr)
+      expectMsgType[RevaultCompleterTask]
       expectMsgType[ShardTaskComplete]
 
       whenReady(db.selectContent(path, "")) { result =>
@@ -226,9 +250,10 @@ class WorkerSpec extends FreeSpec
       val task = RevaultDelete(path, body = EmptyBody)
 
       val taskStr = StringSerializer.serializeToString(task)
-      worker ! RevaultShardTask("", System.currentTimeMillis() + 10000, taskStr)
+      worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr)
+      expectMsgType[RevaultCompleterTask]
       expectMsgPF() {
-        case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.OK &&
+        case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.ACCEPTED &&
           response(result.content).correlationId == task.correlationId ⇒ {
           true
         }
@@ -240,45 +265,122 @@ class WorkerSpec extends FreeSpec
     }
   }
 
-  "Put Task failed" in {
+  "Test multiple monitors" in {
     val hyperBus = testHyperBus()
     val tk = testKit()
     import tk._
 
-    val probeRecoveryActor = new TestProbe(system)
-    val worker = TestActorRef(new RevaultWorker(hyperBus, db, probeRecoveryActor.ref))
-
-    val task = RevaultPut(
-      path = "/faulty",
+    val worker = TestActorRef(new RevaultWorker(hyperBus, db))
+    val path = "/abcde"
+    val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
       DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
-    )
+    ))
+    worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr1)
+    expectMsgType[RevaultCompleterTask]
+    expectMsgType[ShardTaskComplete]
 
-    whenReady(db.selectContent("/faulty", "")) { result =>
-      result shouldBe None
+    val taskStr2 = StringSerializer.serializeToString(RevaultPatch(path,
+      DynamicBody(Obj(Map("text" → Text("abc"), "text2" → Text("klmn"))))
+    ))
+    worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr2)
+    expectMsgType[RevaultCompleterTask]
+    expectMsgType[ShardTaskComplete]
+
+    val taskStr3 = StringSerializer.serializeToString(RevaultDelete(path,EmptyBody))
+    worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr3)
+    val completerTask = expectMsgType[RevaultCompleterTask]
+    val workerResult = expectMsgType[ShardTaskComplete]
+    val r = response(workerResult.result.asInstanceOf[RevaultTaskResult].content)
+    r.status should equal(Status.ACCEPTED)
+
+    val monitors = whenReady(db.selectContent(path, "")) { result =>
+      result.get.isDeleted should equal(true)
+      result.get.monitorList
     }
 
-    val taskStr = StringSerializer.serializeToString(task)
-    worker ! RevaultShardTask("", System.currentTimeMillis() + 10000, taskStr)
-    expectMsgPF() {
-      case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.ACCEPTED &&
-        response(result.content).correlationId == task.correlationId ⇒ {
-        true
-      }
+    selectMonitors(monitors, path, db) foreach { monitor ⇒
+      monitor.completedAt shouldNot be(None)
     }
-    probeRecoveryActor.expectMsgType[RevaultTaskIncomplete]
 
-    whenReady(db.selectContent("/faulty", "")) { result =>
-      result.get.body should equal(Some("""{"text":"Test resource value"}"""))
+    val completer = TestActorRef(new RevaultCompleter(hyperBus, db))
+    completer ! completerTask
+    val completerResult = expectMsgType[ShardTaskComplete]
+    val rc = completerResult.result.asInstanceOf[RevaultCompleterTaskResult]
+    rc.path should equal(path)
+    rc.monitors should equal(monitors.reverse)
 
-      val monitorUuid = result.get.monitorList.head
-      val monitorDtQuantum = MonitorLogic.getDtQuantum(UUIDs.unixTimestamp(monitorUuid))
-      val monitorChannel = MonitorLogic.channelFromUri("/faulty")
-      val revision = result.get.revision
-
-      whenReady(db.selectMonitor(monitorDtQuantum, monitorChannel, "/faulty", revision, monitorUuid)) { result =>
-        result.get.completedAt shouldBe None
-      }
+    selectMonitors(rc.monitors, path, db) foreach { monitor ⇒
+      monitor.completedAt shouldNot be(None)
     }
+  }
+
+  "Test faulty publish" in {
+    val hyperBus = testHyperBus()
+    val tk = testKit()
+    import tk._
+
+    val worker = TestActorRef(new RevaultWorker(hyperBus, db))
+    val path = "/faulty"
+    val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
+      DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
+    ))
+    worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr1)
+    expectMsgType[RevaultCompleterTask]
+    expectMsgType[ShardTaskComplete]
+
+    val taskStr2 = StringSerializer.serializeToString(RevaultPatch(path,
+      DynamicBody(Obj(Map("text" → Text("abc"), "text2" → Text("klmn"))))
+    ))
+    worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr2)
+    val completerTask = expectMsgType[RevaultCompleterTask]
+    expectMsgType[ShardTaskComplete]
+
+    val monitorUuids = whenReady(db.selectContent(path, "")) { result =>
+      result.get.monitorList
+    }
+
+    selectMonitors(monitorUuids, path, db) foreach { _.completedAt shouldBe None }
+
+    val completer = TestActorRef(new RevaultCompleter(hyperBus, db))
+
+    FaultClientTransport.checkers += {
+      case request: DynamicRequest ⇒
+        if (request.method == Method.PUT) {
+          true
+        } else if (request.method == Method.PATCH) {
+          fail("Tried to publish PATCH here. This shouldn't happen, because previous monitor wasn't complete!")
+          false
+        } else {
+          fail("Unexpected publish")
+          false
+        }
+    }
+
+    completer ! completerTask
+    expectMsgType[ShardTaskComplete].result shouldBe a[PublishFailedException]
+    selectMonitors(monitorUuids, path, db) foreach { _.completedAt shouldBe None }
+
+    FaultClientTransport.checkers.clear()
+    FaultClientTransport.checkers += {
+      case request: DynamicRequest ⇒
+        if (request.method == Method.PATCH) {
+          true
+        } else {
+          false
+        }
+    }
+
+    completer ! completerTask
+    expectMsgType[ShardTaskComplete].result shouldBe a[PublishFailedException]
+    val mons = selectMonitors(monitorUuids, path, db)
+    println(mons)
+    mons.head.completedAt shouldBe None
+    mons.tail.head.completedAt shouldNot be(None)
+
+    FaultClientTransport.checkers.clear()
+    completer ! completerTask
+    expectMsgType[ShardTaskComplete].result shouldBe a[RevaultCompleterTaskResult]
+    selectMonitors(monitorUuids, path, db) foreach { _.completedAt shouldNot be(None) }
   }
 
   def response(content: String): Response[Body] = StringDeserializer.dynamicResponse(content)

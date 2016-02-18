@@ -8,6 +8,9 @@
     <logger name="eu.inn.revault.RevaultWorker">
         <level value="trace" />
     </logger>
+    <logger name="eu.inn.revault.RevaultCompleter">
+        <level value="trace" />
+    </logger>
     <logger name="eu.inn.revault.sharding.ShardProcessor">
         <level value="trace" />
     </logger>

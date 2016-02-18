@@ -25,7 +25,7 @@ class RevaultDistributor(revaultProcessor: ActorRef, db: Db) extends Actor with 
   def ~> (implicit request: RevaultPut) = {
 
     val str = StringSerializer.serializeToString(request)
-    val task = RevaultShardTask(request.path, System.currentTimeMillis() + 10000, str)
+    val task = RevaultTask(request.path, System.currentTimeMillis() + 10000, str) // todo: ttl config
     implicit val timeout = Timeout(20.seconds) // todo: configurable timeout
 
     revaultProcessor ? task map {

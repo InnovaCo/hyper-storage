@@ -3,11 +3,15 @@ import java.util.{Date, UUID}
 import akka.actor._
 import akka.cluster.Cluster
 import akka.testkit._
+import com.datastax.driver.core.utils.UUIDs
 import com.typesafe.config.ConfigFactory
 import eu.inn.hyperbus.HyperBus
 import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportManager, TransportConfigurationLoader}
+import eu.inn.revault.MonitorLogic
+import eu.inn.revault.db.{Db, Monitor}
 import eu.inn.revault.sharding._
+import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{BeforeAndAfterEach, Matchers}
 import scala.concurrent.Await
 import scala.concurrent.duration._
@@ -58,7 +62,7 @@ class TestWorker extends Actor with ActorLogging {
   }
 }
 
-trait TestHelpers extends Matchers with BeforeAndAfterEach {
+trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
   this : org.scalatest.BeforeAndAfterEach with org.scalatest.Suite =>
 
   def createRevaultActor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
@@ -106,6 +110,15 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach {
     }
   }
 
+  def selectMonitors(uuids: List[UUID], path: String, db: Db): List[Monitor] = {
+    uuids flatMap { uuid ⇒
+      val monitorChannel = MonitorLogic.channelFromUri(path)
+      val qt = MonitorLogic.getDtQuantum(UUIDs.unixTimestamp(uuid))
+      whenReady(db.selectMonitor(qt, monitorChannel, path, uuid)) { mon ⇒
+        mon
+      }
+    }
+  }
 
   def shutdownRevaultActor(fsm: TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor])(implicit actorSystem: ActorSystem) = {
     val probe = TestProbe()

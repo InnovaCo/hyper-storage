@@ -24,8 +24,8 @@ case class Monitor(
                     dtQuantum: Long,
                     channel: Int,
                     uri: String,
-                    revision: Long,
                     uuid: UUID,
+                    revision: Long,
                     body: String,
                     completedAt: Option[Date]
                   )
@@ -48,13 +48,13 @@ class Db(session: com.datastax.driver.core.Session)(implicit ec: ExecutionContex
       values(?,?,?,?,?,?,?,?)
     """.bind(content).execute()
 
-  def selectMonitor(dtQuantum: Long, channel: Int, uri: String, revision: Long, uuid: UUID): Future[Option[Monitor]] = cql"""
-      select dt_quantum,channel,uri,revision,uuid,body,completed_at from monitor
-      where dt_quantum=$dtQuantum and channel=$channel and uri=$uri and revision = $revision and uuid=$uuid
+  def selectMonitor(dtQuantum: Long, channel: Int, uri: String, uuid: UUID): Future[Option[Monitor]] = cql"""
+      select dt_quantum,channel,uri,uuid,revision,body,completed_at from monitor
+      where dt_quantum=$dtQuantum and channel=$channel and uri=$uri and uuid=$uuid
     """.oneOption[Monitor]
 
   def insertMonitor(monitor: Monitor): Future[Unit] = cql"""
-      insert into monitor(dt_quantum,channel,uri,revision,uuid,body,completed_at)
+      insert into monitor(dt_quantum,channel,uri,uuid,revision,body,completed_at)
       values(?,?,?,?,?,?,?)
     """.bind(monitor).execute()
 
@@ -63,7 +63,6 @@ class Db(session: com.datastax.driver.core.Session)(implicit ec: ExecutionContex
       where dt_quantum=${monitor.dtQuantum}
         and channel=${monitor.channel}
         and uri=${monitor.uri}
-        and revision=${monitor.revision}
         and uuid=${monitor.uuid}
     """.execute()
 }

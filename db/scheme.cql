@@ -14,11 +14,11 @@ create table monitor (
 	dt_quantum bigint,
 	channel int,
 	uri text,
-	revision bigint,
 	uuid timeuuid,
+	revision bigint,
 	body text,
 	completed_at timestamp,
-	primary key ((dt_quantum, channel), uri, revision, uuid)
+	primary key ((dt_quantum, channel), uri, uuid)
 );
 
 create table channel (
