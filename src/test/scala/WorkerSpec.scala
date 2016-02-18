@@ -1,6 +1,8 @@
 import java.util.UUID
 
+import akka.actor.Props
 import akka.testkit.{TestActorRef, TestProbe}
+import akka.util.Timeout
 import com.datastax.driver.core.utils.UUIDs
 import eu.inn.binders.dynamic.{Null, Obj, Text}
 import eu.inn.hyperbus.model.serialization.util.StringDeserializer
@@ -9,12 +11,14 @@ import eu.inn.hyperbus.model.{DynamicRequest, Body, DynamicBody, Response}
 import eu.inn.hyperbus.util.StringSerializer
 import eu.inn.revault._
 import eu.inn.revault.protocol.{RevaultDelete, RevaultPatch, RevaultPut}
-import eu.inn.revault.sharding.{ShardMemberStatus, ShardTaskComplete}
+import eu.inn.revault.sharding.{ShardProcessor, ShardMemberStatus, ShardTaskComplete}
 import mock.FaultClientTransport
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{FreeSpec, Matchers}
 
+import scala.concurrent.Future
 import scala.concurrent.duration._
+import scala.util.control.NonFatal
 
 // todo: split revault and shardprocessor
 class WorkerSpec extends FreeSpec
@@ -357,7 +361,7 @@ class WorkerSpec extends FreeSpec
     }
 
     completer ! completerTask
-    expectMsgType[ShardTaskComplete].result shouldBe a[PublishFailedException]
+    expectMsgType[ShardTaskComplete].result shouldBe a[CompletionFailedException]
     selectMonitors(monitorUuids, path, db) foreach { _.completedAt shouldBe None }
 
     FaultClientTransport.checkers.clear()
@@ -371,7 +375,7 @@ class WorkerSpec extends FreeSpec
     }
 
     completer ! completerTask
-    expectMsgType[ShardTaskComplete].result shouldBe a[PublishFailedException]
+    expectMsgType[ShardTaskComplete].result shouldBe a[CompletionFailedException]
     val mons = selectMonitors(monitorUuids, path, db)
     println(mons)
     mons.head.completedAt shouldBe None
@@ -381,6 +385,33 @@ class WorkerSpec extends FreeSpec
     completer ! completerTask
     expectMsgType[ShardTaskComplete].result shouldBe a[RevaultCompleterTaskResult]
     selectMonitors(monitorUuids, path, db) foreach { _.completedAt shouldNot be(None) }
+  }
+
+  "Test revault (integrated)" in {
+    val hyperBus = testHyperBus()
+    val tk = testKit()
+    import tk._
+
+    val workerProps = Props(classOf[RevaultWorker], hyperBus, db)
+    val completerProps = Props(classOf[RevaultCompleter], hyperBus, db)
+    val workerSettings = Map(
+      "revault" → (workerProps, 1),
+      "revault-completer" → (completerProps, 1)
+    )
+
+    val processor = TestActorRef(new ShardProcessor(workerSettings, "revault"))
+    val distributor = TestActorRef(new RevaultDistributor(processor, db))
+    import eu.inn.hyperbus.akkaservice._
+    implicit val timeout = Timeout(20.seconds)
+    hyperBus.routeTo[RevaultDistributor](distributor)
+    Thread.sleep(1000)
+
+    val timeout2 = org.scalatest.concurrent.PatienceConfiguration.Timeout(20.seconds)
+    val f = hyperBus <~ RevaultPut("/revault-spec", DynamicBody(Text("Hello")))
+    whenReady(f, timeout2) { response ⇒
+      println(response)
+    }
+    1 should equal(1)
   }
 
   def response(content: String): Response[Body] = StringDeserializer.dynamicResponse(content)

@@ -110,7 +110,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
     }
   }
 
-  def selectMonitors(uuids: List[UUID], path: String, db: Db): List[Monitor] = {
+  def selectMonitors(uuids: Seq[UUID], path: String, db: Db): Seq[Monitor] = {
     uuids flatMap { uuid ⇒
       val monitorChannel = MonitorLogic.channelFromUri(path)
       val qt = MonitorLogic.getDtQuantum(UUIDs.unixTimestamp(uuid))

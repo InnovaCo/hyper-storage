@@ -41,7 +41,7 @@ class RevaultService(console: Console, config: Config, implicit val injector: In
   val db = new Db(cassandraSession)
 
   // worker actor todo: recovery job
-  val workerProps = Props(classOf[RevaultWorker], hyperBus, db, actorSystem.deadLetters)
+  val workerProps = Props(classOf[RevaultWorker], hyperBus, db)
   val workerSettings = Map("revault" → (workerProps, 1)) // todo: configure max worker settings
 
   // processor actor

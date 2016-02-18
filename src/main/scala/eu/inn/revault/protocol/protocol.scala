@@ -16,7 +16,7 @@ case class Monitor(id: String, status: String, completedAt: Option[Date]) extend
 @request("/revault/{path:*}")
 case class RevaultPut(path: String, body: DynamicBody) extends StaticPut(body)
 with DefinedResponse[(
-    Created[DynamicBody with CreatedBody],
+    //Created[DynamicBody with CreatedBody],
     Accepted[Monitor],
     NoContent[EmptyBody]
   )]
