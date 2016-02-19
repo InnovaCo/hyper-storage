@@ -72,9 +72,7 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTaskTtl: Long) extends 
       case Some(content) ⇒ content.revision + 1
     }
     MonitorLogic.newMonitor(request.path, revision, request.copy(
-      uri = request.uri.copy(
-        pattern = SpecificValue(request.uri.pattern.specific + "/feed")
-      ),
+      method = "feed:" + request.method,
       headers = request.headers + "hyperbus:revision" → Seq(revision.toString)
     ).serializeToString())
   }

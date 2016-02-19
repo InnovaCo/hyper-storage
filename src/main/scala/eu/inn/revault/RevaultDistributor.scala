@@ -4,11 +4,12 @@ import akka.actor.{Actor, ActorLogging, ActorRef}
 import akka.pattern.ask
 import akka.util.Timeout
 import eu.inn.hyperbus.akkaservice.AkkaHyperService
+import eu.inn.hyperbus.model.{Body, Request}
 import eu.inn.hyperbus.model.serialization.util.StringDeserializer
 import eu.inn.hyperbus.model.standard._
 import eu.inn.hyperbus.util.StringSerializer
 import eu.inn.revault.db.Db
-import eu.inn.revault.protocol.{RevaultGet, RevaultPut}
+import eu.inn.revault.protocol.{RevaultDelete, RevaultPatch, RevaultGet, RevaultPut}
 import scala.concurrent.duration._
 
 class RevaultDistributor(revaultProcessor: ActorRef, db: Db, requestTimeout: FiniteDuration) extends Actor with ActorLogging {
@@ -23,10 +24,14 @@ class RevaultDistributor(revaultProcessor: ActorRef, db: Db, requestTimeout: Fin
       Ok(body, Map("hyperbus:revision" → Seq(content.revision.toString)))
   }
 
-  def ~> (implicit request: RevaultPut) = {
+  def ~> (request: RevaultPut) = executeRequest(request, request.path)
+  def ~> (request: RevaultPatch) = executeRequest(request, request.path)
+  def ~> (request: RevaultDelete) = executeRequest(request, request.path)
+
+  private def executeRequest(implicit request: Request[Body], path: String) = {
     val str = StringSerializer.serializeToString(request)
     val ttl = Math.min(requestTimeout.toMillis - 100, 100)
-    val task = RevaultTask(request.path, System.currentTimeMillis() + ttl, str)
+    val task = RevaultTask(path, System.currentTimeMillis() + ttl, str)
     implicit val timeout: akka.util.Timeout = requestTimeout
 
     revaultProcessor ? task map {

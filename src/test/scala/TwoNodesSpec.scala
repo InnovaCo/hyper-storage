@@ -7,7 +7,7 @@ import scala.concurrent.duration._
 
 class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
   "Processor in a two-node cluster" - {
-    "ProcessorFSM should become Active" in {
+    "ShardProcessor should become Active" in {
       val (fsm1, actorSystem1, testKit1) = {
         implicit val actorSystem1 = testActorSystem(1)
         (createRevaultActor("test-group", waitWhileActivates = false), actorSystem1, testKit(1))
@@ -27,7 +27,7 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
       shutdownRevaultActor(fsm2)(actorSystem2)
     }
 
-    "ProcessorFSM should become Active sequentially" in {
+    "ShardProcessor should become Active sequentially" in {
       val (fsm1, actorSystem1, testKit1) = {
         implicit val actorSystem1 = testActorSystem(1)
         (createRevaultActor("test-group", waitWhileActivates = false), actorSystem1, testKit(1))

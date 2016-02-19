@@ -61,7 +61,6 @@ class RevaultCompleter(hyperBus: HyperBus, db: Db) extends Actor with ActorLoggi
       selectIncompleteMonitors(content) flatMap { incompleteMonitors ⇒
         FutureUtils.serial(incompleteMonitors) { monitor ⇒
           val event = DynamicRequest(monitor.body)
-          // todo: update event format
           hyperBus <| event flatMap { publishResult ⇒
             if (log.isDebugEnabled) {
               log.debug(s"Event $event is published with result $publishResult")

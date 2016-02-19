@@ -7,22 +7,22 @@ import com.datastax.driver.core.utils.UUIDs
 import eu.inn.binders.dynamic.{Null, Obj, Text}
 import eu.inn.hyperbus.model.serialization.util.StringDeserializer
 import eu.inn.hyperbus.model.standard._
-import eu.inn.hyperbus.model.{DynamicRequest, Body, DynamicBody, Response}
+import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.util.StringSerializer
 import eu.inn.revault._
-import eu.inn.revault.protocol.{RevaultGet, RevaultDelete, RevaultPatch, RevaultPut}
+import eu.inn.revault.protocol._
 import eu.inn.revault.sharding.{ShardProcessor, ShardMemberStatus, ShardTaskComplete}
 import mock.FaultClientTransport
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{FreeSpec, Matchers}
 
-import scala.concurrent.Future
+import scala.concurrent.{Promise, Future}
 import scala.concurrent.duration._
 import scala.util.control.NonFatal
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 
-// todo: split revault and shardprocessor
-class WorkerSpec extends FreeSpec
+// todo: split revault, shardprocessor and single nodes test
+class RevaultSpec extends FreeSpec
   with Matchers
   with ScalaFutures
   with CassandraFixture
@@ -32,18 +32,18 @@ class WorkerSpec extends FreeSpec
 
   "Revault" - {
     "Processor in a single-node cluster" - {
-      "ProcessorFSM should become Active" in {
+      "ShardProcessor should become Active" in {
         implicit val as = testActorSystem()
         createRevaultActor("test-group")
       }
 
-      "ProcessorFSM should shutdown gracefully" in {
+      "ShardProcessor should shutdown gracefully" in {
         implicit val as = testActorSystem()
         val fsm = createRevaultActor("test-group")
         shutdownRevaultActor(fsm)
       }
 
-      "ProcessorFSM should process task" in {
+      "ShardProcessor should process task" in {
         implicit val as = testActorSystem()
         val fsm = createRevaultActor("test-group")
         val task = TestShardTask("abc", "t1")
@@ -52,7 +52,7 @@ class WorkerSpec extends FreeSpec
         shutdownRevaultActor(fsm)
       }
 
-      "ProcessorFSM should stash task while Activating and process it later" in {
+      "ShardProcessor should stash task while Activating and process it later" in {
         implicit val as = testActorSystem()
         val fsm = createRevaultActor("test-group", waitWhileActivates = false)
         val task = TestShardTask("abc", "t1")
@@ -64,7 +64,7 @@ class WorkerSpec extends FreeSpec
         shutdownRevaultActor(fsm)
       }
 
-      "ProcessorFSM should stash task when workers are busy and process later" in {
+      "ShardProcessor should stash task when workers are busy and process later" in {
         implicit val as = testActorSystem()
         val tk = testKit()
         val fsm = createRevaultActor("test-group")
@@ -77,7 +77,7 @@ class WorkerSpec extends FreeSpec
         shutdownRevaultActor(fsm)
       }
 
-      "ProcessorFSM should stash task when URL is 'locked' and it process later" in {
+      "ShardProcessor should stash task when URL is 'locked' and it process later" in {
         implicit val as = testActorSystem()
         val tk = testKit()
         val fsm = createRevaultActor("test-group", 2)
@@ -392,8 +392,9 @@ class WorkerSpec extends FreeSpec
     val hyperBus = testHyperBus()
     val tk = testKit()
     import tk._
+    import system._
 
-    val workerProps = Props(classOf[RevaultWorker], hyperBus, db)
+    val workerProps = Props(classOf[RevaultWorker], hyperBus, db, 10000l)
     val completerProps = Props(classOf[RevaultCompleter], hyperBus, db)
     val workerSettings = Map(
       "revault" → (workerProps, 1),
@@ -405,6 +406,14 @@ class WorkerSpec extends FreeSpec
     import eu.inn.hyperbus.akkaservice._
     implicit val timeout = Timeout(20.seconds)
     hyperBus.routeTo[RevaultDistributor](distributor)
+
+    val putEventPromise = Promise[RevaultFeedPut]()
+    hyperBus |> { put: RevaultFeedPut ⇒
+      Future {
+        putEventPromise.success(put)
+      }
+    }
+
     Thread.sleep(2000)
 
     val path = "/" + UUID.randomUUID().toString
@@ -412,9 +421,68 @@ class WorkerSpec extends FreeSpec
       response.status should equal (Status.ACCEPTED)
     }
 
+    val putEventFuture = putEventPromise.future
+    whenReady(putEventFuture) { putEvent ⇒
+      putEvent.method should equal(Method.FEED_PUT)
+      putEvent.body should equal (DynamicBody(Text("Hello")))
+      putEvent.headers.get("hyperbus:revision") shouldNot be(None)
+    }
+
     whenReady(hyperBus <~ RevaultGet(path, EmptyBody), TestTimeout(10.seconds)) { response ⇒
       response.status should equal (Status.OK)
       response.body.content should equal(Text("Hello"))
+    }
+  }
+
+  "Null patch with revault (integrated)" in {
+    val hyperBus = testHyperBus()
+    val tk = testKit()
+    import tk._
+    import system._
+
+    val workerProps = Props(classOf[RevaultWorker], hyperBus, db, 10000l)
+    val completerProps = Props(classOf[RevaultCompleter], hyperBus, db)
+    val workerSettings = Map(
+      "revault" → (workerProps, 1),
+      "revault-completer" → (completerProps, 1)
+    )
+
+    val processor = TestActorRef(new ShardProcessor(workerSettings, "revault"))
+    val distributor = TestActorRef(new RevaultDistributor(processor, db, 20 seconds))
+    import eu.inn.hyperbus.akkaservice._
+    implicit val timeout = Timeout(20.seconds)
+    hyperBus.routeTo[RevaultDistributor](distributor)
+
+    val patchEventPromise = Promise[RevaultFeedPatch]()
+    hyperBus |> { patch: RevaultFeedPatch ⇒
+      Future {
+        patchEventPromise.success(patch)
+      }
+    }
+
+    Thread.sleep(2000)
+
+    val path = "/" + UUID.randomUUID().toString
+    whenReady(hyperBus <~ RevaultPut(path, DynamicBody(
+      Obj(Map("a" → Text("1"), "b" → Text("2"), "c" → Text("3")))
+    )), TestTimeout(10.seconds)) { response ⇒
+      response.status should equal (Status.ACCEPTED)
+    }
+
+    whenReady(hyperBus <~ RevaultPatch(path, DynamicBody(Obj(Map("b" → Null)))), TestTimeout(10.seconds)) { response ⇒
+      response.status should equal (Status.ACCEPTED)
+    }
+
+    val patchEventFuture = patchEventPromise.future
+    whenReady(patchEventFuture) { patchEvent ⇒
+      patchEvent.method should equal(Method.FEED_PATCH)
+      patchEvent.body should equal (DynamicBody(Obj(Map("b" → Null))))
+      patchEvent.headers.get("hyperbus:revision") shouldNot be(None)
+    }
+
+    whenReady(hyperBus <~ RevaultGet(path, EmptyBody), TestTimeout(10.seconds)) { response ⇒
+      response.status should equal (Status.OK)
+      response.body.content should equal(Obj(Map("a" → Text("1"), "c" → Text("3"))))
     }
   }
 

@@ -18,6 +18,9 @@
             }
         },
         "body": {
+            "_links": {
+                "self": { "href": "/revault/about-author" }
+            },
             "authorName": "Jack London",
             "books": {
                 "1": "The Call of the Wild",
@@ -28,44 +31,23 @@
     }
 ```
 
-
-1. Check existing resource monitor
-2. complete if previous update is not complete
-  2.2. test
-3. create & insert new monitor
-4. update resource
-5. send accepted to the client (if any)
-6. publish event
-  6.1. + revision
-  6.2. + :events path
-  6.3. + for post request add self link
-7. when event is published complete monitor
-8. request next task
-
-
 todo:
-  * update event format
+  * recovery job
   * limit stash size
-  * history period support, remove older monitors
-    + (content monitorList delta updates)
-  * EmptyBody without content-type!
-  * StringDeserializer -> accept Message
-  * plain string serializer?
-  + get method
-    + test put + get
   * url validator and splitter
   * collections
     + partitioning collection events
-  * recovery test
-  * null patch tests
-  * revault monitor query/link
-  * recovery job
+    + query filter
+  * history period support, remove older monitors
+    + (content monitorList delta updates)
   * performance test
   * facade JS test
-  * shutdown on failed start (С*)
-  * dependency injection (C*)
+  * revault monitor query
   * cache results
-  * define base classes for a RAML generated classes
-  * split tests (port numbers) workerspec
   * integration test
     + kafka + recovery + switch
+  * better DI and abstractions
+  * split tests (port numbers) workerspec
+  * define base classes for a RAML generated classes
+  * StringDeserializer -> accept Message
+  * EmptyBody without content-type!

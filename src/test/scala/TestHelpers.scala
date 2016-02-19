@@ -72,8 +72,8 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
       GuardianExtractor.guardian(actorSystem),
       "revault"
     )
-    //val fsm = TestFSMRef(new ProcessorFSM(Props[TestWorker], workerCount), "revault")
-    //val processorFsm: TestActorRef[ProcessorFSM] = fsm
+    //val fsm = TestFSMRef(new ShardProcessor(Props[TestWorker], workerCount), "revault")
+    //val ShardProcessor: TestActorRef[ShardProcessor] = fsm
     fsm.stateName should equal(ShardMemberStatus.Activating)
     if (waitWhileActivates) {
       val t = new TestKit(actorSystem)
@@ -97,7 +97,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
         val config = ConfigFactory.load().getConfig(s"hyperbus-$index")
         val transportConfiguration = TransportConfigurationLoader.fromConfig(config)
         val transportManager = new TransportManager(transportConfiguration)
-        new HyperBus(transportManager)
+        new HyperBus(transportManager, defaultGroupName = Some(s"subscriber-$index"))
       }
     )
     hb
