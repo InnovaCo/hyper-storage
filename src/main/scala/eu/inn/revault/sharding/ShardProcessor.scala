@@ -79,7 +79,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
 
   private val cluster = Cluster(context.system)
   if (!cluster.selfRoles.contains(roleName)) {
-    log.error(s"Cluster doesn't containt '$roleName' role. Please configure.")
+    log.error(s"Cluster doesn't contains '$roleName' role. Please configure.")
   }
   private val selfAddress = cluster.selfAddress
   val activeWorkers = workersSettings.map { case (groupName, (props, maxCount)) ⇒
@@ -163,8 +163,10 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
 
   onTransition {
     case a -> b ⇒
-      log.info(s"Changing state from $a to $b")
-      unstashAll()
+      if (a != b) {
+        log.info(s"Changing state from $a to $b")
+        unstashAll()
+      }
   }
 
   initialize()
@@ -423,7 +425,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
     def andUpdate: State = {
       if (data.isDefined) {
         unstashAll()
-        stay using data.get
+        goto(stateName) using data.get // this should stay as goto to fire event to the listeners
       }
       else {
         stay

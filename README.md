@@ -34,6 +34,7 @@
 todo:
   * recovery job
   * limit stash size
+  * CREATED/NO_CONTENT instead of ACCEPTED
   * url validator and splitter
   * collections
     + partitioning collection events

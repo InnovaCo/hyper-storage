@@ -14,10 +14,10 @@
     <logger name="eu.inn.revault.sharding.ShardProcessor">
         <level value="trace" />
     </logger>
-    <logger name="eu.inn.revault.RevaultDistributor">
+    <logger name="eu.inn.revault.HyperbusAdapter">
         <level value="trace" />
     </logger>
-    <root level="warn">
+    <root level="debug">
         <appender-ref ref="stdout"/>
     </root>
 </configuration>

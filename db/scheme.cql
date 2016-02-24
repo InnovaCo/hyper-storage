@@ -21,7 +21,7 @@ create table monitor (
 	primary key ((dt_quantum, channel), uri, uuid)
 );
 
-create table channel (
+create table checkpoint (
 	channel int primary key,
 	last_quantum bigint
 );

@@ -350,11 +350,8 @@ class RevaultSpec extends FreeSpec
 
     FaultClientTransport.checkers += {
       case request: DynamicRequest ⇒
-        if (request.method == Method.PUT) {
+        if (request.method == Method.FEED_PUT) {
           true
-        } else if (request.method == Method.PATCH) {
-          fail("Tried to publish PATCH here. This shouldn't happen, because previous monitor wasn't complete!")
-          false
         } else {
           fail("Unexpected publish")
           false
@@ -368,7 +365,7 @@ class RevaultSpec extends FreeSpec
     FaultClientTransport.checkers.clear()
     FaultClientTransport.checkers += {
       case request: DynamicRequest ⇒
-        if (request.method == Method.PATCH) {
+        if (request.method == Method.FEED_PATCH) {
           true
         } else {
           false
@@ -402,10 +399,10 @@ class RevaultSpec extends FreeSpec
     )
 
     val processor = TestActorRef(new ShardProcessor(workerSettings, "revault"))
-    val distributor = TestActorRef(new RevaultDistributor(processor, db, 20 seconds))
+    val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20 seconds))
     import eu.inn.hyperbus.akkaservice._
     implicit val timeout = Timeout(20.seconds)
-    hyperBus.routeTo[RevaultDistributor](distributor)
+    hyperBus.routeTo[HyperbusAdapter](distributor)
 
     val putEventPromise = Promise[RevaultFeedPut]()
     hyperBus |> { put: RevaultFeedPut ⇒
@@ -448,10 +445,10 @@ class RevaultSpec extends FreeSpec
     )
 
     val processor = TestActorRef(new ShardProcessor(workerSettings, "revault"))
-    val distributor = TestActorRef(new RevaultDistributor(processor, db, 20 seconds))
+    val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20 seconds))
     import eu.inn.hyperbus.akkaservice._
     implicit val timeout = Timeout(20.seconds)
-    hyperBus.routeTo[RevaultDistributor](distributor)
+    hyperBus.routeTo[HyperbusAdapter](distributor)
 
     val patchEventPromise = Promise[RevaultFeedPatch]()
     hyperBus |> { patch: RevaultFeedPatch ⇒

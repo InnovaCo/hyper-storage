@@ -66,11 +66,11 @@ class RevaultService(console: Console,
   // processor actor
   val processorActorRef = actorSystem.actorOf(Props(new ShardProcessor(workerSettings, "revault", shardSyncTimeout)))
 
-  val distributor = actorSystem.actorOf(Props(classOf[RevaultDistributor], processorActorRef, db, requestTimeout))
+  val distributor = actorSystem.actorOf(Props(classOf[HyperbusAdapter], processorActorRef, db, requestTimeout))
 
   val subscriptions = {
     implicit val timeout: akka.util.Timeout = requestTimeout
-    hyperBus.routeTo[RevaultDistributor](distributor)
+    hyperBus.routeTo[HyperbusAdapter](distributor)
   }
 
   log.info("Revault started!")

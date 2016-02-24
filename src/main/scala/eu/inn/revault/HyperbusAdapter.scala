@@ -2,17 +2,17 @@ package eu.inn.revault
 
 import akka.actor.{Actor, ActorLogging, ActorRef}
 import akka.pattern.ask
-import akka.util.Timeout
 import eu.inn.hyperbus.akkaservice.AkkaHyperService
-import eu.inn.hyperbus.model.{Body, Request}
 import eu.inn.hyperbus.model.serialization.util.StringDeserializer
 import eu.inn.hyperbus.model.standard._
+import eu.inn.hyperbus.model.{Body, Request}
 import eu.inn.hyperbus.util.StringSerializer
 import eu.inn.revault.db.Db
-import eu.inn.revault.protocol.{RevaultDelete, RevaultPatch, RevaultGet, RevaultPut}
+import eu.inn.revault.protocol.{RevaultDelete, RevaultGet, RevaultPatch, RevaultPut}
+
 import scala.concurrent.duration._
 
-class RevaultDistributor(revaultProcessor: ActorRef, db: Db, requestTimeout: FiniteDuration) extends Actor with ActorLogging {
+class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: FiniteDuration) extends Actor with ActorLogging {
   import context._
 
   def receive = AkkaHyperService.dispatch(this)
