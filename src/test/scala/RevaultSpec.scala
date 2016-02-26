@@ -373,7 +373,7 @@ class RevaultSpec extends FreeSpec
     completer ! completerTask
     expectMsgType[ShardTaskComplete].result shouldBe a[CompletionFailedException]
     val mons = selectMonitors(monitorUuids, path, db)
-    println(mons)
+
     mons.head.completedAt shouldBe None
     mons.tail.head.completedAt shouldNot be(None)
 
@@ -400,7 +400,7 @@ class RevaultSpec extends FreeSpec
     val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20 seconds))
     import eu.inn.hyperbus.akkaservice._
     implicit val timeout = Timeout(20.seconds)
-    hyperBus.routeTo[HyperbusAdapter](distributor)
+    hyperBus.routeTo[HyperbusAdapter](distributor).futureValue map println // wait while subscription is completes
 
     val putEventPromise = Promise[RevaultFeedPut]()
     hyperBus |> { put: RevaultFeedPut ⇒

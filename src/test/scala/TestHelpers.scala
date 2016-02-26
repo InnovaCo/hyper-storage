@@ -97,7 +97,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
         val config = ConfigFactory.load().getConfig(s"hyperbus-$index")
         val transportConfiguration = TransportConfigurationLoader.fromConfig(config)
         val transportManager = new TransportManager(transportConfiguration)
-        new HyperBus(transportManager, defaultGroupName = Some(s"subscriber-$index"))
+        new HyperBus(transportManager, defaultGroupName = Some(s"subscriber-$index"), logMessages = true)
       }
     )
     hb
@@ -137,6 +137,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
     }
     _hyperBuses.clear()
     Thread.sleep(500)
+    println("------- HYPERBUSES WERE SHUT DOWN -------- ")
   }
 
   implicit class TaskEx(t: ShardTask) {

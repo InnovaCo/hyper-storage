@@ -32,6 +32,7 @@
 ```
 
 todo:
+    distributed akka, use protobuf: https://github.com/akka/akka/issues/18371
   * recovery job
   * limit stash size
   * CREATED/NO_CONTENT instead of ACCEPTED
