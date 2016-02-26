@@ -68,10 +68,10 @@ class RevaultService(console: Console,
 
   val distributor = actorSystem.actorOf(Props(classOf[HyperbusAdapter], processorActorRef, db, requestTimeout))
 
-  val subscriptions = {
+  val subscriptions = Await.result({
     implicit val timeout: akka.util.Timeout = requestTimeout
     hyperBus.routeTo[HyperbusAdapter](distributor)
-  }
+  }, requestTimeout)
 
   log.info("Revault started!")
 
@@ -79,7 +79,7 @@ class RevaultService(console: Console,
   override def stopService(controlBreak: Boolean): Unit = {
     log.info("Stopping Revault service...")
 
-    subscriptions.foreach(hyperBus.off)
+    subscriptions.foreach(subscription => Await.result(hyperBus.off(subscription), shutdownTimeout/2))
 
     try {
       akka.pattern.gracefulStop(processorActorRef, shutdownTimeout*4/5, PoisonPill)

@@ -7,10 +7,7 @@ import akka.pattern.pipe
 import eu.inn.binders.dynamic._
 import eu.inn.hyperbus.HyperBus
 import eu.inn.hyperbus.model._
-import eu.inn.hyperbus.model.serialization.util.StringDeserializer
-import eu.inn.hyperbus.model.standard._
-import eu.inn.hyperbus.transport.api.uri.SpecificValue
-import eu.inn.hyperbus.util.StringSerializer
+import eu.inn.hyperbus.serialization.{StringDeserializer,StringSerializer}
 import eu.inn.revault.db.{Content, Db, Monitor}
 import eu.inn.revault.sharding.{ShardTask, ShardTaskComplete}
 
@@ -72,8 +69,9 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTaskTtl: Long) extends 
       case Some(content) ⇒ content.revision + 1
     }
     MonitorLogic.newMonitor(request.path, revision, request.copy(
-      method = "feed:" + request.method,
-      headers = request.headers + "hyperbus:revision" → Seq(revision.toString)
+      headers = request.headers + 
+        (Header.REVISION → Seq(revision.toString)) +
+        (Header.METHOD → Seq("feed:" + request.method))
     ).serializeToString())
   }
 

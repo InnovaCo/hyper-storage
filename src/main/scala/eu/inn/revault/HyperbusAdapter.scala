@@ -3,13 +3,10 @@ package eu.inn.revault
 import akka.actor.{Actor, ActorLogging, ActorRef}
 import akka.pattern.ask
 import eu.inn.hyperbus.akkaservice.AkkaHyperService
-import eu.inn.hyperbus.model.serialization.util.StringDeserializer
-import eu.inn.hyperbus.model.standard._
-import eu.inn.hyperbus.model.{Body, Request}
-import eu.inn.hyperbus.util.StringSerializer
 import eu.inn.revault.db.Db
 import eu.inn.revault.protocol.{RevaultDelete, RevaultGet, RevaultPatch, RevaultPut}
-
+import eu.inn.hyperbus.serialization.{StringSerializer,StringDeserializer}
+import eu.inn.hyperbus.model._
 import scala.concurrent.duration._
 
 class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: FiniteDuration) extends Actor with ActorLogging {
@@ -21,7 +18,7 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: Finite
     case None ⇒ NotFound(ErrorBody("not_found", Some(s"Resource ${request.path} is not found")))
     case Some(content) ⇒
       val body = StringDeserializer.dynamicBody(content.body)
-      Ok(body, Map("hyperbus:revision" → Seq(content.revision.toString)))
+      Ok(body, Map(Header.REVISION → Seq(content.revision.toString)))
   }
 
   def ~> (request: RevaultPut) = executeRequest(request, request.path)

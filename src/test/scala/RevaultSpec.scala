@@ -5,10 +5,8 @@ import akka.testkit.{TestActorRef, TestProbe}
 import akka.util.Timeout
 import com.datastax.driver.core.utils.UUIDs
 import eu.inn.binders.dynamic.{Null, Obj, Text}
-import eu.inn.hyperbus.model.serialization.util.StringDeserializer
-import eu.inn.hyperbus.model.standard._
+import eu.inn.hyperbus.serialization.{StringDeserializer,StringSerializer}
 import eu.inn.hyperbus.model._
-import eu.inn.hyperbus.util.StringSerializer
 import eu.inn.revault._
 import eu.inn.revault.protocol._
 import eu.inn.revault.sharding.{ShardProcessor, ShardMemberStatus, ShardTaskComplete}
@@ -422,7 +420,7 @@ class RevaultSpec extends FreeSpec
     whenReady(putEventFuture) { putEvent ⇒
       putEvent.method should equal(Method.FEED_PUT)
       putEvent.body should equal (DynamicBody(Text("Hello")))
-      putEvent.headers.get("hyperbus:revision") shouldNot be(None)
+      putEvent.headers.get(Header.REVISION) shouldNot be(None)
     }
 
     whenReady(hyperBus <~ RevaultGet(path, EmptyBody), TestTimeout(10.seconds)) { response ⇒
@@ -474,7 +472,7 @@ class RevaultSpec extends FreeSpec
     whenReady(patchEventFuture) { patchEvent ⇒
       patchEvent.method should equal(Method.FEED_PATCH)
       patchEvent.body should equal (DynamicBody(Obj(Map("b" → Null))))
-      patchEvent.headers.get("hyperbus:revision") shouldNot be(None)
+      patchEvent.headers.get(Header.REVISION) shouldNot be(None)
     }
 
     whenReady(hyperBus <~ RevaultGet(path, EmptyBody), TestTimeout(10.seconds)) { response ⇒

@@ -9,7 +9,7 @@ import scala.concurrent.Future
 import scala.concurrent.duration.FiniteDuration
 
 class FaultClientTransport(config: Config) extends ClientTransport {
-  override def ask[OUT <: TransportResponse](message: TransportRequest, outputDeserializer: Deserializer[OUT]): Future[OUT] = {
+  override def ask(message: TransportRequest, outputDeserializer: Deserializer[TransportResponse]): Future[TransportResponse] = {
     Future.failed(new RuntimeException("ask failed (test method)"))
   }
   override def publish(message: TransportRequest): Future[PublishResult] = Future {
