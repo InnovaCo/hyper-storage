@@ -32,20 +32,7 @@
 ```
 
 todo:
-  * recovery job:
-        1. recovery control actor
-            1.1. track cluster data
-            1.2. track list of self channels
-            1.3. run hot recovery worker on channel
-            1.4. run stale recovery worker on channel
-            1.5. warns if hot isn't covered within hot period, extend hot period [range]
-        2. hot data recovery worker
-            2.1. selects data from channel for last (30) minutes
-            2.1. sends tasks for recovery, waits each to answer (limit?)
-        3. stale data recovery worker
-            3.1. selects data from channel starting from last check, until now - 30min (hot level)
-            3.2. sends tasks for recovery, waits each to anwser (indefinitely)
-            3.3. updates check dates (with replication lag date)
+  channels -> partitions
   * /revault/content
     /revault/monitor
 

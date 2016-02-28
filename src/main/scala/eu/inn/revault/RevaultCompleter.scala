@@ -10,6 +10,7 @@ import eu.inn.hyperbus.transport.api.PublishResult
 import eu.inn.revault.db.{Monitor, Content, Db}
 import eu.inn.revault.sharding.{ShardTaskComplete, ShardTask}
 import akka.pattern.pipe
+import scala.collection.generic.CanBuildFrom
 import scala.collection.{mutable, Seq}
 import scala.collection.mutable.Builder
 import scala.concurrent.duration._
@@ -88,12 +89,14 @@ class RevaultCompleter(hyperBus: HyperBus, db: Db) extends Actor with ActorLoggi
       val monitorDtQuantum = MonitorLogic.getDtQuantum(UUIDs.unixTimestamp(monitorUuid))
       db.selectMonitor(monitorDtQuantum, monitorChannel, content.uri, monitorUuid)
     }
-    FutureUtils.takeUntilNone(monitorsFStream) map (_.reverse)
+    FutureUtils.collectWhile(monitorsFStream) {
+      case Some(monitor) ⇒ monitor
+    } map (_.reverse)
   }
 }
 
 object FutureUtils {
-  def takeUntilNone[T](iterable: Iterable[Future[Option[T]]])(implicit ec: ExecutionContext): Future[Seq[T]] = {
+  /*def takeUntilNone[T](iterable: Iterable[Future[Option[T]]])(implicit ec: ExecutionContext): Future[Seq[T]] = {
     val iterator = iterable.iterator
     takeUntilNone(Seq.newBuilder[T],
       if (iterator.hasNext) iterator.next() else Future.successful(None)
@@ -108,10 +111,23 @@ object FutureUtils {
       case None ⇒ Future.successful(builder)
       case Some(t) ⇒ takeUntilNone(builder += t, f)
     }
-  }
+  }*/
 
   def serial[A, B](in: Seq[A])(f: A ⇒ Future[B])(implicit ec: ExecutionContext): Future[Seq[B]] =
     in.foldLeft(Future.successful(Seq.newBuilder[B])) { case (fr, a) ⇒
       for (result ← fr; r ← f(a)) yield result += r
     } map (_.result())
+
+  def collectWhile[A, B, M[X] <: Seq[X]](in: M[Future[A]])(pf: PartialFunction[A, B])(implicit cbf: CanBuildFrom[M[Future[A]], B, M[B]], ec: ExecutionContext): Future[M[B]] =
+    collectWhileImpl(in, pf, cbf(in)).map(_.result())
+
+  private def collectWhileImpl[A, B, M[X] <: Seq[X]](in: M[Future[A]], pf: PartialFunction[A, B], buffer: mutable.Builder[B, M[B]])(implicit ec: ExecutionContext): Future[mutable.Builder[B, M[B]]] =
+    if (in.isEmpty) {
+      Future.successful(buffer)
+    } else {
+      in.head flatMap {
+        case r if pf.isDefinedAt(r) ⇒ collectWhileImpl(in.tail.asInstanceOf[M[Future[A]]], pf, buffer += pf(r))
+        case _ ⇒ Future.successful(buffer)
+      }
+    }
 }

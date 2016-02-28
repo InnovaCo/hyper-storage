@@ -33,10 +33,7 @@ case class Monitor(
                     completedAt: Option[Date]
                   )
 
-case class Channel(
-                    channel: Int,
-                    lastQuantum: Date
-                  )
+private [db] case class CheckPoint(lastQuantum: Long)
 
 class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   private [this] lazy val session: com.datastax.driver.core.Session = connector.connect()
@@ -74,6 +71,11 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       where dt_quantum=$dtQuantum and channel=$channel and uri=$uri and uuid=$uuid
     """.oneOption[Monitor]
 
+  def selectChannelMonitors(dtQuantum: Long, channel: Int): Future[Iterator[Monitor]] = cql"""
+      select dt_quantum,channel,uri,uuid,revision,body,completed_at from monitor
+      where dt_quantum=$dtQuantum and channel=$channel
+    """.all[Monitor]
+
   def insertMonitor(monitor: Monitor): Future[Unit] = cql"""
       insert into monitor(dt_quantum,channel,uri,uuid,revision,body,completed_at)
       values(?,?,?,?,?,?,?)
@@ -85,5 +87,13 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
         and channel=${monitor.channel}
         and uri=${monitor.uri}
         and uuid=${monitor.uuid}
+    """.execute()
+
+  def selectCheckpoint(channel: Int): Future[Option[Long]] = cql"""
+      select last_quantum from checkpoint where channel = $channel
+    """.oneOption[CheckPoint].map(_.map(_.lastQuantum))
+
+  def updateCheckpoint(channel: Int, lastQuantum: Long): Future[Unit] = cql"""
+      insert into checkpoint(last_quantum) values($lastQuantum)
     """.execute()
 }

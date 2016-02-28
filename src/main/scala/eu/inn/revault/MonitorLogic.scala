@@ -29,4 +29,8 @@ object MonitorLogic {
   def getDtQuantum(unixTime: Long): Long = {
     unixTime / (1000 * 60)
   }
+
+  def getDtBoundsForQuantum(quantum: Long): (Long,Long) = {
+    (quantum * 1000 * 60, (quantum+1) * 1000 * 60)
+  }
 }
