@@ -68,6 +68,9 @@ case class ShardedClusterData(members: Map[Address, ShardMember], selfAddress: A
   }
 }
 
+case class SubscribeToShardStatus(subscriber: ActorRef)
+case class UpdateShardStatus(self: ActorRef, stateName: ShardMemberStatus, stateData: ShardedClusterData)
+
 private [sharding] case object ShardSyncTimer
 case object ShutdownProcessor
 case class ShardTaskComplete(task: ShardTask, result: Any)
@@ -75,7 +78,7 @@ case class ShardTaskComplete(task: ShardTask, result: Any)
 class ShardProcessor(workersSettings: Map[String, (Props, Int)],
                      roleName: String,
                      syncTimeout: FiniteDuration = 1000 millisecond)
-                     extends FSM[ShardMemberStatus, ShardedClusterData] with Stash {
+                     extends FSMEx[ShardMemberStatus, ShardedClusterData] with Stash {
 
   private val cluster = Cluster(context.system)
   if (!cluster.selfRoles.contains(roleName)) {
@@ -85,6 +88,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
   val activeWorkers = workersSettings.map { case (groupName, (props, maxCount)) ⇒
     groupName → mutable.ArrayBuffer[(ShardTask, ActorRef, ActorRef)]()
   }
+  private val shardStatusSubscribers = mutable.MutableList[ActorRef]()
   cluster.subscribe(self, initialStateMode = ClusterEvent.InitialStateAsEvents, classOf[MemberEvent])
 
   startWith(ShardMemberStatus.Activating, ShardedClusterData(Map.empty, selfAddress, ShardMemberStatus.Activating))
@@ -156,6 +160,11 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
       forwardTask(task, data)
       stay()
 
+    case Event(SubscribeToShardStatus(actorRef), data) ⇒
+      shardStatusSubscribers += actorRef
+      actorRef ! UpdateShardStatus(self, stateName, data)
+      stay()
+
     case Event(e, s) =>
       log.warning("received unhandled request {} in state {}/{}", e, stateName, s)
       stay
@@ -173,6 +182,15 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
 
   def setSyncTimer(): Unit = {
     setTimer("syncing", ShardSyncTimer, syncTimeout)
+  }
+
+  override def processEventEx(event: Event, source: AnyRef): Unit = {
+    val oldState = stateName
+    val oldData = stateData
+    super.processEventEx(event, source)
+    if (oldData != stateData || oldState != oldState) {
+      shardStatusSubscribers.foreach(_ ! UpdateShardStatus(sender, stateName, stateData))
+    }
   }
 
   def introduceSelfTo(member: Member, data: ShardedClusterData) : Option[ShardedClusterData] = {
@@ -425,7 +443,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
     def andUpdate: State = {
       if (data.isDefined) {
         unstashAll()
-        goto(stateName) using data.get // this should stay as goto to fire event to the listeners
+        stay using data.get
       }
       else {
         stay

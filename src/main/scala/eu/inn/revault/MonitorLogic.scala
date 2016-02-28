@@ -7,7 +7,7 @@ import com.datastax.driver.core.utils.UUIDs
 import eu.inn.revault.db.Monitor
 
 object MonitorLogic {
-  val MaxChannels: Int = 1024
+  val MaxChannels: Int = 4096
   val timeZone = TimeZone.getTimeZone("UTC")
 
   def newMonitor(uri: String, revision: Long, body: String) = Monitor(

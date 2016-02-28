@@ -1,5 +1,6 @@
 import java.util.UUID
 
+import akka.actor.FSM.CurrentState
 import akka.actor.Props
 import akka.testkit.{TestActorRef, TestProbe}
 import akka.util.Timeout
@@ -9,7 +10,7 @@ import eu.inn.hyperbus.serialization.{StringDeserializer,StringSerializer}
 import eu.inn.hyperbus.model._
 import eu.inn.revault._
 import eu.inn.revault.protocol._
-import eu.inn.revault.sharding.{ShardProcessor, ShardMemberStatus, ShardTaskComplete}
+import eu.inn.revault.sharding._
 import mock.FaultClientTransport
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{FreeSpec, Matchers}
@@ -400,7 +401,7 @@ class RevaultSpec extends FreeSpec
     val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20 seconds))
     import eu.inn.hyperbus.akkaservice._
     implicit val timeout = Timeout(20.seconds)
-    hyperBus.routeTo[HyperbusAdapter](distributor).futureValue map println // wait while subscription is completes
+    hyperBus.routeTo[HyperbusAdapter](distributor).futureValue // wait while subscription is completes
 
     val putEventPromise = Promise[RevaultFeedPut]()
     hyperBus |> { put: RevaultFeedPut ⇒

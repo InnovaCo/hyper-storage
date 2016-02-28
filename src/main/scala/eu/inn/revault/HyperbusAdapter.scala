@@ -18,8 +18,7 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: Finite
     case None ⇒ NotFound(ErrorBody("not_found", Some(s"Resource ${request.path} is not found")))
     case Some(content) ⇒
       val body = StringDeserializer.dynamicBody(content.body)
-      // todo: something with HeadersBuilder!!!
-      Ok(body, new HeadersBuilder (Map(Header.REVISION → Seq(content.revision.toString))))
+      Ok(body, Headers(Map(Header.REVISION → Seq(content.revision.toString))))
   }
 
   def ~> (request: RevaultPut) = executeRequest(request, request.path)
