@@ -188,7 +188,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
     val oldState = stateName
     val oldData = stateData
     super.processEventEx(event, source)
-    if (oldData != stateData || oldState != oldState) {
+    if (oldData != stateData || oldState != stateName) {
       shardStatusSubscribers.foreach(_ ! UpdateShardStatus(sender, stateName, stateData))
     }
   }

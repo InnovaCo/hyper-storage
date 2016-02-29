@@ -2,7 +2,6 @@ package eu.inn.revault.recovery
 
 import akka.actor._
 import akka.pattern.ask
-import akka.util.Timeout
 import eu.inn.revault._
 import eu.inn.revault.db.Db
 import eu.inn.revault.sharding.ShardMemberStatus.{Active, Deactivating}
@@ -82,6 +81,7 @@ abstract class RecoveryWorker[T](
   }
 
   def runRecoveryCheck(stateData: ShardedClusterData, partitions: Seq[Int]): Unit = {
+    log.info(s"Cluster is active, starting recovery check. Current data: $stateData. Partitions to process: ${partitions.size}")
     context.become(running(stateData, partitions))
     self ! StartCheck
   }

@@ -31,6 +31,8 @@
 ```
 
 todo:
+  * recovery in threads instead of actors
+  * node didn't activated, when there is active, then after shutdown it still didn't activated
   * collections
     + partitioning collection events
     + query filter

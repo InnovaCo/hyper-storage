@@ -1,6 +1,6 @@
 <configuration>
-    <property name="TAG" value="inn-revault-service"/>
-    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <property name="tag" value="inn-revault-service"/>
+    <appender name="stdout" class="ch.qos.logback.core.ConsoleAppender">
         <withJansi>true</withJansi>
         <encoder>
             <pattern>%highlight(%.-3level) %cyan(%d{HH:mm:ss.SSS}) %yellow(%-35.35logger) %highlight(%msg) %n</pattern>
@@ -11,7 +11,27 @@
         <level value="INFO" />
     </logger>
 
-    <root level="INFO">
-        <appender-ref ref="STDOUT"/>
+    <logger name="eu.inn.revault">
+        <level value="TRACE" />
+    </logger>
+
+    <logger name="eu.inn.revault.recovery">
+        <level value="INFO" />
+    </logger>
+
+    <logger name="com.datastax">
+        <level value="INFO" />
+    </logger>
+
+    <logger name="io.netty">
+        <level value="INFO" />
+    </logger>
+
+    <logger name="eu.inn.binders.cassandra">
+        <level value="INFO" />
+    </logger>
+
+    <root level="TRACE">
+        <appender-ref ref="stdout"/>
     </root>
 </configuration>
