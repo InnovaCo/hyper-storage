@@ -12,17 +12,17 @@ create table content (
 
 create table monitor (
 	dt_quantum bigint,
-	channel int,
+	partition int,
 	uri text,
 	uuid timeuuid,
 	revision bigint,
 	body text,
 	completed_at timestamp,
-	primary key ((dt_quantum, channel), uri, uuid)
+	primary key ((dt_quantum, partition), uri, uuid)
 );
 
 create table checkpoint (
-	channel int primary key,
+	partition int primary key,
 	last_quantum bigint
 );
 

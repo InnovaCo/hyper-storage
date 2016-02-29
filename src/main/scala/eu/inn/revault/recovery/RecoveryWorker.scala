@@ -16,22 +16,22 @@ import scala.util.control.NonFatal
  * recovery job:
         1. recovery control actor
             1.1. track cluster data
-            1.2. track list of self channels
-            1.3. run hot recovery worker on channel
-            1.4. run stale recovery worker on channel
+            1.2. track list of self partitions
+            1.3. run hot recovery worker on partition
+            1.4. run stale recovery worker on partition
             1.5. warns if hot isn't covered within hot period, extend hot period [range]
         2. hot data recovery worker
-            2.1. selects data from channel for last (30) minutes
+            2.1. selects data from partition for last (30) minutes
             2.1. sends tasks for recovery, waits each to answer (limit?)
         3. stale data recovery worker
-            3.1. selects data from channel starting from last check, until now - 30min (hot level)
+            3.1. selects data from partition starting from last check, until now - 30min (hot level)
             3.2. sends tasks for recovery, waits each to anwser (indefinitely)
             3.3. updates check dates (with replication lag date)
 */
 
 case object StartCheck
 case object ShutdownRecoveryWorker
-case class CheckQuantum[T](dtQuantum: Long, channels: Seq[Int], state: T)
+case class CheckQuantum[T](dtQuantum: Long, partitions: Seq[Int], state: T)
 
 abstract class RecoveryWorker[T](
                           db: Db,
@@ -43,32 +43,32 @@ abstract class RecoveryWorker[T](
 
   def receive = {
     case UpdateShardStatus(_, Active, stateData) ⇒
-      runRecoveryCheck(stateData, getMyChannels(stateData))
+      runRecoveryCheck(stateData, getMyPartitions(stateData))
 
     case ShutdownRecoveryWorker ⇒
       context.stop(self)
   }
 
-  def running(stateData: ShardedClusterData, myChannels: Seq[Int]): Receive = {
+  def running(stateData: ShardedClusterData, workerPartitions: Seq[Int]): Receive = {
     case UpdateShardStatus(_, Active, newStateData) ⇒
       if (newStateData != stateData) {
-        // restart with new channel list
-        runRecoveryCheck(newStateData, getMyChannels(newStateData))
+        // restart with new partition list
+        runRecoveryCheck(newStateData, getMyPartitions(newStateData))
       }
 
     case UpdateShardStatus(_, Deactivating, _) ⇒
       context.unbecome()
 
     case StartCheck ⇒
-      runNewRecoveryCheck(myChannels)
+      runNewRecoveryCheck(workerPartitions)
 
-    case CheckQuantum(dtQuantum, channelsForQuantum, state: T) ⇒
-      checkQuantum(dtQuantum, channelsForQuantum) map { _ ⇒
-        runNextRecoveryCheck(CheckQuantum(dtQuantum, channelsForQuantum, state))
+    case CheckQuantum(dtQuantum, partitionsForQuantum, state) ⇒
+      checkQuantum(dtQuantum, partitionsForQuantum) map { _ ⇒
+        runNextRecoveryCheck(CheckQuantum(dtQuantum, partitionsForQuantum, state.asInstanceOf[T]))
       } recover {
         case NonFatal(e) ⇒
           log.error(e, s"Quantum check for $dtQuantum is failed. Will retry in $retryPeriod")
-          system.scheduler.scheduleOnce(retryPeriod, self, CheckQuantum(dtQuantum, channelsForQuantum, state))
+          system.scheduler.scheduleOnce(retryPeriod, self, CheckQuantum(dtQuantum, partitionsForQuantum, state))
       }
 
     case ShutdownRecoveryWorker ⇒
@@ -81,20 +81,20 @@ abstract class RecoveryWorker[T](
       context.stop(self)
   }
 
-  def runRecoveryCheck(stateData: ShardedClusterData, myChannels: Seq[Int]): Unit = {
-    context.become(running(stateData, myChannels))
+  def runRecoveryCheck(stateData: ShardedClusterData, partitions: Seq[Int]): Unit = {
+    context.become(running(stateData, partitions))
     self ! StartCheck
   }
 
-  def runNewRecoveryCheck(myChannels: Seq[Int]): Unit
+  def runNewRecoveryCheck(partitions: Seq[Int]): Unit
   def runNextRecoveryCheck(previous: CheckQuantum[T]): Unit
 
-  def checkQuantum(dtQuantum: Long, myChannels: Seq[Int]): Future[Unit] = {
-    log.debug(s"Running channel check for $dtQuantum")
-    FutureUtils.serial(myChannels) { channel ⇒
-      // todo: selectChannelMonitors selects body which isn't eficient
-      db.selectChannelMonitors(dtQuantum, channel).flatMap { channelMonitors ⇒
-        val incompleteMonitors = channelMonitors.toList.filter(_.completedAt.isEmpty).groupBy(_.uri)
+  def checkQuantum(dtQuantum: Long, partitions: Seq[Int]): Future[Unit] = {
+    log.debug(s"Running partition check for $dtQuantum")
+    FutureUtils.serial(partitions) { partition ⇒
+      // todo: selectPartitionMonitors selects body which isn't eficient
+      db.selectPartitionMonitors(dtQuantum, partition).flatMap { partitionMonitors ⇒
+        val incompleteMonitors = partitionMonitors.toList.filter(_.completedAt.isEmpty).groupBy(_.uri)
         FutureUtils.serial(incompleteMonitors.toSeq) { case (monitorUri, monitors) ⇒
 
           val path = ContentLogic.splitPath(monitorUri)
@@ -135,18 +135,18 @@ abstract class RecoveryWorker[T](
     } map(_ ⇒ {})
   }
 
-  def getMyChannels(data: ShardedClusterData): Seq[Int] = {
-    0 until MonitorLogic.MaxChannels flatMap { channel ⇒
-      val task = new ShardTask { def key = channel.toString; def group = ""; def isExpired = false }
+  def getMyPartitions(data: ShardedClusterData): Seq[Int] = {
+    0 until MonitorLogic.MaxPartitions flatMap { partition ⇒
+      val task = new ShardTask { def key = partition.toString; def group = ""; def isExpired = false }
       if (data.taskIsFor(task) == data.selfAddress)
-        Some(channel)
+        Some(partition)
       else
         None
     }
   }
 }
 
-case class HotWorkerState(allChannels: Seq[Int])
+case class HotWorkerState(workerPartitions: Seq[Int])
 
 class HotRecoveryWorker(
                          hotPeriod: (Long,Long),
@@ -160,11 +160,11 @@ class HotRecoveryWorker(
 
   import context._
 
-  def runNewRecoveryCheck(myChannels: Seq[Int]): Unit = {
+  def runNewRecoveryCheck(partitions: Seq[Int]): Unit = {
     val millis = System.currentTimeMillis()
     val lowerBound = MonitorLogic.getDtQuantum(millis - hotPeriod._1)
     log.info(s"Running hot recovery check starting from $lowerBound")
-    self ! CheckQuantum(lowerBound, myChannels, HotWorkerState(myChannels))
+    self ! CheckQuantum(lowerBound, partitions, HotWorkerState(partitions))
   }
 
   // todo: detect if lag is increasing and print warning
@@ -173,7 +173,7 @@ class HotRecoveryWorker(
     val upperBound = MonitorLogic.getDtQuantum(millis - hotPeriod._2)
     val nextQuantum = previous.dtQuantum + 1
     if (nextQuantum < upperBound) {
-      self ! CheckQuantum(nextQuantum, previous.state.allChannels, previous.state)
+      self ! CheckQuantum(nextQuantum, previous.state.workerPartitions, previous.state)
     } else {
       log.info(s"Hot recovery complete on ${previous.dtQuantum}. Will start new in $retryPeriod")
       system.scheduler.scheduleOnce(retryPeriod, self, StartCheck)
@@ -181,7 +181,7 @@ class HotRecoveryWorker(
   }
 }
 
-case class StaleWorkerState(allChannels: Seq[Int], channelsPerQuantum: Map[Long, Seq[Int]])
+case class StaleWorkerState(workerPartitions: Seq[Int], partitionsPerQuantum: Map[Long, Seq[Int]])
 
 //  We need StaleRecoveryWorker because of cassandra data can reappear later due to replication
 class StaleRecoveryWorker(
@@ -195,29 +195,29 @@ class StaleRecoveryWorker(
 
   import context._
 
-  def runNewRecoveryCheck(myChannels: Seq[Int]): Unit = {
+  def runNewRecoveryCheck(partitions: Seq[Int]): Unit = {
     val lowerBound = MonitorLogic.getDtQuantum(System.currentTimeMillis() - stalePeriod._1)
 
-    FutureUtils.serial(myChannels) { channel ⇒
-      db.selectCheckpoint(channel) map {
+    FutureUtils.serial(partitions) { partition ⇒
+      db.selectCheckpoint(partition) map {
         case Some(lastQuantum) ⇒
-          lastQuantum → channel
+          lastQuantum → partition
         case None ⇒
-          lowerBound → channel
+          lowerBound → partition
       }
-    } map { channelQuantums ⇒
+    } map { partitionQuantums ⇒
 
-      val stalest = channelQuantums.sortBy(_._1).head._1
-      val channelsPerQuantum: Map[Long, Seq[Int]] = channelQuantums.groupBy(_._1).map(kv ⇒ kv._1 → kv._2.map(_._2))
-      val state = StaleWorkerState(myChannels, channelsPerQuantum)
-      val (startFrom,channels) = if (stalest < lowerBound) {
-        (stalest, channelsPerQuantum(stalest))
+      val stalest = partitionQuantums.sortBy(_._1).head._1
+      val partitionsPerQuantum: Map[Long, Seq[Int]] = partitionQuantums.groupBy(_._1).map(kv ⇒ kv._1 → kv._2.map(_._2))
+      val state = StaleWorkerState(partitions, partitionsPerQuantum)
+      val (startFrom,partitionsToProcess) = if (stalest < lowerBound) {
+        (stalest, partitionsPerQuantum(stalest))
       } else {
-        (lowerBound, myChannels)
+        (lowerBound, partitions)
       }
 
       log.info(s"Running stale recovery check starting from $startFrom")
-      self ! CheckQuantum(startFrom, channels, state)
+      self ! CheckQuantum(startFrom, partitionsToProcess, state)
     } recover {
       case NonFatal(e) ⇒
         log.error(e, s"Can't fetch checkpoints. Will retry in $retryPeriod")
@@ -233,8 +233,8 @@ class StaleRecoveryWorker(
     val nextQuantum = previous.dtQuantum + 1
 
     val futureUpdateCheckpoints = if (previous.dtQuantum <= lowerBound) {
-      FutureUtils.serial(previous.channels) { channel ⇒
-        db.updateCheckpoint(channel, previous.dtQuantum)
+      FutureUtils.serial(previous.partitions) { partition ⇒
+        db.updateCheckpoint(partition, previous.dtQuantum)
       }
     } else {
       Future.successful({})
@@ -242,12 +242,12 @@ class StaleRecoveryWorker(
 
     futureUpdateCheckpoints map { _ ⇒
       if (nextQuantum < upperBound) {
-        if (nextQuantum >= lowerBound || previous.channels == previous.state.allChannels) {
-          self ! CheckQuantum(nextQuantum, previous.state.allChannels, previous.state)
+        if (nextQuantum >= lowerBound || previous.partitions == previous.state.workerPartitions) {
+          self ! CheckQuantum(nextQuantum, previous.state.workerPartitions, previous.state)
         } else {
-          val nextQuantumChannels = previous.state.channelsPerQuantum.getOrElse(nextQuantum, Seq.empty)
-          val channels = (previous.channels.toSet ++ nextQuantumChannels).toSeq
-          self ! CheckQuantum(nextQuantum, channels, previous.state)
+          val nextQuantumPartitions = previous.state.partitionsPerQuantum.getOrElse(nextQuantum, Seq.empty)
+          val partitions = (previous.partitions.toSet ++ nextQuantumPartitions).toSeq
+          self ! CheckQuantum(nextQuantum, partitions, previous.state)
         }
       }
       else {

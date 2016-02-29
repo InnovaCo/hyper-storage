@@ -85,9 +85,8 @@ class RevaultCompleter(hyperBus: HyperBus, db: Db) extends Actor with ActorLoggi
 
   def selectIncompleteMonitors(content: Content): Future[Seq[Monitor]] = {
     val monitorsFStream = content.monitorList.toStream.map { monitorUuid ⇒
-      val monitorChannel = content.monitorChannel
-      val monitorDtQuantum = MonitorLogic.getDtQuantum(UUIDs.unixTimestamp(monitorUuid))
-      db.selectMonitor(monitorDtQuantum, monitorChannel, content.uri, monitorUuid)
+      val quantum = MonitorLogic.getDtQuantum(UUIDs.unixTimestamp(monitorUuid))
+      db.selectMonitor(quantum, content.partition, content.uri, monitorUuid)
     }
     FutureUtils.collectWhile(monitorsFStream) {
       case Some(monitor) ⇒ monitor

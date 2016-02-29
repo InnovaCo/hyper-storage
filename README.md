@@ -32,13 +32,12 @@
 ```
 
 todo:
-  channels -> partitions
   * /revault/content
     /revault/monitor
-
   * CREATED/NO_CONTENT instead of ACCEPTED
   * limit stash size
   * url validator and splitter
+
   * collections
     + partitioning collection events
     + query filter

@@ -10,7 +10,7 @@ object ContentLogic {
       else
         content.documentUri + "/" + content.itemSegment
     }
-    def monitorChannel = MonitorLogic.channelFromUri(uri)
+    def partition = MonitorLogic.partitionFromUri(uri)
   }
 
   // todo: describe uri to resource/collection item matching

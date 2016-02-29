@@ -554,7 +554,7 @@ class RevaultSpec extends FreeSpec
     db.insertMonitor(newMonitor).futureValue
     println(s"old uuid = ${monitor.uuid}, new uuid = $newMonitorUuid, ${UUIDs.unixTimestamp(monitor.uuid)}, ${UUIDs.unixTimestamp(newMonitorUuid)}")
 
-    db.updateCheckpoint(monitor.channel, monitor.dtQuantum-10) // checkpoint to - 10 minutes
+    db.updateCheckpoint(monitor.partition, monitor.dtQuantum-10) // checkpoint to - 10 minutes
 
     val processorProbe = TestProbe("processor")
     val staleWorkerProps = Props(classOf[StaleRecoveryWorker],
@@ -575,14 +575,14 @@ class RevaultSpec extends FreeSpec
     processorProbe.reply(CompletionFailedException(completerTask2.path, "Testing worker behavior"))
 
     eventually {
-      db.selectCheckpoint(monitor.channel).futureValue shouldBe Some(newMonitor.dtQuantum - 1)
+      db.selectCheckpoint(monitor.partition).futureValue shouldBe Some(newMonitor.dtQuantum - 1)
     }
 
     val completerTask3 = processorProbe.expectMsgType[RevaultCompleterTask](max = 20.seconds)
     hotWorker ! processorProbe.reply(RevaultCompleterTaskResult(completerTask2.path, newContent.monitorList))
 
     eventually {
-      db.selectCheckpoint(monitor.channel).futureValue.get shouldBe >(newMonitor.dtQuantum)
+      db.selectCheckpoint(monitor.partition).futureValue.get shouldBe >(newMonitor.dtQuantum)
     }
 
     val completerTask4 = processorProbe.expectMsgType[RevaultCompleterTask](max = 20.seconds) // this is abandoned

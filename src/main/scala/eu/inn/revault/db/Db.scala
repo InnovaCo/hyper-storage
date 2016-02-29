@@ -24,7 +24,7 @@ case class Content(
 
 case class Monitor(
                     dtQuantum: Long,
-                    channel: Int,
+                    partition: Int,
                     uri: String,
                     uuid: UUID,
                     revision: Long,
@@ -65,25 +65,25 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       values(?,?,?,?,?,?,?,?)
     """.bind(content).execute()
 
-  def selectMonitor(dtQuantum: Long, channel: Int, uri: String, uuid: UUID): Future[Option[Monitor]] = cql"""
-      select dt_quantum,channel,uri,uuid,revision,body,completed_at from monitor
-      where dt_quantum=$dtQuantum and channel=$channel and uri=$uri and uuid=$uuid
+  def selectMonitor(dtQuantum: Long, partition: Int, uri: String, uuid: UUID): Future[Option[Monitor]] = cql"""
+      select dt_quantum,partition,uri,uuid,revision,body,completed_at from monitor
+      where dt_quantum=$dtQuantum and partition=$partition and uri=$uri and uuid=$uuid
     """.oneOption[Monitor]
 
-  def selectChannelMonitors(dtQuantum: Long, channel: Int): Future[Iterator[Monitor]] = cql"""
-      select dt_quantum,channel,uri,uuid,revision,body,completed_at from monitor
-      where dt_quantum=$dtQuantum and channel=$channel
+  def selectPartitionMonitors(dtQuantum: Long, partition: Int): Future[Iterator[Monitor]] = cql"""
+      select dt_quantum,partition,uri,uuid,revision,body,completed_at from monitor
+      where dt_quantum=$dtQuantum and partition=$partition
     """.all[Monitor]
 
   def insertMonitor(monitor: Monitor): Future[Unit] = cql"""
-      insert into monitor(dt_quantum,channel,uri,uuid,revision,body,completed_at)
+      insert into monitor(dt_quantum,partition,uri,uuid,revision,body,completed_at)
       values(?,?,?,?,?,?,?)
     """.bind(monitor).execute()
 
   def completeMonitor(monitor: Monitor): Future[Unit] = cql"""
       update monitor set completed_at=dateOf(now())
       where dt_quantum=${monitor.dtQuantum}
-        and channel=${monitor.channel}
+        and partition=${monitor.partition}
         and uri=${monitor.uri}
         and uuid=${monitor.uuid}
     """.execute()
@@ -91,16 +91,16 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   def deleteMonitor(monitor: Monitor): Future[Unit] = cql"""
       delete monitor
       where dt_quantum=${monitor.dtQuantum}
-        and channel=${monitor.channel}
+        and partition=${monitor.partition}
         and uri=${monitor.uri}
         and uuid=${monitor.uuid}
     """.execute()
 
-  def selectCheckpoint(channel: Int): Future[Option[Long]] = cql"""
-      select last_quantum from checkpoint where channel = $channel
+  def selectCheckpoint(partition: Int): Future[Option[Long]] = cql"""
+      select last_quantum from checkpoint where partition = $partition
     """.oneOption[CheckPoint].map(_.map(_.lastQuantum))
 
-  def updateCheckpoint(channel: Int, lastQuantum: Long): Future[Unit] = cql"""
-      insert into checkpoint(channel, last_quantum) values($channel, $lastQuantum)
+  def updateCheckpoint(partition: Int, lastQuantum: Long): Future[Unit] = cql"""
+      insert into checkpoint(partition, last_quantum) values($partition, $lastQuantum)
     """.execute()
 }

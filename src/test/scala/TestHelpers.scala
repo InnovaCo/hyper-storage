@@ -11,6 +11,7 @@ import eu.inn.hyperbus.transport.api.{TransportManager, TransportConfigurationLo
 import eu.inn.revault.MonitorLogic
 import eu.inn.revault.db.{Db, Monitor}
 import eu.inn.revault.sharding._
+import org.cassandraunit.dataset.cql.ClassPathCQLDataSet
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{BeforeAndAfterEach, Matchers}
 import scala.concurrent.Await
@@ -112,9 +113,9 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
 
   def selectMonitors(uuids: Seq[UUID], path: String, db: Db): Seq[Monitor] = {
     uuids flatMap { uuid ⇒
-      val monitorChannel = MonitorLogic.channelFromUri(path)
+      val partition = MonitorLogic.partitionFromUri(path)
       val qt = MonitorLogic.getDtQuantum(UUIDs.unixTimestamp(uuid))
-      whenReady(db.selectMonitor(qt, monitorChannel, path, uuid)) { mon ⇒
+      whenReady(db.selectMonitor(qt, partition, path, uuid)) { mon ⇒
         mon
       }
     }
@@ -138,6 +139,15 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
     _hyperBuses.clear()
     Thread.sleep(500)
     println("------- HYPERBUSES WERE SHUT DOWN -------- ")
+  }
+
+  override def beforeEach() {
+    println("------- CLEANING UP C* -------- ")
+    import scala.collection.JavaConversions._
+    if (Cassandra.session != null) {
+      val cleanDs = new ClassPathCQLDataSet("cleanup.cql", "revault_test")
+      cleanDs.getCQLStatements.foreach(c ⇒ Cassandra.session.execute(c))
+    }
   }
 
   implicit class TaskEx(t: ShardTask) {
