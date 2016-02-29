@@ -107,6 +107,8 @@ class RevaultSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
+      cleanUpCassandra()
+
       val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
 
       val task = RevaultPut(
@@ -155,6 +157,8 @@ class RevaultSpec extends FreeSpec
       val hyperBus = testHyperBus()
       val tk = testKit()
       import tk._
+
+      cleanUpCassandra()
 
       val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
 
@@ -217,6 +221,8 @@ class RevaultSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
+      cleanUpCassandra()
+
       val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
 
       val task = RevaultDelete(path = "/not-existing", body = EmptyBody)
@@ -239,6 +245,8 @@ class RevaultSpec extends FreeSpec
       val hyperBus = testHyperBus()
       val tk = testKit()
       import tk._
+
+      cleanUpCassandra()
 
       val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
 
@@ -277,6 +285,8 @@ class RevaultSpec extends FreeSpec
     val hyperBus = testHyperBus()
     val tk = testKit()
     import tk._
+
+    cleanUpCassandra()
 
     val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
     val path = "/abcde"
@@ -326,6 +336,8 @@ class RevaultSpec extends FreeSpec
     val hyperBus = testHyperBus()
     val tk = testKit()
     import tk._
+
+    cleanUpCassandra()
 
     val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
     val path = "/faulty"
@@ -394,6 +406,8 @@ class RevaultSpec extends FreeSpec
     import tk._
     import system._
 
+    cleanUpCassandra()
+
     val workerProps = Props(classOf[RevaultWorker], hyperBus, db, 10.seconds)
     val completerProps = Props(classOf[RevaultCompleter], hyperBus, db)
     val workerSettings = Map(
@@ -439,6 +453,8 @@ class RevaultSpec extends FreeSpec
     val tk = testKit()
     import tk._
     import system._
+
+    cleanUpCassandra()
 
     val workerProps = Props(classOf[RevaultWorker], hyperBus, db, 10.seconds)
     val completerProps = Props(classOf[RevaultCompleter], hyperBus, db)
@@ -491,6 +507,8 @@ class RevaultSpec extends FreeSpec
     val tk = testKit()
     import tk._
 
+    cleanUpCassandra()
+
     val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
     val path = "/incomplete" + UUID.randomUUID().toString
     val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
@@ -530,6 +548,8 @@ class RevaultSpec extends FreeSpec
     val hyperBus = testHyperBus()
     val tk = testKit()
     import tk._
+
+    cleanUpCassandra()
 
     val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
     val path = "/incomplete" + UUID.randomUUID().toString

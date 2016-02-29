@@ -77,7 +77,7 @@ case class ShardTaskComplete(task: ShardTask, result: Any)
 
 class ShardProcessor(workersSettings: Map[String, (Props, Int)],
                      roleName: String,
-                     syncTimeout: FiniteDuration = 1000 millisecond)
+                     syncTimeout: FiniteDuration = 1000.millisecond)
                      extends FSMEx[ShardMemberStatus, ShardedClusterData] with Stash {
 
   private val cluster = Cluster(context.system)

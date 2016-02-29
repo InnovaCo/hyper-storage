@@ -66,8 +66,7 @@ class TestWorker extends Actor with ActorLogging {
 
 trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
   this : org.scalatest.BeforeAndAfterEach with org.scalatest.Suite =>
-
-  var log = LoggerFactory.getLogger(getClass)
+  private [this] val log = LoggerFactory.getLogger(getClass)
 
   def createRevaultActor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
     val workerSettings = Map(groupName → (Props[TestWorker], workerCount))
@@ -142,15 +141,6 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
     _hyperBuses.clear()
     Thread.sleep(500)
     log.info("------- HYPERBUSES WERE SHUT DOWN -------- ")
-  }
-
-  override def beforeEach() {
-    log.info("------- CLEANING UP C* -------- ")
-    import scala.collection.JavaConversions._
-    if (Cassandra.session != null) {
-      val cleanDs = new ClassPathCQLDataSet("cleanup.cql", "revault_test")
-      cleanDs.getCQLStatements.foreach(c ⇒ Cassandra.session.execute(c))
-    }
   }
 
   implicit class TaskEx(t: ShardTask) {
