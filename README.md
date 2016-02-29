@@ -31,7 +31,6 @@
 ```
 
 todo:
-  * limit stash size
   * url validator and splitter
 
   * collections
@@ -51,3 +50,6 @@ todo:
   * StringDeserializer -> accept Message
   * EmptyBody without content-type!
     distributed akka, use protobuf: https://github.com/akka/akka/issues/18371
+
+  * document:
+    - stash-size
