@@ -143,6 +143,7 @@ class RevaultSpec extends FreeSpec
       val completerResult = expectMsgType[ShardTaskComplete]
       val rc = completerResult.result.asInstanceOf[RevaultCompleterTaskResult]
       rc.path should equal("/test-resource-1")
+      println(s"rc = $rc.monitors")
       rc.monitors should contain(uuid)
       selectMonitors(rc.monitors, "/test-resource-1", db) foreach { monitor ⇒
         monitor.completedAt shouldNot be(None)

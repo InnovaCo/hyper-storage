@@ -14,6 +14,7 @@ import eu.inn.revault.sharding._
 import org.cassandraunit.dataset.cql.ClassPathCQLDataSet
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{BeforeAndAfterEach, Matchers}
+import org.slf4j.LoggerFactory
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.collection.concurrent.TrieMap
@@ -65,6 +66,8 @@ class TestWorker extends Actor with ActorLogging {
 
 trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
   this : org.scalatest.BeforeAndAfterEach with org.scalatest.Suite =>
+
+  var log = LoggerFactory.getLogger(getClass)
 
   def createRevaultActor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
     val workerSettings = Map(groupName → (Props[TestWorker], workerCount))
@@ -130,7 +133,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
   }
 
   override def afterEach() {
-    println("------- SHUTTING DOWN HYPERBUSES -------- ")
+    log.info("------- SHUTTING DOWN HYPERBUSES -------- ")
     _hyperBuses.foreach{
       case (index, hb) ⇒ {
         Await.result(hb.shutdown(10.second), 11.second)
@@ -138,11 +141,11 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
     }
     _hyperBuses.clear()
     Thread.sleep(500)
-    println("------- HYPERBUSES WERE SHUT DOWN -------- ")
+    log.info("------- HYPERBUSES WERE SHUT DOWN -------- ")
   }
 
   override def beforeEach() {
-    println("------- CLEANING UP C* -------- ")
+    log.info("------- CLEANING UP C* -------- ")
     import scala.collection.JavaConversions._
     if (Cassandra.session != null) {
       val cleanDs = new ClassPathCQLDataSet("cleanup.cql", "revault_test")
