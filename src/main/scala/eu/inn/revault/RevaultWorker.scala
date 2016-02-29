@@ -1,14 +1,17 @@
 package eu.inn.revault
 
+import java.io.OutputStream
 import java.util.Date
 
 import akka.actor.{Actor, ActorLogging, ActorRef}
 import akka.pattern.pipe
 import eu.inn.binders.dynamic._
 import eu.inn.hyperbus.HyperBus
+import eu.inn.hyperbus.model.LinksMap.LinksMapType
 import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.serialization.{StringDeserializer,StringSerializer}
 import eu.inn.revault.db.{Content, Db, Transaction}
+import eu.inn.revault.protocol.TransactionCreated
 import eu.inn.revault.sharding.{ShardTask, ShardTaskComplete}
 
 import scala.concurrent.Future
@@ -23,7 +26,7 @@ import scala.util.control.NonFatal
 @SerialVersionUID(1L) case class RevaultTaskResult(content: String)
 
 case class RevaultWorkerTaskFailed(task: ShardTask, inner: Throwable)
-case class RevaultWorkerTaskAccepted(task: ShardTask, transaction: Transaction)
+case class RevaultWorkerTaskAccepted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
 
 class RevaultWorker(hyperBus: HyperBus, db: Db, completerTaskTtl: Long) extends Actor with ActorLogging {
   import ContentLogic._
@@ -55,7 +58,7 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTaskTtl: Long) extends 
   def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemSegment: String, task: RevaultTask, request: DynamicRequest) = {
     db.selectContent(documentUri, itemSegment) flatMap { existingContent ⇒
       updateResource(documentUri, itemSegment, request, existingContent) map { newTransaction ⇒
-        RevaultWorkerTaskAccepted(task, newTransaction)
+        RevaultWorkerTaskAccepted(task, newTransaction, existingContent.isEmpty)
       }
     } recover {
       case NonFatal(e) ⇒
@@ -76,14 +79,19 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTaskTtl: Long) extends 
   }
 
   private def taskWaitResult(owner: ActorRef, originalTask: RevaultTask)(implicit mcf: MessagingContextFactory): Receive = {
-    case RevaultWorkerTaskAccepted(task, transaction) if task == originalTask ⇒
+    case RevaultWorkerTaskAccepted(task, transaction, created) if task == originalTask ⇒
       if (log.isDebugEnabled) {
         log.debug(s"Task $originalTask is accepted")
       }
       owner ! RevaultCompleterTask(task.key, System.currentTimeMillis() + completerTaskTtl, transaction.uri)
-      val trId = transaction.uri + ":" + transaction.revision
-      val resultContent = Accepted(protocol.Transaction(trId, "in-progress", None)).serializeToString()
-      owner ! ShardTaskComplete(task, RevaultTaskResult(resultContent))
+      val transactionId = transaction.uri + ":" + transaction.revision
+      val result: Response[Body] = if (created) {
+        Created(TransactionCreated(transactionId))
+      }
+      else {
+        Ok(TransactionCreated(transactionId))
+      }
+      owner ! ShardTaskComplete(task, RevaultTaskResult(result.serializeToString()))
       unbecome()
 
     case RevaultWorkerTaskFailed(task, e) if task == originalTask ⇒

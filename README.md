@@ -9,12 +9,11 @@
                     "path": "about-author"
                 }
             },
-            "method":"post",
-            "contentType":"about-author",
-            "messageId":"123",
             "headers": {
-                "hyperbus-revision": ["100500"],
-                "hyperbus-original-method": "put"
+                "method": ["post"],
+                "contentType": ["about-author"],
+                "messageId": ["123"],
+                "revision": ["100500"]
             }
         },
         "body": {
@@ -32,9 +31,7 @@
 ```
 
 todo:
-  * /revault/content
-    /revault/transaction
-  * CREATED/NO_CONTENT instead of ACCEPTED
+  * integrate recovery worker
   * limit stash size
   * url validator and splitter
 
@@ -45,7 +42,7 @@ todo:
     + (content transactionsList delta updates)
   * performance test
   * facade JS test
-  * revault transactions query
+  * revault transactions query (/revault/transactions/?)
   * cache results
   * integration test
     + kafka + recovery + switch

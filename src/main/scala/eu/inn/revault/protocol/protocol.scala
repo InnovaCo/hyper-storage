@@ -11,13 +11,17 @@ case class RevaultGet(path: String, body: EmptyBody) extends Request[EmptyBody]
 with DefinedResponse[Ok[DynamicBody]]
 
 @body("revault-transaction")
-case class Transaction(id: String, status: String, completedAt: Option[Date],
-                       @fieldName("_links") links: LinksMap.LinksMapType = LinksMap("/revault-transaction/{id}")) extends Body with Links
+case class Transaction(transactionId: String,
+                       @fieldName("_links") links: LinksMap.LinksMapType = LinksMap("/revault-transaction/{transactionId}")) extends Body with Links
+
+@body("revault-transaction-created")
+case class TransactionCreated(transactionId: String,
+                       @fieldName("_links") links: LinksMap.LinksMapType = LinksMap("/revault-transaction/{transactionId}")) extends Body with Links with CreatedBody
 
 @request(Method.PUT, "/revault/content/{path:*}")
 case class RevaultPut(path: String, body: DynamicBody) extends Request[DynamicBody]
 with DefinedResponse[(
-    //Created[DynamicBody with CreatedBody],
+    Created[TransactionCreated],
     Accepted[Transaction],
     NoContent[EmptyBody]
   )]

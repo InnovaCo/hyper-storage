@@ -124,7 +124,7 @@ class RevaultSpec extends FreeSpec
       completerTask.path should equal(task.path)
       val workerResult = expectMsgType[ShardTaskComplete]
       val r = response(workerResult.result.asInstanceOf[RevaultTaskResult].content)
-      r.status should equal(Status.ACCEPTED)
+      r.status should equal(Status.CREATED)
       r.correlationId should equal(task.correlationId)
 
       val uuid = whenReady(db.selectContent("/test-resource-1", "")) { result =>
@@ -201,7 +201,7 @@ class RevaultSpec extends FreeSpec
       worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskPatchStr)
       expectMsgType[RevaultCompleterTask]
       expectMsgPF() {
-        case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.ACCEPTED &&
+        case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.OK &&
           response(result.content).correlationId == task.correlationId ⇒ {
           true
         }
@@ -261,7 +261,7 @@ class RevaultSpec extends FreeSpec
       worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr)
       expectMsgType[RevaultCompleterTask]
       expectMsgPF() {
-        case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.ACCEPTED &&
+        case ShardTaskComplete(_, result : RevaultTaskResult) if response(result.content).status == Status.OK &&
           response(result.content).correlationId == task.correlationId ⇒ {
           true
         }
@@ -299,7 +299,7 @@ class RevaultSpec extends FreeSpec
     val completerTask = expectMsgType[RevaultCompleterTask]
     val workerResult = expectMsgType[ShardTaskComplete]
     val r = response(workerResult.result.asInstanceOf[RevaultTaskResult].content)
-    r.status should equal(Status.ACCEPTED)
+    r.status should equal(Status.OK)
 
     val transactions = whenReady(db.selectContent(path, "")) { result =>
       result.get.isDeleted should equal(true)
@@ -418,7 +418,7 @@ class RevaultSpec extends FreeSpec
 
     val path = "/" + UUID.randomUUID().toString
     whenReady(hyperBus <~ RevaultPut(path, DynamicBody(Text("Hello"))), TestTimeout(10.seconds)) { response ⇒
-      response.status should equal (Status.ACCEPTED)
+      response.status should equal (Status.CREATED)
     }
 
     val putEventFuture = putEventPromise.future
@@ -466,11 +466,11 @@ class RevaultSpec extends FreeSpec
     whenReady(hyperBus <~ RevaultPut(path, DynamicBody(
       Obj(Map("a" → Text("1"), "b" → Text("2"), "c" → Text("3")))
     )), TestTimeout(10.seconds)) { response ⇒
-      response.status should equal (Status.ACCEPTED)
+      response.status should equal (Status.CREATED)
     }
 
     whenReady(hyperBus <~ RevaultPatch(path, DynamicBody(Obj(Map("b" → Null)))), TestTimeout(10.seconds)) { response ⇒
-      response.status should equal (Status.ACCEPTED)
+      response.status should equal (Status.OK)
     }
 
     val patchEventFuture = patchEventPromise.future
