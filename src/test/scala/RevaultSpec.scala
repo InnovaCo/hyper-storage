@@ -112,11 +112,11 @@ class RevaultSpec extends FreeSpec
       val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
 
       val task = RevaultPut(
-        path = "/test-resource-1",
+        path = "test-resource-1",
         DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
       )
 
-      whenReady(db.selectContent("/test-resource-1", "")) { result =>
+      whenReady(db.selectContent("test-resource-1", "")) { result =>
         result shouldBe None
       }
 
@@ -129,7 +129,7 @@ class RevaultSpec extends FreeSpec
       r.status should equal(Status.CREATED)
       r.correlationId should equal(task.correlationId)
 
-      val uuid = whenReady(db.selectContent("/test-resource-1", "")) { result =>
+      val uuid = whenReady(db.selectContent("test-resource-1", "")) { result =>
         result.get.body should equal(Some("""{"text":"Test resource value"}"""))
         result.get.transactionList.size should equal(1)
 
@@ -144,10 +144,10 @@ class RevaultSpec extends FreeSpec
       completer ! completerTask
       val completerResult = expectMsgType[ShardTaskComplete]
       val rc = completerResult.result.asInstanceOf[RevaultCompleterTaskResult]
-      rc.path should equal("/test-resource-1")
+      rc.path should equal("test-resource-1")
       println(s"rc = $rc")
       rc.transactions should contain(uuid)
-      selectTransactions(rc.transactions, "/test-resource-1", db) foreach { transaction ⇒
+      selectTransactions(rc.transactions, "test-resource-1", db) foreach { transaction ⇒
         transaction.completedAt shouldNot be(None)
         transaction.revision should equal(1)
       }
@@ -163,7 +163,7 @@ class RevaultSpec extends FreeSpec
       val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
 
       val task = RevaultPatch(
-        path = "/not-existing",
+        path = "not-existing",
         DynamicBody(Obj(Map("text" → Text("Test resource value"))))
       )
 
@@ -176,7 +176,7 @@ class RevaultSpec extends FreeSpec
         }
       }
 
-      whenReady(db.selectContent("/not-existing", "")) { result =>
+      whenReady(db.selectContent("not-existing", "")) { result =>
         result shouldBe None
       }
     }
@@ -188,7 +188,7 @@ class RevaultSpec extends FreeSpec
 
       val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
 
-      val path = "/test-resource-" + UUID.randomUUID().toString
+      val path = "test-resource-" + UUID.randomUUID().toString
       val taskPutStr = StringSerializer.serializeToString(RevaultPut(path,
         DynamicBody(Obj(Map("text1" → Text("abc"), "text2" → Text("klmn"))))
       ))
@@ -225,7 +225,7 @@ class RevaultSpec extends FreeSpec
 
       val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
 
-      val task = RevaultDelete(path = "/not-existing", body = EmptyBody)
+      val task = RevaultDelete(path = "not-existing", body = EmptyBody)
 
       val taskStr = StringSerializer.serializeToString(task)
       worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr)
@@ -236,7 +236,7 @@ class RevaultSpec extends FreeSpec
         }
       }
 
-      whenReady(db.selectContent("/not-existing", "")) { result =>
+      whenReady(db.selectContent("not-existing", "")) { result =>
         result shouldBe None
       }
     }
@@ -250,7 +250,7 @@ class RevaultSpec extends FreeSpec
 
       val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
 
-      val path = "/test-resource-" + UUID.randomUUID().toString
+      val path = "test-resource-" + UUID.randomUUID().toString
       val taskPutStr = StringSerializer.serializeToString(RevaultPut(path,
         DynamicBody(Obj(Map("text1" → Text("abc"), "text2" → Text("klmn"))))
       ))
@@ -289,7 +289,7 @@ class RevaultSpec extends FreeSpec
     cleanUpCassandra()
 
     val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
-    val path = "/abcde"
+    val path = "abcde"
     val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
       DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
     ))
@@ -340,7 +340,7 @@ class RevaultSpec extends FreeSpec
     cleanUpCassandra()
 
     val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
-    val path = "/faulty"
+    val path = "faulty"
     val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
       DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
     ))
@@ -430,7 +430,7 @@ class RevaultSpec extends FreeSpec
 
     Thread.sleep(2000)
 
-    val path = "/" + UUID.randomUUID().toString
+    val path = UUID.randomUUID().toString
     whenReady(hyperBus <~ RevaultPut(path, DynamicBody(Text("Hello"))), TestTimeout(10.seconds)) { response ⇒
       response.status should equal (Status.CREATED)
     }
@@ -478,7 +478,7 @@ class RevaultSpec extends FreeSpec
 
     Thread.sleep(2000)
 
-    val path = "/" + UUID.randomUUID().toString
+    val path = UUID.randomUUID().toString
     whenReady(hyperBus <~ RevaultPut(path, DynamicBody(
       Obj(Map("a" → Text("1"), "b" → Text("2"), "c" → Text("3")))
     )), TestTimeout(10.seconds)) { response ⇒
@@ -510,7 +510,7 @@ class RevaultSpec extends FreeSpec
     cleanUpCassandra()
 
     val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
-    val path = "/incomplete" + UUID.randomUUID().toString
+    val path = "incomplete-" + UUID.randomUUID().toString
     val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
       DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
     ))
@@ -552,7 +552,7 @@ class RevaultSpec extends FreeSpec
     cleanUpCassandra()
 
     val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
-    val path = "/incomplete" + UUID.randomUUID().toString
+    val path = "incomplete-" + UUID.randomUUID().toString
     val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
       DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
     ))

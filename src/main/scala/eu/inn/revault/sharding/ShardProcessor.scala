@@ -174,7 +174,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
     case a -> b ⇒
       if (a != b) {
         log.info(s"Changing state from $a to $b")
-        unstashAll()
+        safeUnstashAll()
       }
   }
 
@@ -339,7 +339,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
           if (log.isDebugEnabled) {
             log.debug(s"Stashing task received for deactivating node: ${data.taskWasFor(task)}: $task")
           }
-          stash()
+          safeStash(task)
         } else {
           activeWorkers.get(task.group) match {
             case Some(activeGroupWorkers) ⇒
@@ -347,7 +347,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
                 if (log.isDebugEnabled) {
                   log.debug(s"Stashing task for the 'locked' URL: $task worker: $activeWorker")
                 }
-                stash()
+                safeStash(task)
                 true
               } getOrElse {
                 val maxCount = workersSettings(task.group)._2
@@ -355,7 +355,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
                   if (log.isDebugEnabled) {
                     log.debug(s"Worker limit for group '${task.group}' is reached ($maxCount), stashing task: $task")
                   }
-                  stash()
+                  safeStash(task)
                 } else {
                   val workerProps = workersSettings(task.group)._1
                   try {
@@ -395,11 +395,25 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
         if (log.isDebugEnabled) {
           log.debug(s"Stashing task while activating: $task")
         }
-        stash()
+        safeStash(task)
       } else {
         forwardTask(task, data)
       }
     }
+  }
+
+  def safeStash(task: ShardTask) = try {
+    stash()
+  } catch {
+    case NonFatal(e) ⇒
+      log.error(e, s"Can't stash task: $task. It's lost now")
+  }
+
+  def safeUnstashAll() = try {
+    unstashAll()
+  } catch {
+    case NonFatal(e) ⇒
+      log.error(e, s"Can't unstash tasks. Some are lost now")
   }
 
   def forwardTask(task: ShardTask, data: ShardedClusterData): Unit = {
@@ -430,7 +444,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
           }
           activeGroupWorkers.remove(idx)
           worker ! PoisonPill
-          unstashAll()
+          safeUnstashAll()
         } else {
           log.error(s"workerIsReadyForNextTask: unknown worker actor: $sender")
         }
@@ -442,7 +456,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
   protected [this] implicit class ImplicitExtender(data: Option[ShardedClusterData]) {
     def andUpdate: State = {
       if (data.isDefined) {
-        unstashAll()
+        safeUnstashAll()
         stay using data.get
       }
       else {

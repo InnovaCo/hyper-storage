@@ -43,6 +43,9 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTimeout: FiniteDuration
     Try{
       val request = DynamicRequest(task.content)
       val (documentUri, itemSegment) = splitPath(request.path)
+      if (itemSegment.nonEmpty) {
+        throw new IllegalArgumentException("Collections aren't implemented yet")
+      }
       (documentUri, itemSegment, request)
     } map {
       case (documentUri: String, itemSegment: String, request: DynamicRequest) ⇒

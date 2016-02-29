@@ -31,8 +31,6 @@
 ```
 
 todo:
-  * url validator and splitter
-
   * collections
     + partitioning collection events
     + query filter
