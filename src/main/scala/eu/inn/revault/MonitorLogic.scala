@@ -1,13 +1,13 @@
 package eu.inn.revault
 
-import java.util.{GregorianCalendar, Calendar, TimeZone, Date}
+import java.util.TimeZone
 import java.util.zip.CRC32
 
 import com.datastax.driver.core.utils.UUIDs
 import eu.inn.revault.db.Monitor
 
 object MonitorLogic {
-  val MaxChannels: Int = 4096
+  val MaxChannels: Int = 1024
   val timeZone = TimeZone.getTimeZone("UTC")
 
   def newMonitor(uri: String, revision: Long, body: String) = Monitor(
@@ -28,9 +28,5 @@ object MonitorLogic {
 
   def getDtQuantum(unixTime: Long): Long = {
     unixTime / (1000 * 60)
-  }
-
-  def getDtBoundsForQuantum(quantum: Long): (Long,Long) = {
-    (quantum * 1000 * 60, (quantum+1) * 1000 * 60)
   }
 }

@@ -5,17 +5,17 @@
             <pattern>%highlight(%.-3level) %cyan(%d{HH:mm:ss.SSS}) %yellow(%-35.35logger) %magenta(%X{subscriptionId}) %highlight(%msg) %n</pattern>
         </encoder>
     </appender>
-    <logger name="eu.inn.revault.RevaultWorker">
+    <logger name="eu.inn.revault">
         <level value="trace" />
     </logger>
-    <logger name="eu.inn.revault.RevaultCompleter">
-        <level value="trace" />
+    <logger name="eu.inn.binders.cassandra.Statement">
+        <level value="info" />
     </logger>
-    <logger name="eu.inn.revault.sharding.ShardProcessor">
-        <level value="trace" />
+    <logger name="org.apache.cassandra">
+        <level value="warn" />
     </logger>
-    <logger name="eu.inn.revault.HyperbusAdapter">
-        <level value="trace" />
+    <logger name="com.datastax.driver">
+        <level value="warn" />
     </logger>
     <root level="trace">
         <appender-ref ref="stdout"/>

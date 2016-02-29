@@ -1,24 +1,26 @@
 import java.util.UUID
 
-import akka.actor.FSM.CurrentState
-import akka.actor.Props
+import akka.actor.{ActorSelection, Address, Props}
 import akka.testkit.{TestActorRef, TestProbe}
 import akka.util.Timeout
 import com.datastax.driver.core.utils.UUIDs
 import eu.inn.binders.dynamic.{Null, Obj, Text}
-import eu.inn.hyperbus.serialization.{StringDeserializer,StringSerializer}
 import eu.inn.hyperbus.model._
+import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.revault._
+import eu.inn.revault.db.Content
 import eu.inn.revault.protocol._
+import eu.inn.revault.recovery.{StaleRecoveryWorker, HotRecoveryWorker, ShutdownRecoveryWorker}
+import eu.inn.revault.sharding.ShardMemberStatus.Active
 import eu.inn.revault.sharding._
 import mock.FaultClientTransport
+import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{FreeSpec, Matchers}
+import akka.pattern.gracefulStop
 
-import scala.concurrent.{Promise, Future}
 import scala.concurrent.duration._
-import scala.util.control.NonFatal
-import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
+import scala.concurrent.{Future, Promise}
 
 // todo: split revault, shardprocessor and single nodes test
 class RevaultSpec extends FreeSpec
@@ -482,5 +484,108 @@ class RevaultSpec extends FreeSpec
     }
   }
 
+  "HotRecoveryWorker" in {
+    val hyperBus = testHyperBus()
+    val tk = testKit()
+    import tk._
+
+    val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
+    val path = "/incomplete" + UUID.randomUUID().toString
+    val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
+      DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
+    ))
+    worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr1)
+    val completerTask = expectMsgType[RevaultCompleterTask]
+    expectMsgType[ShardTaskComplete]
+
+    val monitorUuids = whenReady(db.selectContent(path, "")) { result =>
+      result.get.monitorList
+    }
+
+    val processorProbe = TestProbe("processor")
+    val hotWorkerProps = Props(classOf[HotRecoveryWorker],
+      (60*1000l, -60*1000l), db, processorProbe.ref, 1.seconds, Timeout(10.seconds)
+    )
+
+    val hotWorker = TestActorRef(hotWorkerProps)
+    val selfAddress = Address("tcp", "127.0.0.1")
+    val shardData = ShardedClusterData(Map(
+      selfAddress → ShardMember(ActorSelection(self, ""), ShardMemberStatus.Active, ShardMemberStatus.Active)
+    ),selfAddress, ShardMemberStatus.Active)
+
+    // start recovery check
+    hotWorker ! UpdateShardStatus(self, Active, shardData)
+
+    val completerTask2 = processorProbe.expectMsgType[RevaultCompleterTask](max = 20.seconds)
+    completerTask.path should equal(completerTask2.path)
+    processorProbe.reply(CompletionFailedException(completerTask2.path, "Testing worker behavior"))
+    val completerTask3 = processorProbe.expectMsgType[RevaultCompleterTask](max = 20.seconds)
+    hotWorker ! processorProbe.reply(RevaultCompleterTaskResult(completerTask2.path, monitorUuids))
+    gracefulStop(hotWorker, 20 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(20.seconds))
+  }
+
+  "StaleRecoveryWorker" in {
+    val hyperBus = testHyperBus()
+    val tk = testKit()
+    import tk._
+
+    val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
+    val path = "/incomplete" + UUID.randomUUID().toString
+    val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
+      DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
+    ))
+    val millis = System.currentTimeMillis()
+    worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr1)
+    val completerTask = expectMsgType[RevaultCompleterTask]
+    expectMsgType[ShardTaskComplete]
+
+    val content = db.selectContent(path, "").futureValue.get
+    val newMonitorUuid = UUIDs.startOf(millis-5*60*1000l)
+    val newContent = content.copy(
+      monitorList = List(newMonitorUuid) // original monitor becomes abandoned
+    )
+    val monitor = selectMonitors(content.monitorList, content.uri, db).head
+    val newMonitor = monitor.copy(
+      dtQuantum = MonitorLogic.getDtQuantum(UUIDs.unixTimestamp(newMonitorUuid)),
+      uuid = newMonitorUuid
+    )
+    db.insertContent(newContent).futureValue
+    db.insertMonitor(newMonitor).futureValue
+    println(s"old uuid = ${monitor.uuid}, new uuid = $newMonitorUuid, ${UUIDs.unixTimestamp(monitor.uuid)}, ${UUIDs.unixTimestamp(newMonitorUuid)}")
+
+    db.updateCheckpoint(monitor.channel, monitor.dtQuantum-10) // checkpoint to - 10 minutes
+
+    val processorProbe = TestProbe("processor")
+    val staleWorkerProps = Props(classOf[StaleRecoveryWorker],
+      (60*1000l, -60*1000l), db, processorProbe.ref, 1.seconds, Timeout(10.seconds)
+    )
+
+    val hotWorker = TestActorRef(staleWorkerProps)
+    val selfAddress = Address("tcp", "127.0.0.1")
+    val shardData = ShardedClusterData(Map(
+      selfAddress → ShardMember(ActorSelection(self, ""), ShardMemberStatus.Active, ShardMemberStatus.Active)
+    ),selfAddress, ShardMemberStatus.Active)
+
+    // start recovery check
+    hotWorker ! UpdateShardStatus(self, Active, shardData)
+
+    val completerTask2 = processorProbe.expectMsgType[RevaultCompleterTask](max = 20.seconds)
+    completerTask.path should equal(completerTask2.path)
+    processorProbe.reply(CompletionFailedException(completerTask2.path, "Testing worker behavior"))
+
+    Thread.sleep(2000)
+
+    db.selectCheckpoint(monitor.channel).futureValue shouldBe Some(newMonitor.dtQuantum-1)
+
+    val completerTask3 = processorProbe.expectMsgType[RevaultCompleterTask](max = 20.seconds)
+    hotWorker ! processorProbe.reply(RevaultCompleterTaskResult(completerTask2.path, newContent.monitorList))
+
+    Thread.sleep(2000)
+
+    db.selectCheckpoint(monitor.channel).futureValue.get shouldBe > (newMonitor.dtQuantum)
+
+    Thread.sleep(20000)
+    gracefulStop(hotWorker, 20 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(20.seconds))
+  }
   def response(content: String): Response[Body] = StringDeserializer.dynamicResponse(content)
 }

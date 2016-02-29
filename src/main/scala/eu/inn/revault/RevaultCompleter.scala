@@ -113,10 +113,11 @@ object FutureUtils {
     }
   }*/
 
-  def serial[A, B](in: Seq[A])(f: A ⇒ Future[B])(implicit ec: ExecutionContext): Future[Seq[B]] =
+  def serial[A, B](in: Seq[A])(f: A ⇒ Future[B])(implicit ec: ExecutionContext): Future[Seq[B]] = {
     in.foldLeft(Future.successful(Seq.newBuilder[B])) { case (fr, a) ⇒
       for (result ← fr; r ← f(a)) yield result += r
     } map (_.result())
+  }
 
   def collectWhile[A, B, M[X] <: Seq[X]](in: M[Future[A]])(pf: PartialFunction[A, B])(implicit cbf: CanBuildFrom[M[Future[A]], B, M[B]], ec: ExecutionContext): Future[M[B]] =
     collectWhileImpl(in, pf, cbf(in)).map(_.result())

@@ -1,14 +1,11 @@
 package eu.inn.revault.recovery
 
-import java.util.Date
-
 import akka.actor._
 import akka.pattern.ask
-import akka.pattern.pipe
 import akka.util.Timeout
 import eu.inn.revault._
 import eu.inn.revault.db.Db
-import eu.inn.revault.sharding.ShardMemberStatus.{Deactivating, Active, Activating}
+import eu.inn.revault.sharding.ShardMemberStatus.{Active, Deactivating}
 import eu.inn.revault.sharding.{ShardTask, ShardedClusterData, UpdateShardStatus}
 
 import scala.concurrent.Future
@@ -33,12 +30,12 @@ import scala.util.control.NonFatal
 */
 
 case object StartCheck
+case object ShutdownRecoveryWorker
 case class CheckQuantum[T](dtQuantum: Long, channels: Seq[Int], state: T)
 
 abstract class RecoveryWorker[T](
                           db: Db,
                           shardProcessor: ActorRef,
-                          completerTaskTtl: Long,
                           retryPeriod: FiniteDuration,
                           recoveryCompleterTimeout: Timeout
                         ) extends Actor with ActorLogging {
@@ -47,6 +44,9 @@ abstract class RecoveryWorker[T](
   def receive = {
     case UpdateShardStatus(_, Active, stateData) ⇒
       runRecoveryCheck(stateData, getMyChannels(stateData))
+
+    case ShutdownRecoveryWorker ⇒
+      context.stop(self)
   }
 
   def running(stateData: ShardedClusterData, myChannels: Seq[Int]): Receive = {
@@ -70,6 +70,15 @@ abstract class RecoveryWorker[T](
           log.error(e, s"Quantum check for $dtQuantum is failed. Will retry in $retryPeriod")
           system.scheduler.scheduleOnce(retryPeriod, self, CheckQuantum(dtQuantum, channelsForQuantum, state))
       }
+
+    case ShutdownRecoveryWorker ⇒
+      println("shutting down...")
+      context.become(shuttingDown)
+  }
+
+  def shuttingDown: Receive = {
+    case StartCheck | CheckQuantum ⇒
+      context.stop(self)
   }
 
   def runRecoveryCheck(stateData: ShardedClusterData, myChannels: Seq[Int]): Unit = {
@@ -81,15 +90,18 @@ abstract class RecoveryWorker[T](
   def runNextRecoveryCheck(previous: CheckQuantum[T]): Unit
 
   def checkQuantum(dtQuantum: Long, myChannels: Seq[Int]): Future[Unit] = {
-    log.debug(s"Running channel check starting for $dtQuantum / $myChannels")
+    log.debug(s"Running channel check for $dtQuantum")
     FutureUtils.serial(myChannels) { channel ⇒
       // todo: selectChannelMonitors selects body which isn't eficient
       db.selectChannelMonitors(dtQuantum, channel).flatMap { monitors ⇒
-        val incompleteMonitors = monitors.filter(_.completedAt.isEmpty).toSeq.groupBy(_.uri).keys.toSeq
-
+        val incompleteMonitors = monitors.toList.filter(_.completedAt.isEmpty).groupBy(_.uri).keys.toSeq
         FutureUtils.serial(incompleteMonitors) { case monitorUri ⇒
+
           val path = ContentLogic.splitPath(monitorUri)
-          val task = RevaultCompleterTask(path._1, System.currentTimeMillis() + completerTaskTtl, monitorUri)
+          val task = RevaultCompleterTask(path._1,
+            System.currentTimeMillis() + recoveryCompleterTimeout.duration.toMillis + 1000,
+            monitorUri
+          )
           shardProcessor.ask(task)(recoveryCompleterTimeout)
         } map { completerResults ⇒
           completerResults.foreach {
@@ -125,11 +137,10 @@ class HotRecoveryWorker(
                          hotPeriod: (Long,Long),
                          db: Db,
                          shardProcessor: ActorRef,
-                         completerTaskTtl: Long,
                          retryPeriod: FiniteDuration,
                          recoveryCompleterTimeout: Timeout
                        ) extends RecoveryWorker[HotWorkerState] (
-    db,shardProcessor,completerTaskTtl,retryPeriod, recoveryCompleterTimeout
+    db,shardProcessor,retryPeriod, recoveryCompleterTimeout
   ) {
 
   import context._
@@ -162,10 +173,9 @@ class StaleRecoveryWorker(
                          stalePeriod: (Long,Long),
                          db: Db,
                          shardProcessor: ActorRef,
-                         completerTaskTtl: Long,
                          retryPeriod: FiniteDuration,
                          recoveryCompleterTimeout: Timeout) extends RecoveryWorker[StaleWorkerState] (
-  db,shardProcessor,completerTaskTtl,retryPeriod, recoveryCompleterTimeout
+  db,shardProcessor,retryPeriod, recoveryCompleterTimeout
   ) {
 
   import context._
@@ -207,7 +217,9 @@ class StaleRecoveryWorker(
     val upperBound = MonitorLogic.getDtQuantum(millis - stalePeriod._2)
     val nextQuantum = previous.dtQuantum + 1
 
-    val futureUpdateCheckpoints = if (previous.dtQuantum < lowerBound) {
+    println(s"millis = $millis, lowerBound = $lowerBound, upperBound = $upperBound, nextQuantum = $nextQuantum")
+
+    val futureUpdateCheckpoints = if (previous.dtQuantum <= lowerBound) {
       FutureUtils.serial(previous.channels) { channel ⇒
         db.updateCheckpoint(channel, previous.dtQuantum)
       }
@@ -217,11 +229,13 @@ class StaleRecoveryWorker(
 
     futureUpdateCheckpoints map { _ ⇒
       if (nextQuantum < upperBound) {
-        if (previous.channels == previous.state.allChannels) {
+        if (nextQuantum >= lowerBound || previous.channels == previous.state.allChannels) {
+          println("a")
           self ! CheckQuantum(nextQuantum, previous.state.allChannels, previous.state)
         } else {
+          println("b")
           val nextQuantumChannels = previous.state.channelsPerQuantum.getOrElse(nextQuantum, Seq.empty)
-          val channels = previous.channels ++ nextQuantumChannels
+          val channels = (previous.channels.toSet ++ nextQuantumChannels).toSeq
           self ! CheckQuantum(nextQuantum, channels, previous.state)
         }
       }

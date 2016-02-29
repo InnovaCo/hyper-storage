@@ -1,15 +1,14 @@
 package eu.inn.revault.db
 
-import java.util.{UUID, Date}
+import java.util.{Date, UUID}
 
-import com.typesafe.config.Config
 import eu.inn.binders._
 import eu.inn.binders.cassandra._
-import eu.inn.binders.naming.{CamelCaseToSnakeCaseConverter, SnakeCaseToCamelCaseConverter}
+import eu.inn.binders.naming.CamelCaseToSnakeCaseConverter
 import eu.inn.revault.CassandraConnector
 import org.slf4j.LoggerFactory
 
-import scala.concurrent.{Future, ExecutionContext}
+import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 
 case class Content(
@@ -94,6 +93,6 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     """.oneOption[CheckPoint].map(_.map(_.lastQuantum))
 
   def updateCheckpoint(channel: Int, lastQuantum: Long): Future[Unit] = cql"""
-      insert into checkpoint(last_quantum) values($lastQuantum)
+      insert into checkpoint(channel, last_quantum) values($channel, $lastQuantum)
     """.execute()
 }
