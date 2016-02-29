@@ -2,7 +2,6 @@ package eu.inn.revault
 
 import akka.actor.{PoisonPill, Props}
 import akka.cluster.Cluster
-import akka.util.Timeout
 import com.typesafe.config.Config
 import eu.inn.config.ConfigExtenders._
 import eu.inn.hyperbus.HyperBus
@@ -10,14 +9,13 @@ import eu.inn.hyperbus.akkaservice._
 import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
 import eu.inn.revault.db.Db
-import eu.inn.revault.recovery.{StaleRecoveryWorker, HotRecoveryWorker}
-import eu.inn.revault.sharding.{SubscribeToShardStatus, ShardProcessor}
+import eu.inn.revault.recovery.{HotRecoveryWorker, StaleRecoveryWorker}
+import eu.inn.revault.sharding.{ShardProcessor, SubscribeToShardStatus}
 import eu.inn.servicecontrol.api.{Console, Service}
 import org.slf4j.LoggerFactory
 import scaldi.Injectable
 
-import scala.concurrent.{ExecutionContext, Await}
-import scala.concurrent.duration._
+import scala.concurrent.{Await, ExecutionContext}
 import scala.util.control.NonFatal
 
 class RevaultService(console: Console,
@@ -70,7 +68,7 @@ class RevaultService(console: Console,
   )
 
   // processor actor
-  val processorActorRef = actorSystem.actorOf(Props(new ShardProcessor(workerSettings, "revault", shardSyncTimeout)))
+  val processorActorRef = actorSystem.actorOf(Props(new ShardProcessor(workerSettings, "revault", shardSyncTimeout)), "revault")
 
   val distributor = actorSystem.actorOf(Props(classOf[HyperbusAdapter], processorActorRef, db, requestTimeout))
 
