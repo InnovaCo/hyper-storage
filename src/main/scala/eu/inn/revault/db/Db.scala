@@ -88,6 +88,14 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
         and uuid=${monitor.uuid}
     """.execute()
 
+  def deleteMonitor(monitor: Monitor): Future[Unit] = cql"""
+      delete monitor
+      where dt_quantum=${monitor.dtQuantum}
+        and channel=${monitor.channel}
+        and uri=${monitor.uri}
+        and uuid=${monitor.uuid}
+    """.execute()
+
   def selectCheckpoint(channel: Int): Future[Option[Long]] = cql"""
       select last_quantum from checkpoint where channel = $channel
     """.oneOption[CheckPoint].map(_.map(_.lastQuantum))

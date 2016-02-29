@@ -15,7 +15,7 @@ import eu.inn.revault.sharding.ShardMemberStatus.Active
 import eu.inn.revault.sharding._
 import mock.FaultClientTransport
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
-import org.scalatest.concurrent.ScalaFutures
+import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.{FreeSpec, Matchers}
 import akka.pattern.gracefulStop
 
@@ -27,7 +27,8 @@ class RevaultSpec extends FreeSpec
   with Matchers
   with ScalaFutures
   with CassandraFixture
-  with TestHelpers {
+  with TestHelpers
+  with Eventually {
 
   import ContentLogic._
 
@@ -557,7 +558,7 @@ class RevaultSpec extends FreeSpec
 
     val processorProbe = TestProbe("processor")
     val staleWorkerProps = Props(classOf[StaleRecoveryWorker],
-      (60*1000l, -60*1000l), db, processorProbe.ref, 1.seconds, Timeout(10.seconds)
+      (60*1000l, -60*1000l), db, processorProbe.ref, 1.seconds, Timeout(2.seconds)
     )
 
     val hotWorker = TestActorRef(staleWorkerProps)
@@ -573,19 +574,21 @@ class RevaultSpec extends FreeSpec
     completerTask.path should equal(completerTask2.path)
     processorProbe.reply(CompletionFailedException(completerTask2.path, "Testing worker behavior"))
 
-    Thread.sleep(2000)
-
-    db.selectCheckpoint(monitor.channel).futureValue shouldBe Some(newMonitor.dtQuantum-1)
+    eventually {
+      db.selectCheckpoint(monitor.channel).futureValue shouldBe Some(newMonitor.dtQuantum - 1)
+    }
 
     val completerTask3 = processorProbe.expectMsgType[RevaultCompleterTask](max = 20.seconds)
     hotWorker ! processorProbe.reply(RevaultCompleterTaskResult(completerTask2.path, newContent.monitorList))
 
-    Thread.sleep(2000)
+    eventually {
+      db.selectCheckpoint(monitor.channel).futureValue.get shouldBe >(newMonitor.dtQuantum)
+    }
 
-    db.selectCheckpoint(monitor.channel).futureValue.get shouldBe > (newMonitor.dtQuantum)
+    val completerTask4 = processorProbe.expectMsgType[RevaultCompleterTask](max = 20.seconds) // this is abandoned
+    hotWorker ! processorProbe.reply(RevaultCompleterTaskResult(completerTask4.path, List()))
 
-    Thread.sleep(20000)
-    gracefulStop(hotWorker, 20 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(20.seconds))
+    gracefulStop(hotWorker, 10 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(10.seconds))
   }
   def response(content: String): Response[Body] = StringDeserializer.dynamicResponse(content)
 }

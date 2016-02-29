@@ -72,12 +72,12 @@ abstract class RecoveryWorker[T](
       }
 
     case ShutdownRecoveryWorker ⇒
-      println("shutting down...")
+      log.info(s"$self is shutting down...")
       context.become(shuttingDown)
   }
 
   def shuttingDown: Receive = {
-    case StartCheck | CheckQuantum ⇒
+    case StartCheck | _ : CheckQuantum[_] ⇒
       context.stop(self)
   }
 
@@ -93,27 +93,42 @@ abstract class RecoveryWorker[T](
     log.debug(s"Running channel check for $dtQuantum")
     FutureUtils.serial(myChannels) { channel ⇒
       // todo: selectChannelMonitors selects body which isn't eficient
-      db.selectChannelMonitors(dtQuantum, channel).flatMap { monitors ⇒
-        val incompleteMonitors = monitors.toList.filter(_.completedAt.isEmpty).groupBy(_.uri).keys.toSeq
-        FutureUtils.serial(incompleteMonitors) { case monitorUri ⇒
+      db.selectChannelMonitors(dtQuantum, channel).flatMap { channelMonitors ⇒
+        val incompleteMonitors = channelMonitors.toList.filter(_.completedAt.isEmpty).groupBy(_.uri)
+        FutureUtils.serial(incompleteMonitors.toSeq) { case (monitorUri, monitors) ⇒
 
           val path = ContentLogic.splitPath(monitorUri)
           val task = RevaultCompleterTask(path._1,
             System.currentTimeMillis() + recoveryCompleterTimeout.duration.toMillis + 1000,
             monitorUri
           )
-          shardProcessor.ask(task)(recoveryCompleterTimeout)
-        } map { completerResults ⇒
-          completerResults.foreach {
-            case RevaultCompleterTaskResult(path, completedMonitors) ⇒
-              // todo: delete abandon monitors
-              log.debug(s"Recovery of '$path' completed successfully: $completedMonitors")
-            case NoSuchResourceException(path) ⇒
-              log.error(s"Tried to recover not existing resource: '$path'. Exception is ignored")
-            case NonFatal(e) ⇒
-              throw e
+          log.debug(s"Incomplete resource at $monitorUri. Sending recovery task")
+          shardProcessor.ask(task)(recoveryCompleterTimeout) flatMap {
+            case RevaultCompleterTaskResult(completePath, completedMonitors) ⇒
+              log.debug(s"Recovery of '$completePath' completed successfully: $completedMonitors")
+              if (path._1 == completePath) {
+                val set = completedMonitors.toSet
+                val abandonedMonitors = monitors.filterNot(m ⇒ set.contains(m.uuid))
+                if (abandonedMonitors.nonEmpty) {
+                  log.warning(s"Abandoned monitors for '$completePath' were found: '${abandonedMonitors.map(_.uuid).mkString(",")}'. Deleting...")
+                  FutureUtils.serial(abandonedMonitors.toSeq) { abandonedMonitor ⇒
+                    db.completeMonitor(abandonedMonitor)
+                  }
+                } else {
+                  Future.successful()
+                }
+              }
+              else {
+                log.error(s"Recovery result received for '$completePath' while expecting for the '$path'")
+                Future.successful()
+              }
+            case NoSuchResourceException(notFountPath) ⇒
+              log.error(s"Tried to recover not existing resource: '$notFountPath'. Exception is ignored")
+              Future.successful()
+            case (NonFatal(e), _) ⇒
+              Future.failed(e)
             case other ⇒
-              throw new RuntimeException(s"Unexpected result from recovery task: $other")
+              Future.failed(throw new RuntimeException(s"Unexpected result from recovery task: $other"))
           }
         }
       }
@@ -217,8 +232,6 @@ class StaleRecoveryWorker(
     val upperBound = MonitorLogic.getDtQuantum(millis - stalePeriod._2)
     val nextQuantum = previous.dtQuantum + 1
 
-    println(s"millis = $millis, lowerBound = $lowerBound, upperBound = $upperBound, nextQuantum = $nextQuantum")
-
     val futureUpdateCheckpoints = if (previous.dtQuantum <= lowerBound) {
       FutureUtils.serial(previous.channels) { channel ⇒
         db.updateCheckpoint(channel, previous.dtQuantum)
@@ -230,10 +243,8 @@ class StaleRecoveryWorker(
     futureUpdateCheckpoints map { _ ⇒
       if (nextQuantum < upperBound) {
         if (nextQuantum >= lowerBound || previous.channels == previous.state.allChannels) {
-          println("a")
           self ! CheckQuantum(nextQuantum, previous.state.allChannels, previous.state)
         } else {
-          println("b")
           val nextQuantumChannels = previous.state.channelsPerQuantum.getOrElse(nextQuantum, Seq.empty)
           val channels = (previous.channels.toSet ++ nextQuantumChannels).toSeq
           self ! CheckQuantum(nextQuantum, channels, previous.state)
