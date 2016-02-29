@@ -5,6 +5,7 @@ import java.util.Date
 
 import akka.actor.{Actor, ActorLogging, ActorRef}
 import akka.pattern.pipe
+import akka.util.Timeout
 import eu.inn.binders.dynamic._
 import eu.inn.hyperbus.HyperBus
 import eu.inn.hyperbus.model.LinksMap.LinksMapType
@@ -15,6 +16,7 @@ import eu.inn.revault.protocol.TransactionCreated
 import eu.inn.revault.sharding.{ShardTask, ShardTaskComplete}
 
 import scala.concurrent.Future
+import scala.concurrent.duration.FiniteDuration
 import scala.util.Try
 import scala.util.control.NonFatal
 
@@ -28,7 +30,7 @@ import scala.util.control.NonFatal
 case class RevaultWorkerTaskFailed(task: ShardTask, inner: Throwable)
 case class RevaultWorkerTaskAccepted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
 
-class RevaultWorker(hyperBus: HyperBus, db: Db, completerTaskTtl: Long) extends Actor with ActorLogging {
+class RevaultWorker(hyperBus: HyperBus, db: Db, completerTimeout: FiniteDuration) extends Actor with ActorLogging {
   import ContentLogic._
   import context._
 
@@ -83,7 +85,7 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTaskTtl: Long) extends 
       if (log.isDebugEnabled) {
         log.debug(s"Task $originalTask is accepted")
       }
-      owner ! RevaultCompleterTask(task.key, System.currentTimeMillis() + completerTaskTtl, transaction.uri)
+      owner ! RevaultCompleterTask(task.key, System.currentTimeMillis() + completerTimeout.toMillis, transaction.uri)
       val transactionId = transaction.uri + ":" + transaction.revision
       val result: Response[Body] = if (created) {
         Created(TransactionCreated(transactionId))

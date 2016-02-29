@@ -31,7 +31,6 @@
 ```
 
 todo:
-  * integrate recovery worker
   * limit stash size
   * url validator and splitter
 

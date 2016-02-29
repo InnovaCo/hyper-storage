@@ -107,7 +107,7 @@ class RevaultSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
+      val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
 
       val task = RevaultPut(
         path = "/test-resource-1",
@@ -156,7 +156,7 @@ class RevaultSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
+      val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
 
       val task = RevaultPatch(
         path = "/not-existing",
@@ -182,7 +182,7 @@ class RevaultSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
+      val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
 
       val path = "/test-resource-" + UUID.randomUUID().toString
       val taskPutStr = StringSerializer.serializeToString(RevaultPut(path,
@@ -217,7 +217,7 @@ class RevaultSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
+      val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
 
       val task = RevaultDelete(path = "/not-existing", body = EmptyBody)
 
@@ -240,7 +240,7 @@ class RevaultSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
+      val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
 
       val path = "/test-resource-" + UUID.randomUUID().toString
       val taskPutStr = StringSerializer.serializeToString(RevaultPut(path,
@@ -278,7 +278,7 @@ class RevaultSpec extends FreeSpec
     val tk = testKit()
     import tk._
 
-    val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
+    val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
     val path = "/abcde"
     val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
       DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
@@ -327,7 +327,7 @@ class RevaultSpec extends FreeSpec
     val tk = testKit()
     import tk._
 
-    val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
+    val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
     val path = "/faulty"
     val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
       DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
@@ -394,7 +394,7 @@ class RevaultSpec extends FreeSpec
     import tk._
     import system._
 
-    val workerProps = Props(classOf[RevaultWorker], hyperBus, db, 10000l)
+    val workerProps = Props(classOf[RevaultWorker], hyperBus, db, 10.seconds)
     val completerProps = Props(classOf[RevaultCompleter], hyperBus, db)
     val workerSettings = Map(
       "revault" → (workerProps, 1),
@@ -402,7 +402,7 @@ class RevaultSpec extends FreeSpec
     )
 
     val processor = TestActorRef(new ShardProcessor(workerSettings, "revault"))
-    val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20 seconds))
+    val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20.seconds))
     import eu.inn.hyperbus.akkaservice._
     implicit val timeout = Timeout(20.seconds)
     hyperBus.routeTo[HyperbusAdapter](distributor).futureValue // wait while subscription is completes
@@ -440,7 +440,7 @@ class RevaultSpec extends FreeSpec
     import tk._
     import system._
 
-    val workerProps = Props(classOf[RevaultWorker], hyperBus, db, 10000l)
+    val workerProps = Props(classOf[RevaultWorker], hyperBus, db, 10.seconds)
     val completerProps = Props(classOf[RevaultCompleter], hyperBus, db)
     val workerSettings = Map(
       "revault" → (workerProps, 1),
@@ -448,7 +448,7 @@ class RevaultSpec extends FreeSpec
     )
 
     val processor = TestActorRef(new ShardProcessor(workerSettings, "revault"))
-    val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20 seconds))
+    val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20.seconds))
     import eu.inn.hyperbus.akkaservice._
     implicit val timeout = Timeout(20.seconds)
     hyperBus.routeTo[HyperbusAdapter](distributor)
@@ -491,7 +491,7 @@ class RevaultSpec extends FreeSpec
     val tk = testKit()
     import tk._
 
-    val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
+    val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
     val path = "/incomplete" + UUID.randomUUID().toString
     val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
       DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
@@ -506,7 +506,7 @@ class RevaultSpec extends FreeSpec
 
     val processorProbe = TestProbe("processor")
     val hotWorkerProps = Props(classOf[HotRecoveryWorker],
-      (60*1000l, -60*1000l), db, processorProbe.ref, 1.seconds, Timeout(10.seconds)
+      (60*1000l, -60*1000l), db, processorProbe.ref, 1.seconds, 10.seconds
     )
 
     val hotWorker = TestActorRef(hotWorkerProps)
@@ -531,7 +531,7 @@ class RevaultSpec extends FreeSpec
     val tk = testKit()
     import tk._
 
-    val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10000))
+    val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
     val path = "/incomplete" + UUID.randomUUID().toString
     val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
       DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
@@ -559,7 +559,7 @@ class RevaultSpec extends FreeSpec
 
     val processorProbe = TestProbe("processor")
     val staleWorkerProps = Props(classOf[StaleRecoveryWorker],
-      (60*1000l, -60*1000l), db, processorProbe.ref, 1.seconds, Timeout(2.seconds)
+      (60*1000l, -60*1000l), db, processorProbe.ref, 1.seconds, 2.seconds
     )
 
     val hotWorker = TestActorRef(staleWorkerProps)

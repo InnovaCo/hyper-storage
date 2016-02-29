@@ -10,7 +10,8 @@ import eu.inn.hyperbus.akkaservice._
 import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
 import eu.inn.revault.db.Db
-import eu.inn.revault.sharding.ShardProcessor
+import eu.inn.revault.recovery.{StaleRecoveryWorker, HotRecoveryWorker}
+import eu.inn.revault.sharding.{SubscribeToShardStatus, ShardProcessor}
 import eu.inn.servicecontrol.api.{Console, Service}
 import org.slf4j.LoggerFactory
 import scaldi.Injectable
@@ -31,8 +32,13 @@ class RevaultService(console: Console,
   val shardSyncTimeout = config.getFiniteDuration("revault.shards-sync-time")
   val maxWorkers = config.getInt("revault.max-workers")
   val maxCompleters = config.getInt("revault.max-completers")
-  val completerTaskTtl = config.getLong("revault.completer-task-ttl")
+  val completerTimeout = config.getFiniteDuration("revault.completer-timeout")
   val requestTimeout = config.getFiniteDuration("revault.request-timeout")
+  val failTimeout = config.getFiniteDuration("revault.fail-timeout")
+  val hotRecovery = config.getFiniteDuration("revault.hot-recovery")
+  val hotRecoveryRetry = config.getFiniteDuration("revault.hot-recovery-retry")
+  val staleRecovery = config.getFiniteDuration("revault.stale-recovery")
+  val staleRecoveryRetry = config.getFiniteDuration("revault.stale-recovery-retry")
 
   // initialize
   log.info(s"Initializing hyperbus...")
@@ -56,7 +62,7 @@ class RevaultService(console: Console,
   }
 
   // worker actor todo: recovery job
-  val workerProps = Props(classOf[RevaultWorker], hyperBus, db, completerTaskTtl)
+  val workerProps = Props(classOf[RevaultWorker], hyperBus, db, completerTimeout)
   val completerProps = Props(classOf[RevaultCompleter], hyperBus, db)
   val workerSettings = Map(
     "revault" → (workerProps, maxWorkers),
@@ -72,6 +78,16 @@ class RevaultService(console: Console,
     implicit val timeout: akka.util.Timeout = requestTimeout
     hyperBus.routeTo[HyperbusAdapter](distributor)
   }, requestTimeout)
+
+  val hotPeriod = (hotRecovery.toMillis, failTimeout.toMillis)
+  log.info(s"Launching hot recovery $hotRecovery-$failTimeout")
+  val hotRecoveryActorRef = actorSystem.actorOf(Props(classOf[HotRecoveryWorker], hotPeriod, db, processorActorRef, hotRecoveryRetry, completerTimeout))
+  processorActorRef ! SubscribeToShardStatus(hotRecoveryActorRef)
+
+  val stalePeriod = (staleRecovery.toMillis, hotRecovery.toMillis)
+  log.info(s"Launching stale recovery $staleRecovery-$hotRecovery")
+  val staleRecoveryActorRef = actorSystem.actorOf(Props(classOf[StaleRecoveryWorker], stalePeriod, db, processorActorRef, staleRecoveryRetry, completerTimeout))
+  processorActorRef ! SubscribeToShardStatus(staleRecoveryActorRef)
 
   log.info("Revault started!")
 

@@ -34,11 +34,11 @@ case object ShutdownRecoveryWorker
 case class CheckQuantum[T](dtQuantum: Long, partitions: Seq[Int], state: T)
 
 abstract class RecoveryWorker[T](
-                          db: Db,
-                          shardProcessor: ActorRef,
-                          retryPeriod: FiniteDuration,
-                          recoveryCompleterTimeout: Timeout
-                        ) extends Actor with ActorLogging {
+                                  db: Db,
+                                  shardProcessor: ActorRef,
+                                  retryPeriod: FiniteDuration,
+                                  completerTimeout: FiniteDuration
+                                ) extends Actor with ActorLogging {
   import context._
 
   def receive = {
@@ -99,11 +99,11 @@ abstract class RecoveryWorker[T](
 
           val path = ContentLogic.splitPath(transactionUri)
           val task = RevaultCompleterTask(path._1,
-            System.currentTimeMillis() + recoveryCompleterTimeout.duration.toMillis + 1000,
+            System.currentTimeMillis() + completerTimeout.toMillis + 1000,
             transactionUri
           )
           log.debug(s"Incomplete resource at $transactionUri. Sending recovery task")
-          shardProcessor.ask(task)(recoveryCompleterTimeout) flatMap {
+          shardProcessor.ask(task)(completerTimeout) flatMap {
             case RevaultCompleterTaskResult(completePath, completedTransactions) ⇒
               log.debug(s"Recovery of '$completePath' completed successfully: $completedTransactions")
               if (path._1 == completePath) {
@@ -153,7 +153,7 @@ class HotRecoveryWorker(
                          db: Db,
                          shardProcessor: ActorRef,
                          retryPeriod: FiniteDuration,
-                         recoveryCompleterTimeout: Timeout
+                         recoveryCompleterTimeout: FiniteDuration
                        ) extends RecoveryWorker[HotWorkerState] (
     db,shardProcessor,retryPeriod, recoveryCompleterTimeout
   ) {
@@ -185,12 +185,13 @@ case class StaleWorkerState(workerPartitions: Seq[Int], partitionsPerQuantum: Ma
 
 //  We need StaleRecoveryWorker because of cassandra data can reappear later due to replication
 class StaleRecoveryWorker(
-                         stalePeriod: (Long,Long),
-                         db: Db,
-                         shardProcessor: ActorRef,
-                         retryPeriod: FiniteDuration,
-                         recoveryCompleterTimeout: Timeout) extends RecoveryWorker[StaleWorkerState] (
-  db,shardProcessor,retryPeriod, recoveryCompleterTimeout
+                           stalePeriod: (Long,Long),
+                           db: Db,
+                           shardProcessor: ActorRef,
+                           retryPeriod: FiniteDuration,
+                           completerTimeout: FiniteDuration
+                         ) extends RecoveryWorker[StaleWorkerState] (
+  db,shardProcessor,retryPeriod, completerTimeout
   ) {
 
   import context._
