@@ -1,3 +1,3 @@
 TRUNCATE content;
-TRUNCATE monitor;
+TRUNCATE transaction;
 TRUNCATE checkpoint;

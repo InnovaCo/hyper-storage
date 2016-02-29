@@ -4,13 +4,13 @@ import java.util.TimeZone
 import java.util.zip.CRC32
 
 import com.datastax.driver.core.utils.UUIDs
-import eu.inn.revault.db.Monitor
+import eu.inn.revault.db.Transaction
 
-object MonitorLogic {
+object TransactionLogic {
   val MaxPartitions: Int = 1024
   val timeZone = TimeZone.getTimeZone("UTC")
 
-  def newMonitor(uri: String, revision: Long, body: String) = Monitor(
+  def newTransaction(uri: String, revision: Long, body: String) = Transaction(
     dtQuantum = getDtQuantum(System.currentTimeMillis()),
     partition = partitionFromUri(uri),
     uri = uri,

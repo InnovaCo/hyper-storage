@@ -8,8 +8,8 @@ import com.typesafe.config.ConfigFactory
 import eu.inn.hyperbus.HyperBus
 import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportManager, TransportConfigurationLoader}
-import eu.inn.revault.MonitorLogic
-import eu.inn.revault.db.{Db, Monitor}
+import eu.inn.revault.TransactionLogic
+import eu.inn.revault.db.{Db, Transaction}
 import eu.inn.revault.sharding._
 import org.cassandraunit.dataset.cql.ClassPathCQLDataSet
 import org.scalatest.concurrent.ScalaFutures
@@ -114,11 +114,11 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
     }
   }
 
-  def selectMonitors(uuids: Seq[UUID], path: String, db: Db): Seq[Monitor] = {
+  def selectTransactions(uuids: Seq[UUID], path: String, db: Db): Seq[Transaction] = {
     uuids flatMap { uuid ⇒
-      val partition = MonitorLogic.partitionFromUri(path)
-      val qt = MonitorLogic.getDtQuantum(UUIDs.unixTimestamp(uuid))
-      whenReady(db.selectMonitor(qt, partition, path, uuid)) { mon ⇒
+      val partition = TransactionLogic.partitionFromUri(path)
+      val qt = TransactionLogic.getDtQuantum(UUIDs.unixTimestamp(uuid))
+      whenReady(db.selectTransaction(qt, partition, path, uuid)) { mon ⇒
         mon
       }
     }

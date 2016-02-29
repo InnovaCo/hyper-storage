@@ -92,27 +92,27 @@ abstract class RecoveryWorker[T](
   def checkQuantum(dtQuantum: Long, partitions: Seq[Int]): Future[Unit] = {
     log.debug(s"Running partition check for $dtQuantum")
     FutureUtils.serial(partitions) { partition ⇒
-      // todo: selectPartitionMonitors selects body which isn't eficient
-      db.selectPartitionMonitors(dtQuantum, partition).flatMap { partitionMonitors ⇒
-        val incompleteMonitors = partitionMonitors.toList.filter(_.completedAt.isEmpty).groupBy(_.uri)
-        FutureUtils.serial(incompleteMonitors.toSeq) { case (monitorUri, monitors) ⇒
+      // todo: selectPartitionTransactions selects body which isn't eficient
+      db.selectPartitionTransactions(dtQuantum, partition).flatMap { partitionTransactions ⇒
+        val incompleteTransactions = partitionTransactions.toList.filter(_.completedAt.isEmpty).groupBy(_.uri)
+        FutureUtils.serial(incompleteTransactions.toSeq) { case (transactionUri, transactions) ⇒
 
-          val path = ContentLogic.splitPath(monitorUri)
+          val path = ContentLogic.splitPath(transactionUri)
           val task = RevaultCompleterTask(path._1,
             System.currentTimeMillis() + recoveryCompleterTimeout.duration.toMillis + 1000,
-            monitorUri
+            transactionUri
           )
-          log.debug(s"Incomplete resource at $monitorUri. Sending recovery task")
+          log.debug(s"Incomplete resource at $transactionUri. Sending recovery task")
           shardProcessor.ask(task)(recoveryCompleterTimeout) flatMap {
-            case RevaultCompleterTaskResult(completePath, completedMonitors) ⇒
-              log.debug(s"Recovery of '$completePath' completed successfully: $completedMonitors")
+            case RevaultCompleterTaskResult(completePath, completedTransactions) ⇒
+              log.debug(s"Recovery of '$completePath' completed successfully: $completedTransactions")
               if (path._1 == completePath) {
-                val set = completedMonitors.toSet
-                val abandonedMonitors = monitors.filterNot(m ⇒ set.contains(m.uuid))
-                if (abandonedMonitors.nonEmpty) {
-                  log.warning(s"Abandoned monitors for '$completePath' were found: '${abandonedMonitors.map(_.uuid).mkString(",")}'. Deleting...")
-                  FutureUtils.serial(abandonedMonitors.toSeq) { abandonedMonitor ⇒
-                    db.completeMonitor(abandonedMonitor)
+                val set = completedTransactions.toSet
+                val abandonedTransactions = transactions.filterNot(m ⇒ set.contains(m.uuid))
+                if (abandonedTransactions.nonEmpty) {
+                  log.warning(s"Abandoned transactions for '$completePath' were found: '${abandonedTransactions.map(_.uuid).mkString(",")}'. Deleting...")
+                  FutureUtils.serial(abandonedTransactions.toSeq) { abandonedTransaction ⇒
+                    db.completeTransaction(abandonedTransaction)
                   }
                 } else {
                   Future.successful()
@@ -136,7 +136,7 @@ abstract class RecoveryWorker[T](
   }
 
   def getMyPartitions(data: ShardedClusterData): Seq[Int] = {
-    0 until MonitorLogic.MaxPartitions flatMap { partition ⇒
+    0 until TransactionLogic.MaxPartitions flatMap { partition ⇒
       val task = new ShardTask { def key = partition.toString; def group = ""; def isExpired = false }
       if (data.taskIsFor(task) == data.selfAddress)
         Some(partition)
@@ -162,7 +162,7 @@ class HotRecoveryWorker(
 
   def runNewRecoveryCheck(partitions: Seq[Int]): Unit = {
     val millis = System.currentTimeMillis()
-    val lowerBound = MonitorLogic.getDtQuantum(millis - hotPeriod._1)
+    val lowerBound = TransactionLogic.getDtQuantum(millis - hotPeriod._1)
     log.info(s"Running hot recovery check starting from $lowerBound")
     self ! CheckQuantum(lowerBound, partitions, HotWorkerState(partitions))
   }
@@ -170,7 +170,7 @@ class HotRecoveryWorker(
   // todo: detect if lag is increasing and print warning
   def runNextRecoveryCheck(previous: CheckQuantum[HotWorkerState]): Unit = {
     val millis = System.currentTimeMillis()
-    val upperBound = MonitorLogic.getDtQuantum(millis - hotPeriod._2)
+    val upperBound = TransactionLogic.getDtQuantum(millis - hotPeriod._2)
     val nextQuantum = previous.dtQuantum + 1
     if (nextQuantum < upperBound) {
       self ! CheckQuantum(nextQuantum, previous.state.workerPartitions, previous.state)
@@ -196,7 +196,7 @@ class StaleRecoveryWorker(
   import context._
 
   def runNewRecoveryCheck(partitions: Seq[Int]): Unit = {
-    val lowerBound = MonitorLogic.getDtQuantum(System.currentTimeMillis() - stalePeriod._1)
+    val lowerBound = TransactionLogic.getDtQuantum(System.currentTimeMillis() - stalePeriod._1)
 
     FutureUtils.serial(partitions) { partition ⇒
       db.selectCheckpoint(partition) map {
@@ -228,8 +228,8 @@ class StaleRecoveryWorker(
   // todo: detect if lag is increasing and print warning
   def runNextRecoveryCheck(previous: CheckQuantum[StaleWorkerState]): Unit = {
     val millis = System.currentTimeMillis()
-    val lowerBound = MonitorLogic.getDtQuantum(millis - stalePeriod._1)
-    val upperBound = MonitorLogic.getDtQuantum(millis - stalePeriod._2)
+    val lowerBound = TransactionLogic.getDtQuantum(millis - stalePeriod._1)
+    val upperBound = TransactionLogic.getDtQuantum(millis - stalePeriod._2)
     val nextQuantum = previous.dtQuantum + 1
 
     val futureUpdateCheckpoints = if (previous.dtQuantum <= lowerBound) {

@@ -7,7 +7,7 @@ import com.datastax.driver.core.utils.UUIDs
 import eu.inn.hyperbus.HyperBus
 import eu.inn.hyperbus.model.DynamicRequest
 import eu.inn.hyperbus.transport.api.PublishResult
-import eu.inn.revault.db.{Monitor, Content, Db}
+import eu.inn.revault.db.{Transaction, Content, Db}
 import eu.inn.revault.sharding.{ShardTaskComplete, ShardTask}
 import akka.pattern.pipe
 import scala.collection.generic.CanBuildFrom
@@ -23,7 +23,7 @@ import scala.util.control.NonFatal
   def group = "revault-completer"
 }
 
-@SerialVersionUID(1L) case class RevaultCompleterTaskResult(path: String, monitors: Seq[UUID])
+@SerialVersionUID(1L) case class RevaultCompleterTaskResult(path: String, transactions: Seq[UUID])
 @SerialVersionUID(1L) case class NoSuchResourceException(path: String) extends RuntimeException(s"No such resource: $path")
 @SerialVersionUID(1L) case class IncorrectDataException(path: String, reason: String) extends RuntimeException(s"Data for $path is incorrect: $reason")
 @SerialVersionUID(1L) case class CompletionFailedException(path: String, reason: String) extends RuntimeException(s"Complete for $path is failed: $reason")
@@ -45,7 +45,7 @@ class RevaultCompleter(hyperBus: HyperBus, db: Db) extends Actor with ActorLoggi
         Future(ShardTaskComplete(task, new NoSuchResourceException(task.path)))
       case Some(content) ⇒
         try {
-          completeMonitors(task, content)
+          completeTransactions(task, content)
         } catch {
           case NonFatal(e) ⇒
             log.error(e, s"Task $task didn't complete")
@@ -54,27 +54,27 @@ class RevaultCompleter(hyperBus: HyperBus, db: Db) extends Actor with ActorLoggi
     } pipeTo owner
   }
 
-  def completeMonitors(task: RevaultCompleterTask, content: Content): Future[ShardTaskComplete] = {
-    if (content.monitorList.isEmpty) {
-      throw new IncorrectDataException(content.uri, "empty monitor list")
+  def completeTransactions(task: RevaultCompleterTask, content: Content): Future[ShardTaskComplete] = {
+    if (content.transactionList.isEmpty) {
+      throw new IncorrectDataException(content.uri, "empty transaction list")
     }
     else {
-      selectIncompleteMonitors(content) flatMap { incompleteMonitors ⇒
-        FutureUtils.serial(incompleteMonitors) { monitor ⇒
-          val event = DynamicRequest(monitor.body)
+      selectIncompleteTransactions(content) flatMap { incompleteTransactions ⇒
+        FutureUtils.serial(incompleteTransactions) { transaction ⇒
+          val event = DynamicRequest(transaction.body)
           hyperBus <| event flatMap { publishResult ⇒
             if (log.isDebugEnabled) {
               log.debug(s"Event $event is published with result $publishResult")
             }
-            db.completeMonitor(monitor) map { _ ⇒
+            db.completeTransaction(transaction) map { _ ⇒
               if (log.isDebugEnabled) {
-                log.debug(s"$monitor is complete")
+                log.debug(s"$transaction is complete")
               }
-              monitor
+              transaction
             }
           }
-        } map { updatedMonitors ⇒
-          ShardTaskComplete(task, RevaultCompleterTaskResult(task.path, updatedMonitors.map(_.uuid)))
+        } map { updatedTransactions ⇒
+          ShardTaskComplete(task, RevaultCompleterTaskResult(task.path, updatedTransactions.map(_.uuid)))
         } recover {
           case NonFatal(e) ⇒
             ShardTaskComplete(task, CompletionFailedException(task.path, e.toString))
@@ -83,13 +83,13 @@ class RevaultCompleter(hyperBus: HyperBus, db: Db) extends Actor with ActorLoggi
     }
   }
 
-  def selectIncompleteMonitors(content: Content): Future[Seq[Monitor]] = {
-    val monitorsFStream = content.monitorList.toStream.map { monitorUuid ⇒
-      val quantum = MonitorLogic.getDtQuantum(UUIDs.unixTimestamp(monitorUuid))
-      db.selectMonitor(quantum, content.partition, content.uri, monitorUuid)
+  def selectIncompleteTransactions(content: Content): Future[Seq[Transaction]] = {
+    val transactionsFStream = content.transactionList.toStream.map { transactionUuid ⇒
+      val quantum = TransactionLogic.getDtQuantum(UUIDs.unixTimestamp(transactionUuid))
+      db.selectTransaction(quantum, content.partition, content.uri, transactionUuid)
     }
-    FutureUtils.collectWhile(monitorsFStream) {
-      case Some(monitor) ⇒ monitor
+    FutureUtils.collectWhile(transactionsFStream) {
+      case Some(transaction) ⇒ transaction
     } map (_.reverse)
   }
 }

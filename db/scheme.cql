@@ -2,7 +2,7 @@ create table content (
 	document_uri text,
 	item_segment text,
 	revision bigint static,
-	monitor_list list<timeuuid> static,
+	transaction_list list<timeuuid> static,
 	body text,
 	is_deleted boolean,
 	created_at timestamp,
@@ -10,7 +10,7 @@ create table content (
 	primary key (document_uri, item_segment)
 );
 
-create table monitor (
+create table transaction (
 	dt_quantum bigint,
 	partition int,
 	uri text,

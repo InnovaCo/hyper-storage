@@ -15,14 +15,14 @@ case class Content(
                     documentUri: String,
                     itemSegment: String,
                     revision: Long,
-                    monitorList: List[UUID],
+                    transactionList: List[UUID],
                     body: Option[String],
                     isDeleted: Boolean,
                     createdAt: Date,
                     modifiedAt: Option[Date]
                   )
 
-case class Monitor(
+case class Transaction(
                     dtQuantum: Long,
                     partition: Int,
                     uri: String,
@@ -56,44 +56,44 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   }
 
   def selectContent(documentUri: String, itemSegment: String): Future[Option[Content]] = cql"""
-      select document_uri,item_segment,revision,monitor_list,body,is_deleted,created_at,modified_at from content
+      select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
       where document_uri=$documentUri and item_segment=$itemSegment
     """.oneOption[Content]
 
   def insertContent(content: Content): Future[Unit] = cql"""
-      insert into content(document_uri,item_segment,revision,monitor_list,body,is_deleted,created_at,modified_at)
+      insert into content(document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at)
       values(?,?,?,?,?,?,?,?)
     """.bind(content).execute()
 
-  def selectMonitor(dtQuantum: Long, partition: Int, uri: String, uuid: UUID): Future[Option[Monitor]] = cql"""
-      select dt_quantum,partition,uri,uuid,revision,body,completed_at from monitor
+  def selectTransaction(dtQuantum: Long, partition: Int, uri: String, uuid: UUID): Future[Option[Transaction]] = cql"""
+      select dt_quantum,partition,uri,uuid,revision,body,completed_at from transaction
       where dt_quantum=$dtQuantum and partition=$partition and uri=$uri and uuid=$uuid
-    """.oneOption[Monitor]
+    """.oneOption[Transaction]
 
-  def selectPartitionMonitors(dtQuantum: Long, partition: Int): Future[Iterator[Monitor]] = cql"""
-      select dt_quantum,partition,uri,uuid,revision,body,completed_at from monitor
+  def selectPartitionTransactions(dtQuantum: Long, partition: Int): Future[Iterator[Transaction]] = cql"""
+      select dt_quantum,partition,uri,uuid,revision,body,completed_at from transaction
       where dt_quantum=$dtQuantum and partition=$partition
-    """.all[Monitor]
+    """.all[Transaction]
 
-  def insertMonitor(monitor: Monitor): Future[Unit] = cql"""
-      insert into monitor(dt_quantum,partition,uri,uuid,revision,body,completed_at)
+  def insertTransaction(transaction: Transaction): Future[Unit] = cql"""
+      insert into transaction(dt_quantum,partition,uri,uuid,revision,body,completed_at)
       values(?,?,?,?,?,?,?)
-    """.bind(monitor).execute()
+    """.bind(transaction).execute()
 
-  def completeMonitor(monitor: Monitor): Future[Unit] = cql"""
-      update monitor set completed_at=dateOf(now())
-      where dt_quantum=${monitor.dtQuantum}
-        and partition=${monitor.partition}
-        and uri=${monitor.uri}
-        and uuid=${monitor.uuid}
+  def completeTransaction(transaction: Transaction): Future[Unit] = cql"""
+      update transaction set completed_at=dateOf(now())
+      where dt_quantum=${transaction.dtQuantum}
+        and partition=${transaction.partition}
+        and uri=${transaction.uri}
+        and uuid=${transaction.uuid}
     """.execute()
 
-  def deleteMonitor(monitor: Monitor): Future[Unit] = cql"""
-      delete monitor
-      where dt_quantum=${monitor.dtQuantum}
-        and partition=${monitor.partition}
-        and uri=${monitor.uri}
-        and uuid=${monitor.uuid}
+  def deleteTransaction(transaction: Transaction): Future[Unit] = cql"""
+      delete transaction
+      where dt_quantum=${transaction.dtQuantum}
+        and partition=${transaction.partition}
+        and uri=${transaction.uri}
+        and uuid=${transaction.uuid}
     """.execute()
 
   def selectCheckpoint(partition: Int): Future[Option[Long]] = cql"""

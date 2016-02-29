@@ -129,13 +129,13 @@ class RevaultSpec extends FreeSpec
 
       val uuid = whenReady(db.selectContent("/test-resource-1", "")) { result =>
         result.get.body should equal(Some("""{"text":"Test resource value"}"""))
-        result.get.monitorList.size should equal(1)
+        result.get.transactionList.size should equal(1)
 
-        selectMonitors(result.get.monitorList, result.get.uri, db) foreach { monitor ⇒
-          monitor.completedAt shouldBe None
-          monitor.revision should equal(result.get.revision)
+        selectTransactions(result.get.transactionList, result.get.uri, db) foreach { transaction ⇒
+          transaction.completedAt shouldBe None
+          transaction.revision should equal(result.get.revision)
         }
-        result.get.monitorList.head
+        result.get.transactionList.head
       }
 
       val completer = TestActorRef(new RevaultCompleter(hyperBus, db))
@@ -143,11 +143,11 @@ class RevaultSpec extends FreeSpec
       val completerResult = expectMsgType[ShardTaskComplete]
       val rc = completerResult.result.asInstanceOf[RevaultCompleterTaskResult]
       rc.path should equal("/test-resource-1")
-      println(s"rc = $rc.monitors")
-      rc.monitors should contain(uuid)
-      selectMonitors(rc.monitors, "/test-resource-1", db) foreach { monitor ⇒
-        monitor.completedAt shouldNot be(None)
-        monitor.revision should equal(1)
+      println(s"rc = $rc")
+      rc.transactions should contain(uuid)
+      selectTransactions(rc.transactions, "/test-resource-1", db) foreach { transaction ⇒
+        transaction.completedAt shouldNot be(None)
+        transaction.revision should equal(1)
       }
     }
 
@@ -273,7 +273,7 @@ class RevaultSpec extends FreeSpec
     }
   }
 
-  "Test multiple monitors" in {
+  "Test multiple transactions" in {
     val hyperBus = testHyperBus()
     val tk = testKit()
     import tk._
@@ -301,13 +301,13 @@ class RevaultSpec extends FreeSpec
     val r = response(workerResult.result.asInstanceOf[RevaultTaskResult].content)
     r.status should equal(Status.ACCEPTED)
 
-    val monitors = whenReady(db.selectContent(path, "")) { result =>
+    val transactions = whenReady(db.selectContent(path, "")) { result =>
       result.get.isDeleted should equal(true)
-      result.get.monitorList
+      result.get.transactionList
     }
 
-    selectMonitors(monitors, path, db) foreach { monitor ⇒
-      monitor.completedAt should be(None)
+    selectTransactions(transactions, path, db) foreach { transaction ⇒
+      transaction.completedAt should be(None)
     }
 
     val completer = TestActorRef(new RevaultCompleter(hyperBus, db))
@@ -315,10 +315,10 @@ class RevaultSpec extends FreeSpec
     val completerResult = expectMsgType[ShardTaskComplete]
     val rc = completerResult.result.asInstanceOf[RevaultCompleterTaskResult]
     rc.path should equal(path)
-    rc.monitors should equal(monitors.reverse)
+    rc.transactions should equal(transactions.reverse)
 
-    selectMonitors(rc.monitors, path, db) foreach { monitor ⇒
-      monitor.completedAt shouldNot be(None)
+    selectTransactions(rc.transactions, path, db) foreach { transaction ⇒
+      transaction.completedAt shouldNot be(None)
     }
   }
 
@@ -343,11 +343,11 @@ class RevaultSpec extends FreeSpec
     val completerTask = expectMsgType[RevaultCompleterTask]
     expectMsgType[ShardTaskComplete]
 
-    val monitorUuids = whenReady(db.selectContent(path, "")) { result =>
-      result.get.monitorList
+    val transactionUuids = whenReady(db.selectContent(path, "")) { result =>
+      result.get.transactionList
     }
 
-    selectMonitors(monitorUuids, path, db) foreach { _.completedAt shouldBe None }
+    selectTransactions(transactionUuids, path, db) foreach { _.completedAt shouldBe None }
 
     val completer = TestActorRef(new RevaultCompleter(hyperBus, db))
 
@@ -363,7 +363,7 @@ class RevaultSpec extends FreeSpec
 
     completer ! completerTask
     expectMsgType[ShardTaskComplete].result shouldBe a[CompletionFailedException]
-    selectMonitors(monitorUuids, path, db) foreach { _.completedAt shouldBe None }
+    selectTransactions(transactionUuids, path, db) foreach { _.completedAt shouldBe None }
 
     FaultClientTransport.checkers.clear()
     FaultClientTransport.checkers += {
@@ -377,7 +377,7 @@ class RevaultSpec extends FreeSpec
 
     completer ! completerTask
     expectMsgType[ShardTaskComplete].result shouldBe a[CompletionFailedException]
-    val mons = selectMonitors(monitorUuids, path, db)
+    val mons = selectTransactions(transactionUuids, path, db)
 
     mons.head.completedAt shouldBe None
     mons.tail.head.completedAt shouldNot be(None)
@@ -385,7 +385,7 @@ class RevaultSpec extends FreeSpec
     FaultClientTransport.checkers.clear()
     completer ! completerTask
     expectMsgType[ShardTaskComplete].result shouldBe a[RevaultCompleterTaskResult]
-    selectMonitors(monitorUuids, path, db) foreach { _.completedAt shouldNot be(None) }
+    selectTransactions(transactionUuids, path, db) foreach { _.completedAt shouldNot be(None) }
   }
 
   "Test revault (integrated)" in {
@@ -500,8 +500,8 @@ class RevaultSpec extends FreeSpec
     val completerTask = expectMsgType[RevaultCompleterTask]
     expectMsgType[ShardTaskComplete]
 
-    val monitorUuids = whenReady(db.selectContent(path, "")) { result =>
-      result.get.monitorList
+    val transactionUuids = whenReady(db.selectContent(path, "")) { result =>
+      result.get.transactionList
     }
 
     val processorProbe = TestProbe("processor")
@@ -522,7 +522,7 @@ class RevaultSpec extends FreeSpec
     completerTask.path should equal(completerTask2.path)
     processorProbe.reply(CompletionFailedException(completerTask2.path, "Testing worker behavior"))
     val completerTask3 = processorProbe.expectMsgType[RevaultCompleterTask](max = 20.seconds)
-    hotWorker ! processorProbe.reply(RevaultCompleterTaskResult(completerTask2.path, monitorUuids))
+    hotWorker ! processorProbe.reply(RevaultCompleterTaskResult(completerTask2.path, transactionUuids))
     gracefulStop(hotWorker, 20 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(20.seconds))
   }
 
@@ -542,20 +542,20 @@ class RevaultSpec extends FreeSpec
     expectMsgType[ShardTaskComplete]
 
     val content = db.selectContent(path, "").futureValue.get
-    val newMonitorUuid = UUIDs.startOf(millis-5*60*1000l)
+    val newTransactionUuid = UUIDs.startOf(millis-5*60*1000l)
     val newContent = content.copy(
-      monitorList = List(newMonitorUuid) // original monitor becomes abandoned
+      transactionList = List(newTransactionUuid) // original transaction becomes abandoned
     )
-    val monitor = selectMonitors(content.monitorList, content.uri, db).head
-    val newMonitor = monitor.copy(
-      dtQuantum = MonitorLogic.getDtQuantum(UUIDs.unixTimestamp(newMonitorUuid)),
-      uuid = newMonitorUuid
+    val transaction = selectTransactions(content.transactionList, content.uri, db).head
+    val newTransaction = transaction.copy(
+      dtQuantum = TransactionLogic.getDtQuantum(UUIDs.unixTimestamp(newTransactionUuid)),
+      uuid = newTransactionUuid
     )
     db.insertContent(newContent).futureValue
-    db.insertMonitor(newMonitor).futureValue
-    println(s"old uuid = ${monitor.uuid}, new uuid = $newMonitorUuid, ${UUIDs.unixTimestamp(monitor.uuid)}, ${UUIDs.unixTimestamp(newMonitorUuid)}")
+    db.insertTransaction(newTransaction).futureValue
+    println(s"old uuid = ${transaction.uuid}, new uuid = $newTransactionUuid, ${UUIDs.unixTimestamp(transaction.uuid)}, ${UUIDs.unixTimestamp(newTransactionUuid)}")
 
-    db.updateCheckpoint(monitor.partition, monitor.dtQuantum-10) // checkpoint to - 10 minutes
+    db.updateCheckpoint(transaction.partition, transaction.dtQuantum-10) // checkpoint to - 10 minutes
 
     val processorProbe = TestProbe("processor")
     val staleWorkerProps = Props(classOf[StaleRecoveryWorker],
@@ -576,14 +576,14 @@ class RevaultSpec extends FreeSpec
     processorProbe.reply(CompletionFailedException(completerTask2.path, "Testing worker behavior"))
 
     eventually {
-      db.selectCheckpoint(monitor.partition).futureValue shouldBe Some(newMonitor.dtQuantum - 1)
+      db.selectCheckpoint(transaction.partition).futureValue shouldBe Some(newTransaction.dtQuantum - 1)
     }
 
     val completerTask3 = processorProbe.expectMsgType[RevaultCompleterTask](max = 20.seconds)
-    hotWorker ! processorProbe.reply(RevaultCompleterTaskResult(completerTask2.path, newContent.monitorList))
+    hotWorker ! processorProbe.reply(RevaultCompleterTaskResult(completerTask2.path, newContent.transactionList))
 
     eventually {
-      db.selectCheckpoint(monitor.partition).futureValue.get shouldBe >(newMonitor.dtQuantum)
+      db.selectCheckpoint(transaction.partition).futureValue.get shouldBe >(newTransaction.dtQuantum)
     }
 
     val completerTask4 = processorProbe.expectMsgType[RevaultCompleterTask](max = 20.seconds) // this is abandoned

@@ -33,7 +33,7 @@
 
 todo:
   * /revault/content
-    /revault/monitor
+    /revault/transaction
   * CREATED/NO_CONTENT instead of ACCEPTED
   * limit stash size
   * url validator and splitter
@@ -41,11 +41,11 @@ todo:
   * collections
     + partitioning collection events
     + query filter
-  * history period support, remove older monitors
-    + (content monitorList delta updates)
+  * history period support, remove older transactions
+    + (content transactionsList delta updates)
   * performance test
   * facade JS test
-  * revault monitor query
+  * revault transactions query
   * cache results
   * integration test
     + kafka + recovery + switch

@@ -8,7 +8,7 @@ import eu.inn.binders.dynamic._
 import eu.inn.hyperbus.HyperBus
 import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.serialization.{StringDeserializer,StringSerializer}
-import eu.inn.revault.db.{Content, Db, Monitor}
+import eu.inn.revault.db.{Content, Db, Transaction}
 import eu.inn.revault.sharding.{ShardTask, ShardTaskComplete}
 
 import scala.concurrent.Future
@@ -23,7 +23,7 @@ import scala.util.control.NonFatal
 @SerialVersionUID(1L) case class RevaultTaskResult(content: String)
 
 case class RevaultWorkerTaskFailed(task: ShardTask, inner: Throwable)
-case class RevaultWorkerTaskAccepted(task: ShardTask, monitor: Monitor)
+case class RevaultWorkerTaskAccepted(task: ShardTask, transaction: Transaction)
 
 class RevaultWorker(hyperBus: HyperBus, db: Db, completerTaskTtl: Long) extends Actor with ActorLogging {
   import ContentLogic._
@@ -54,8 +54,8 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTaskTtl: Long) extends 
 
   def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemSegment: String, task: RevaultTask, request: DynamicRequest) = {
     db.selectContent(documentUri, itemSegment) flatMap { existingContent ⇒
-      updateResource(documentUri, itemSegment, request, existingContent) map { newMonitor ⇒
-        RevaultWorkerTaskAccepted(task, newMonitor)
+      updateResource(documentUri, itemSegment, request, existingContent) map { newTransaction ⇒
+        RevaultWorkerTaskAccepted(task, newTransaction)
       }
     } recover {
       case NonFatal(e) ⇒
@@ -63,12 +63,12 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTaskTtl: Long) extends 
     } pipeTo context.self
   }
 
-  private def createNewMonitor(request: DynamicRequest, existingContent: Option[Content]): Monitor = {
+  private def createNewTransaction(request: DynamicRequest, existingContent: Option[Content]): Transaction = {
     val revision = existingContent match {
       case None ⇒ 1
       case Some(content) ⇒ content.revision + 1
     }
-    MonitorLogic.newMonitor(request.path, revision, request.copy(
+    TransactionLogic.newTransaction(request.path, revision, request.copy(
       headers = Headers.plain(request.headers +
         (Header.REVISION → Seq(revision.toString)) +
         (Header.METHOD → Seq("feed:" + request.method)))
@@ -76,13 +76,13 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTaskTtl: Long) extends 
   }
 
   private def taskWaitResult(owner: ActorRef, originalTask: RevaultTask)(implicit mcf: MessagingContextFactory): Receive = {
-    case RevaultWorkerTaskAccepted(task, monitor) if task == originalTask ⇒
+    case RevaultWorkerTaskAccepted(task, transaction) if task == originalTask ⇒
       if (log.isDebugEnabled) {
         log.debug(s"Task $originalTask is accepted")
       }
-      owner ! RevaultCompleterTask(task.key, System.currentTimeMillis() + completerTaskTtl, monitor.uri)
-      val monId = monitor.uri + ":" + monitor.revision
-      val resultContent = Accepted(protocol.Monitor(monId, "in-progress", None)).serializeToString()
+      owner ! RevaultCompleterTask(task.key, System.currentTimeMillis() + completerTaskTtl, transaction.uri)
+      val trId = transaction.uri + ":" + transaction.revision
+      val resultContent = Accepted(protocol.Transaction(trId, "in-progress", None)).serializeToString()
       owner ! ShardTaskComplete(task, RevaultTaskResult(resultContent))
       unbecome()
 
@@ -107,23 +107,23 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTaskTtl: Long) extends 
 
   private def updateContent(documentUri: String,
                             itemSegment: String,
-                            newMonitor: Monitor,
+                            newTransaction: Transaction,
                             request: DynamicRequest,
                             existingContent: Option[Content]): Content =
   request.method match {
-    case Method.PUT ⇒ putContent(documentUri, itemSegment, newMonitor, request, existingContent)
-    case Method.PATCH ⇒ patchContent(documentUri, itemSegment, newMonitor, request, existingContent)
-    case Method.DELETE ⇒ deleteContent(documentUri, itemSegment, newMonitor, request, existingContent)
+    case Method.PUT ⇒ putContent(documentUri, itemSegment, newTransaction, request, existingContent)
+    case Method.PATCH ⇒ patchContent(documentUri, itemSegment, newTransaction, request, existingContent)
+    case Method.DELETE ⇒ deleteContent(documentUri, itemSegment, newTransaction, request, existingContent)
   }
 
   private def putContent(documentUri: String,
-                            itemSegment: String,
-                            newMonitor: Monitor,
-                            request: DynamicRequest,
-                            existingContent: Option[Content]): Content = existingContent match {
+                         itemSegment: String,
+                         newTransaction: Transaction,
+                         request: DynamicRequest,
+                         existingContent: Option[Content]): Content = existingContent match {
     case None ⇒
-      Content(documentUri, itemSegment, newMonitor.revision,
-        monitorList = List(newMonitor.uuid),
+      Content(documentUri, itemSegment, newTransaction.revision,
+        transactionList = List(newTransaction.uuid),
         body = Some(filterNulls(request.body).serializeToString()),
         isDeleted = false,
         createdAt = new Date(),
@@ -131,8 +131,8 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTaskTtl: Long) extends 
       )
 
     case Some(content) ⇒
-      Content(documentUri, itemSegment, newMonitor.revision,
-        monitorList = newMonitor.uuid +: content.monitorList,
+      Content(documentUri, itemSegment, newTransaction.revision,
+        transactionList = newTransaction.uuid +: content.transactionList,
         body = Some(filterNulls(request.body).serializeToString()),
         isDeleted = false,
         createdAt = content.createdAt,
@@ -141,28 +141,8 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTaskTtl: Long) extends 
   }
 
   private def patchContent(documentUri: String,
-                         itemSegment: String,
-                         newMonitor: Monitor,
-                         request: DynamicRequest,
-                         existingContent: Option[Content]): Content = existingContent match {
-    case None ⇒ {
-      implicit val mcx = request
-      throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
-    }
-
-    case Some(content) ⇒
-      Content(documentUri, itemSegment, newMonitor.revision,
-        monitorList = newMonitor.uuid +: content.monitorList,
-        body = Some(mergeBody(StringDeserializer.dynamicBody(content.body), request.body).serializeToString()),
-        isDeleted = false,
-        createdAt = content.createdAt,
-        modifiedAt = Some(new Date())
-      )
-  }
-
-  private def deleteContent(documentUri: String,
                            itemSegment: String,
-                           newMonitor: Monitor,
+                           newTransaction: Transaction,
                            request: DynamicRequest,
                            existingContent: Option[Content]): Content = existingContent match {
     case None ⇒ {
@@ -171,8 +151,28 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTaskTtl: Long) extends 
     }
 
     case Some(content) ⇒
-      Content(documentUri, itemSegment, newMonitor.revision,
-        monitorList = newMonitor.uuid +: content.monitorList,
+      Content(documentUri, itemSegment, newTransaction.revision,
+        transactionList = newTransaction.uuid +: content.transactionList,
+        body = Some(mergeBody(StringDeserializer.dynamicBody(content.body), request.body).serializeToString()),
+        isDeleted = false,
+        createdAt = content.createdAt,
+        modifiedAt = Some(new Date())
+      )
+  }
+
+  private def deleteContent(documentUri: String,
+                            itemSegment: String,
+                            newTransaction: Transaction,
+                            request: DynamicRequest,
+                            existingContent: Option[Content]): Content = existingContent match {
+    case None ⇒ {
+      implicit val mcx = request
+      throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
+    }
+
+    case Some(content) ⇒
+      Content(documentUri, itemSegment, newTransaction.revision,
+        transactionList = newTransaction.uuid +: content.transactionList,
         body = None,
         isDeleted = true,
         createdAt = content.createdAt,
@@ -183,12 +183,12 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTaskTtl: Long) extends 
   private def updateResource(documentUri: String,
                              itemSegment: String,
                              request: DynamicRequest,
-                             existingContent: Option[Content]): Future[Monitor] = {
-    val newMonitor = createNewMonitor(request, existingContent)
-    val newContent = updateContent(documentUri, itemSegment, newMonitor, request, existingContent)
-    db.insertMonitor(newMonitor) flatMap { _ ⇒
+                             existingContent: Option[Content]): Future[Transaction] = {
+    val newTransaction = createNewTransaction(request, existingContent)
+    val newContent = updateContent(documentUri, itemSegment, newTransaction, request, existingContent)
+    db.insertTransaction(newTransaction) flatMap { _ ⇒
       db.insertContent(newContent) map { _ ⇒
-        newMonitor
+        newTransaction
       }
     }
   }

@@ -10,7 +10,7 @@ object ContentLogic {
       else
         content.documentUri + "/" + content.itemSegment
     }
-    def partition = MonitorLogic.partitionFromUri(uri)
+    def partition = TransactionLogic.partitionFromUri(uri)
   }
 
   // todo: describe uri to resource/collection item matching
