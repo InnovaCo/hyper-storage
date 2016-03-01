@@ -31,8 +31,6 @@
 ```
 
 todo:
-  * recovery in threads instead of actors
-  * node didn't activated, when there is active, then after shutdown it still didn't activated
   * collections
     + partitioning collection events
     + query filter
@@ -48,7 +46,6 @@ todo:
   * split tests (port numbers) workerspec
   * define base classes for a RAML generated classes
   * StringDeserializer -> accept Message
-  * EmptyBody without content-type!
     distributed akka, use protobuf: https://github.com/akka/akka/issues/18371
 
   * document:
