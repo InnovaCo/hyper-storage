@@ -9,7 +9,7 @@ import eu.inn.hyperbus.akkaservice._
 import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
 import eu.inn.revault.db.Db
-import eu.inn.revault.recovery.{HotRecoveryWorker, StaleRecoveryWorker}
+import eu.inn.revault.recovery.{ShutdownRecoveryWorker, HotRecoveryWorker, StaleRecoveryWorker}
 import eu.inn.revault.sharding.{ShardProcessor, SubscribeToShardStatus}
 import eu.inn.servicecontrol.api.{Console, Service}
 import org.slf4j.LoggerFactory
@@ -93,6 +93,8 @@ class RevaultService(console: Console,
   override def stopService(controlBreak: Boolean): Unit = {
     log.info("Stopping Revault service...")
 
+    staleRecoveryActorRef ! ShutdownRecoveryWorker
+    hotRecoveryActorRef ! ShutdownRecoveryWorker
     subscriptions.foreach(subscription => Await.result(hyperBus.off(subscription), shutdownTimeout/2))
 
     try {

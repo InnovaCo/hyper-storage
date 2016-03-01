@@ -2,35 +2,33 @@ package eu.inn.revault
 
 import java.util.UUID
 
-import akka.actor.{ActorLogging, ActorRef, Actor}
+import akka.actor.{Actor, ActorLogging, ActorRef}
+import akka.pattern.pipe
 import com.datastax.driver.core.utils.UUIDs
 import eu.inn.hyperbus.HyperBus
 import eu.inn.hyperbus.model.DynamicRequest
-import eu.inn.hyperbus.transport.api.PublishResult
-import eu.inn.revault.db.{Transaction, Content, Db}
-import eu.inn.revault.sharding.{ShardTaskComplete, ShardTask}
-import akka.pattern.pipe
-import scala.collection.generic.CanBuildFrom
-import scala.collection.{mutable, Seq}
-import scala.collection.mutable.Builder
-import scala.concurrent.duration._
+import eu.inn.revault.db.{ContentStatic, Db, Transaction}
+import eu.inn.revault.sharding.{ShardTask, ShardTaskComplete}
 
-import scala.concurrent.{ExecutionContext, Promise, Await, Future}
+import scala.collection.generic.CanBuildFrom
+import scala.collection.{Seq, mutable}
+import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 
-@SerialVersionUID(1L) case class RevaultCompleterTask(key: String, ttl: Long, path: String) extends ShardTask {
+@SerialVersionUID(1L) case class RevaultCompleterTask(ttl: Long, documentUri: String) extends ShardTask {
+  def key = documentUri
   def isExpired = ttl < System.currentTimeMillis()
   def group = "revault-completer"
 }
 
-@SerialVersionUID(1L) case class RevaultCompleterTaskResult(path: String, transactions: Seq[UUID])
-@SerialVersionUID(1L) case class NoSuchResourceException(path: String) extends RuntimeException(s"No such resource: $path")
-@SerialVersionUID(1L) case class IncorrectDataException(path: String, reason: String) extends RuntimeException(s"Data for $path is incorrect: $reason")
-@SerialVersionUID(1L) case class CompletionFailedException(path: String, reason: String) extends RuntimeException(s"Complete for $path is failed: $reason")
+@SerialVersionUID(1L) case class RevaultCompleterTaskResult(documentUri: String, transactions: Seq[UUID])
+@SerialVersionUID(1L) case class NoSuchResourceException(documentUri: String) extends RuntimeException(s"No such resource: $documentUri")
+@SerialVersionUID(1L) case class IncorrectDataException(documentUri: String, reason: String) extends RuntimeException(s"Data for $documentUri is incorrect: $reason")
+@SerialVersionUID(1L) case class CompletionFailedException(documentUri: String, reason: String) extends RuntimeException(s"Complete for $documentUri is failed: $reason")
 
 class RevaultCompleter(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
-  import context._
   import ContentLogic._
+  import context._
 
   override def receive: Receive = {
     case task: RevaultCompleterTask ⇒
@@ -38,11 +36,10 @@ class RevaultCompleter(hyperBus: HyperBus, db: Db) extends Actor with ActorLoggi
   }
 
   def executeTask(owner: ActorRef, task: RevaultCompleterTask): Unit = {
-    val (documentUri, itemSegment) = splitPath(task.path)
-    db.selectContent(documentUri, itemSegment) flatMap {
+    db.selectContentStatic(task.documentUri) flatMap {
       case None ⇒
         log.error(s"Didn't found resource to complete, dismissing task: $task")
-        Future(ShardTaskComplete(task, new NoSuchResourceException(task.path)))
+        Future(ShardTaskComplete(task, new NoSuchResourceException(task.documentUri)))
       case Some(content) ⇒
         try {
           completeTransactions(task, content)
@@ -54,9 +51,9 @@ class RevaultCompleter(hyperBus: HyperBus, db: Db) extends Actor with ActorLoggi
     } pipeTo owner
   }
 
-  def completeTransactions(task: RevaultCompleterTask, content: Content): Future[ShardTaskComplete] = {
+  def completeTransactions(task: RevaultCompleterTask, content: ContentStatic): Future[ShardTaskComplete] = {
     if (content.transactionList.isEmpty) {
-      throw new IncorrectDataException(content.uri, "empty transaction list")
+      throw new IncorrectDataException(content.documentUri, "empty transaction list")
     }
     else {
       selectIncompleteTransactions(content) flatMap { incompleteTransactions ⇒
@@ -74,19 +71,19 @@ class RevaultCompleter(hyperBus: HyperBus, db: Db) extends Actor with ActorLoggi
             }
           }
         } map { updatedTransactions ⇒
-          ShardTaskComplete(task, RevaultCompleterTaskResult(task.path, updatedTransactions.map(_.uuid)))
+          ShardTaskComplete(task, RevaultCompleterTaskResult(task.documentUri, updatedTransactions.map(_.uuid)))
         } recover {
           case NonFatal(e) ⇒
-            ShardTaskComplete(task, CompletionFailedException(task.path, e.toString))
+            ShardTaskComplete(task, CompletionFailedException(task.documentUri, e.toString))
         }
       }
     }
   }
 
-  def selectIncompleteTransactions(content: Content): Future[Seq[Transaction]] = {
+  def selectIncompleteTransactions(content: ContentStatic): Future[Seq[Transaction]] = {
     val transactionsFStream = content.transactionList.toStream.map { transactionUuid ⇒
       val quantum = TransactionLogic.getDtQuantum(UUIDs.unixTimestamp(transactionUuid))
-      db.selectTransaction(quantum, content.partition, content.uri, transactionUuid)
+      db.selectTransaction(quantum, content.partition, content.documentUri, transactionUuid)
     }
     FutureUtils.collectWhile(transactionsFStream) {
       case Some(transaction) ⇒ transaction

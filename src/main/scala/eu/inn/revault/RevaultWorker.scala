@@ -1,16 +1,13 @@
 package eu.inn.revault
 
-import java.io.OutputStream
 import java.util.Date
 
 import akka.actor.{Actor, ActorLogging, ActorRef}
 import akka.pattern.pipe
-import akka.util.Timeout
 import eu.inn.binders.dynamic._
 import eu.inn.hyperbus.HyperBus
-import eu.inn.hyperbus.model.LinksMap.LinksMapType
 import eu.inn.hyperbus.model._
-import eu.inn.hyperbus.serialization.{StringDeserializer,StringSerializer}
+import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.revault.db.{Content, Db, Transaction}
 import eu.inn.revault.protocol.TransactionCreated
 import eu.inn.revault.sharding.{ShardTask, ShardTaskComplete}
@@ -71,12 +68,12 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTimeout: FiniteDuration
     } pipeTo context.self
   }
 
-  private def createNewTransaction(request: DynamicRequest, existingContent: Option[Content]): Transaction = {
+  private def createNewTransaction(documentUri: String, request: DynamicRequest, existingContent: Option[Content]): Transaction = {
     val revision = existingContent match {
       case None ⇒ 1
       case Some(content) ⇒ content.revision + 1
     }
-    TransactionLogic.newTransaction(request.path, revision, request.copy(
+    TransactionLogic.newTransaction(documentUri, revision, request.copy(
       headers = Headers.plain(request.headers +
         (Header.REVISION → Seq(revision.toString)) +
         (Header.METHOD → Seq("feed:" + request.method)))
@@ -88,8 +85,8 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTimeout: FiniteDuration
       if (log.isDebugEnabled) {
         log.debug(s"Task $originalTask is accepted")
       }
-      owner ! RevaultCompleterTask(task.key, System.currentTimeMillis() + completerTimeout.toMillis, transaction.uri)
-      val transactionId = transaction.uri + ":" + transaction.revision
+      owner ! RevaultCompleterTask(System.currentTimeMillis() + completerTimeout.toMillis, transaction.documentUri)
+      val transactionId = transaction.documentUri + ":" + transaction.uuid + ":" + transaction.revision
       val result: Response[Body] = if (created) {
         Created(TransactionCreated(transactionId))
       }
@@ -197,7 +194,7 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTimeout: FiniteDuration
                              itemSegment: String,
                              request: DynamicRequest,
                              existingContent: Option[Content]): Future[Transaction] = {
-    val newTransaction = createNewTransaction(request, existingContent)
+    val newTransaction = createNewTransaction(documentUri, request, existingContent)
     val newContent = updateContent(documentUri, itemSegment, newTransaction, request, existingContent)
     db.insertTransaction(newTransaction) flatMap { _ ⇒
       db.insertContent(newContent) map { _ ⇒

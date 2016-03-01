@@ -10,10 +10,10 @@ object TransactionLogic {
   val MaxPartitions: Int = 1024
   val timeZone = TimeZone.getTimeZone("UTC")
 
-  def newTransaction(uri: String, revision: Long, body: String) = Transaction(
+  def newTransaction(documentUri: String, revision: Long, body: String) = Transaction(
     dtQuantum = getDtQuantum(System.currentTimeMillis()),
-    partition = partitionFromUri(uri),
-    uri = uri,
+    partition = partitionFromUri(documentUri),
+    documentUri = documentUri,
     revision = revision,
     uuid = UUIDs.timeBased(),
     body = body,

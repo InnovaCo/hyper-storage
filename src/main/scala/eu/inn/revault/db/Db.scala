@@ -22,10 +22,16 @@ case class Content(
                     modifiedAt: Option[Date]
                   )
 
+case class ContentStatic(
+                    documentUri: String,
+                    revision: Long,
+                    transactionList: List[UUID]
+                  )
+
 case class Transaction(
                     dtQuantum: Long,
                     partition: Int,
-                    uri: String,
+                    documentUri: String,
                     uuid: UUID,
                     revision: Long,
                     body: String,
@@ -60,23 +66,29 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       where document_uri=$documentUri and item_segment=$itemSegment
     """.oneOption[Content]
 
+  def selectContentStatic(documentUri: String): Future[Option[ContentStatic]] = cql"""
+      select document_uri,revision,transaction_list from content
+      where document_uri=$documentUri
+      limit 1
+    """.oneOption[ContentStatic]
+
   def insertContent(content: Content): Future[Unit] = cql"""
       insert into content(document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at)
       values(?,?,?,?,?,?,?,?)
     """.bind(content).execute()
 
-  def selectTransaction(dtQuantum: Long, partition: Int, uri: String, uuid: UUID): Future[Option[Transaction]] = cql"""
-      select dt_quantum,partition,uri,uuid,revision,body,completed_at from transaction
-      where dt_quantum=$dtQuantum and partition=$partition and uri=$uri and uuid=$uuid
+  def selectTransaction(dtQuantum: Long, partition: Int, documentUri: String, uuid: UUID): Future[Option[Transaction]] = cql"""
+      select dt_quantum,partition,document_uri,uuid,revision,body,completed_at from transaction
+      where dt_quantum=$dtQuantum and partition=$partition and document_uri=$documentUri and uuid=$uuid
     """.oneOption[Transaction]
 
   def selectPartitionTransactions(dtQuantum: Long, partition: Int): Future[Iterator[Transaction]] = cql"""
-      select dt_quantum,partition,uri,uuid,revision,body,completed_at from transaction
+      select dt_quantum,partition,document_uri,uuid,revision,body,completed_at from transaction
       where dt_quantum=$dtQuantum and partition=$partition
     """.all[Transaction]
 
   def insertTransaction(transaction: Transaction): Future[Unit] = cql"""
-      insert into transaction(dt_quantum,partition,uri,uuid,revision,body,completed_at)
+      insert into transaction(dt_quantum,partition,document_uri,uuid,revision,body,completed_at)
       values(?,?,?,?,?,?,?)
     """.bind(transaction).execute()
 
@@ -84,7 +96,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       update transaction set completed_at=dateOf(now())
       where dt_quantum=${transaction.dtQuantum}
         and partition=${transaction.partition}
-        and uri=${transaction.uri}
+        and document_uri=${transaction.documentUri}
         and uuid=${transaction.uuid}
     """.execute()
 
@@ -92,7 +104,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       delete transaction
       where dt_quantum=${transaction.dtQuantum}
         and partition=${transaction.partition}
-        and uri=${transaction.uri}
+        and document_uri=${transaction.documentUri}
         and uuid=${transaction.uuid}
     """.execute()
 

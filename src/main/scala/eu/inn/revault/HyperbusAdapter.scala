@@ -25,10 +25,11 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: Finite
   def ~> (request: RevaultPatch) = executeRequest(request, request.path)
   def ~> (request: RevaultDelete) = executeRequest(request, request.path)
 
-  private def executeRequest(implicit request: Request[Body], path: String) = {
+  private def executeRequest(implicit request: Request[Body], uri: String) = {
     val str = StringSerializer.serializeToString(request)
     val ttl = Math.min(requestTimeout.toMillis - 100, 100)
-    val task = RevaultTask(path, System.currentTimeMillis() + ttl, str)
+    val (documentUri, _) = ContentLogic.splitPath(uri)
+    val task = RevaultTask(documentUri, System.currentTimeMillis() + ttl, str)
     implicit val timeout: akka.util.Timeout = requestTimeout
 
     revaultProcessor ? task map {

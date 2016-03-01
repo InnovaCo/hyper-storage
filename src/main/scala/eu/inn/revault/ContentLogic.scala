@@ -1,7 +1,6 @@
 package eu.inn.revault
 
-import eu.inn.hyperbus.transport.api.uri.{UriParser, Uri}
-import eu.inn.revault.db.Content
+import eu.inn.revault.db.{Content, ContentStatic}
 
 object ContentLogic {
   implicit class ContentWrapper(val content: Content) {
@@ -11,7 +10,11 @@ object ContentLogic {
       else
         content.documentUri + "/" + content.itemSegment
     }
-    def partition = TransactionLogic.partitionFromUri(uri)
+    def partition = TransactionLogic.partitionFromUri(content.documentUri)
+  }
+
+  implicit class ContentStaticWrapper(val content: ContentStatic) {
+    def partition = TransactionLogic.partitionFromUri(content.documentUri)
   }
 
   // todo: describe uri to resource/collection item matching

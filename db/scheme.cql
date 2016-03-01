@@ -13,12 +13,12 @@ create table content (
 create table transaction (
 	dt_quantum bigint,
 	partition int,
-	uri text,
+	document_uri text,
 	uuid timeuuid,
 	revision bigint,
 	body text,
 	completed_at timestamp,
-	primary key ((dt_quantum, partition), uri, uuid)
+	primary key ((dt_quantum, partition), document_uri, uuid)
 );
 
 create table checkpoint (

@@ -124,19 +124,18 @@ abstract class RecoveryWorker[T <: WorkerState](
     FutureUtils.serial(partitions) { partition ⇒
       // todo: selectPartitionTransactions selects body which isn't eficient
       db.selectPartitionTransactions(dtQuantum, partition).flatMap { partitionTransactions ⇒
-        val incompleteTransactions = partitionTransactions.toList.filter(_.completedAt.isEmpty).groupBy(_.uri)
-        FutureUtils.serial(incompleteTransactions.toSeq) { case (transactionUri, transactions) ⇒
+        val incompleteTransactions = partitionTransactions.toList.filter(_.completedAt.isEmpty).groupBy(_.documentUri)
+        FutureUtils.serial(incompleteTransactions.toSeq) { case (documentUri, transactions) ⇒
 
-          val path = ContentLogic.splitPath(transactionUri)
-          val task = RevaultCompleterTask(path._1,
+          val task = RevaultCompleterTask(
             System.currentTimeMillis() + completerTimeout.toMillis + 1000,
-            transactionUri
+            documentUri
           )
-          log.debug(s"Incomplete resource at $transactionUri. Sending recovery task")
+          log.debug(s"Incomplete resource at $documentUri. Sending recovery task")
           shardProcessor.ask(task)(completerTimeout) flatMap {
             case RevaultCompleterTaskResult(completePath, completedTransactions) ⇒
               log.debug(s"Recovery of '$completePath' completed successfully: $completedTransactions")
-              if (path._1 == completePath) {
+              if (documentUri == completePath) {
                 val set = completedTransactions.toSet
                 val abandonedTransactions = transactions.filterNot(m ⇒ set.contains(m.uuid))
                 if (abandonedTransactions.nonEmpty) {
@@ -149,7 +148,7 @@ abstract class RecoveryWorker[T <: WorkerState](
                 }
               }
               else {
-                log.error(s"Recovery result received for '$completePath' while expecting for the '$path'")
+                log.error(s"Recovery result received for '$completePath' while expecting for the '$documentUri'")
                 Future.successful()
               }
             case NoSuchResourceException(notFountPath) ⇒
