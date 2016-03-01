@@ -29,4 +29,8 @@ object TransactionLogic {
   def getDtQuantum(unixTime: Long): Long = {
     unixTime / (1000 * 60)
   }
+
+  def getUnixTimeFromQuantum(qt: Long): Long = {
+    qt * 1000 * 60
+  }
 }

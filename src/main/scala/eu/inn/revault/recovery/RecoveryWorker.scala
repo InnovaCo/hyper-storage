@@ -1,5 +1,7 @@
 package eu.inn.revault.recovery
 
+import java.util.Date
+
 import akka.actor._
 import akka.pattern.ask
 import eu.inn.revault._
@@ -28,21 +30,48 @@ import scala.util.control.NonFatal
             3.3. updates check dates (with replication lag date)
 */
 
-case object StartCheck
+case class StartCheck(processId: Long)
 case object ShutdownRecoveryWorker
-case class CheckQuantum[T](dtQuantum: Long, partitions: Seq[Int], state: T)
+case class CheckQuantum[T <: WorkerState](processId: Long, dtQuantum: Long, partitions: Seq[Int], state: T)
 
-abstract class RecoveryWorker[T](
+trait WorkerState {
+  def startedAt: Long
+  def startQuantum: Long
+
+  def nextCheck(currentQuantum: Long): Long = {
+    if (currentQuantum <= startQuantum) { // just starting
+      0
+    }
+    else {
+      val periodChecked = TransactionLogic.getUnixTimeFromQuantum(currentQuantum-startQuantum)
+      val quantumTime = TransactionLogic.getUnixTimeFromQuantum(1)
+      val millisNow = System.currentTimeMillis()
+      val tookTime = millisNow - startedAt
+      val timeSpentPerQuantum = tookTime/(currentQuantum-startQuantum)
+      if (timeSpentPerQuantum*5 < quantumTime) {
+        // if we are 5 times faster, then we can delay our checks
+        // but no more than 15seconds
+        Math.min(quantumTime - timeSpentPerQuantum*5, 15000)
+      }
+      else {
+        0
+      }
+    }
+  }
+}
+
+abstract class RecoveryWorker[T <: WorkerState](
                                   db: Db,
                                   shardProcessor: ActorRef,
                                   retryPeriod: FiniteDuration,
                                   completerTimeout: FiniteDuration
                                 ) extends Actor with ActorLogging {
   import context._
+  var currentProcessId: Long = 0
 
   def receive = {
     case UpdateShardStatus(_, Active, stateData) ⇒
-      runRecoveryCheck(stateData, getMyPartitions(stateData))
+      clusterActivated(stateData, getMyPartitions(stateData))
 
     case ShutdownRecoveryWorker ⇒
       context.stop(self)
@@ -52,22 +81,23 @@ abstract class RecoveryWorker[T](
     case UpdateShardStatus(_, Active, newStateData) ⇒
       if (newStateData != stateData) {
         // restart with new partition list
-        runRecoveryCheck(newStateData, getMyPartitions(newStateData))
+        clusterActivated(newStateData, getMyPartitions(newStateData))
       }
 
     case UpdateShardStatus(_, Deactivating, _) ⇒
       context.unbecome()
 
-    case StartCheck ⇒
+    case StartCheck(processId) if processId == currentProcessId ⇒
+      currentProcessId = currentProcessId + 1 // this protects from parallel duplicate checks when rebalancing
       runNewRecoveryCheck(workerPartitions)
 
-    case CheckQuantum(dtQuantum, partitionsForQuantum, state) ⇒
+    case CheckQuantum(processId, dtQuantum, partitionsForQuantum, state) if processId == currentProcessId ⇒
       checkQuantum(dtQuantum, partitionsForQuantum) map { _ ⇒
-        runNextRecoveryCheck(CheckQuantum(dtQuantum, partitionsForQuantum, state.asInstanceOf[T]))
+        runNextRecoveryCheck(CheckQuantum(processId, dtQuantum, partitionsForQuantum, state.asInstanceOf[T]))
       } recover {
         case NonFatal(e) ⇒
           log.error(e, s"Quantum check for $dtQuantum is failed. Will retry in $retryPeriod")
-          system.scheduler.scheduleOnce(retryPeriod, self, CheckQuantum(dtQuantum, partitionsForQuantum, state))
+          system.scheduler.scheduleOnce(retryPeriod, self, CheckQuantum(processId, dtQuantum, partitionsForQuantum, state))
       }
 
     case ShutdownRecoveryWorker ⇒
@@ -76,21 +106,21 @@ abstract class RecoveryWorker[T](
   }
 
   def shuttingDown: Receive = {
-    case StartCheck | _ : CheckQuantum[_] ⇒
+    case _ : StartCheck | _ : CheckQuantum[_] ⇒
       context.stop(self)
   }
 
-  def runRecoveryCheck(stateData: ShardedClusterData, partitions: Seq[Int]): Unit = {
-    log.info(s"Cluster is active, starting recovery check. Current data: $stateData. Partitions to process: ${partitions.size}")
+  def clusterActivated(stateData: ShardedClusterData, partitions: Seq[Int]): Unit = {
+    log.info(s"Cluster is active $getClass is running. Current data: $stateData.")
     context.become(running(stateData, partitions))
-    self ! StartCheck
+    self ! StartCheck(currentProcessId)
   }
 
   def runNewRecoveryCheck(partitions: Seq[Int]): Unit
   def runNextRecoveryCheck(previous: CheckQuantum[T]): Unit
 
   def checkQuantum(dtQuantum: Long, partitions: Seq[Int]): Future[Unit] = {
-    log.debug(s"Running partition check for $dtQuantum")
+    log.debug(s"Running partition check for ${qts(dtQuantum)}")
     FutureUtils.serial(partitions) { partition ⇒
       // todo: selectPartitionTransactions selects body which isn't eficient
       db.selectPartitionTransactions(dtQuantum, partition).flatMap { partitionTransactions ⇒
@@ -144,9 +174,22 @@ abstract class RecoveryWorker[T](
         None
     }
   }
+
+  def qts(qt: Long) = s"$qt [${new Date(TransactionLogic.getUnixTimeFromQuantum(qt))}]"
+
+  def scheduleNext(next: CheckQuantum[T]) = {
+    val nextRun = next.state.nextCheck(next.dtQuantum)
+    //log.trace(s"Next run in $nextRun")
+    if (nextRun <= 0)
+      self ! next
+    else
+      system.scheduler.scheduleOnce(Duration(nextRun, MILLISECONDS), self, next)
+  }
 }
 
-case class HotWorkerState(workerPartitions: Seq[Int])
+case class HotWorkerState(workerPartitions: Seq[Int],
+                          startQuantum: Long,
+                          startedAt: Long = System.currentTimeMillis()) extends WorkerState
 
 class HotRecoveryWorker(
                          hotPeriod: (Long,Long),
@@ -163,8 +206,8 @@ class HotRecoveryWorker(
   def runNewRecoveryCheck(partitions: Seq[Int]): Unit = {
     val millis = System.currentTimeMillis()
     val lowerBound = TransactionLogic.getDtQuantum(millis - hotPeriod._1)
-    log.info(s"Running hot recovery check starting from $lowerBound")
-    self ! CheckQuantum(lowerBound, partitions, HotWorkerState(partitions))
+    log.info(s"Running hot recovery check starting from ${qts(lowerBound)}. Partitions to process: ${partitions.size}")
+    self ! CheckQuantum(currentProcessId, lowerBound, partitions, HotWorkerState(partitions, lowerBound))
   }
 
   // todo: detect if lag is increasing and print warning
@@ -173,15 +216,18 @@ class HotRecoveryWorker(
     val upperBound = TransactionLogic.getDtQuantum(millis - hotPeriod._2)
     val nextQuantum = previous.dtQuantum + 1
     if (nextQuantum < upperBound) {
-      self ! CheckQuantum(nextQuantum, previous.state.workerPartitions, previous.state)
+      scheduleNext(CheckQuantum(currentProcessId, nextQuantum, previous.state.workerPartitions, previous.state))
     } else {
-      log.info(s"Hot recovery complete on ${previous.dtQuantum}. Will start new in $retryPeriod")
-      system.scheduler.scheduleOnce(retryPeriod, self, StartCheck)
+      log.info(s"Hot recovery complete on ${qts(previous.dtQuantum)}. Will start new in $retryPeriod")
+      system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(currentProcessId))
     }
   }
 }
 
-case class StaleWorkerState(workerPartitions: Seq[Int], partitionsPerQuantum: Map[Long, Seq[Int]])
+case class StaleWorkerState(workerPartitions: Seq[Int],
+                            partitionsPerQuantum: Map[Long, Seq[Int]],
+                            startQuantum: Long,
+                            startedAt: Long = System.currentTimeMillis()) extends WorkerState
 
 //  We need StaleRecoveryWorker because of cassandra data can reappear later due to replication
 class StaleRecoveryWorker(
@@ -210,19 +256,19 @@ class StaleRecoveryWorker(
 
       val stalest = partitionQuantums.sortBy(_._1).head._1
       val partitionsPerQuantum: Map[Long, Seq[Int]] = partitionQuantums.groupBy(_._1).map(kv ⇒ kv._1 → kv._2.map(_._2))
-      val state = StaleWorkerState(partitions, partitionsPerQuantum)
       val (startFrom,partitionsToProcess) = if (stalest < lowerBound) {
         (stalest, partitionsPerQuantum(stalest))
       } else {
         (lowerBound, partitions)
       }
+      val state = StaleWorkerState(partitions, partitionsPerQuantum, startFrom)
 
-      log.info(s"Running stale recovery check starting from $startFrom")
-      self ! CheckQuantum(startFrom, partitionsToProcess, state)
+      log.info(s"Running stale recovery check starting from ${qts(startFrom)}. Partitions to process: ${partitions.size}")
+      self ! CheckQuantum(currentProcessId, startFrom, partitionsToProcess, state)
     } recover {
       case NonFatal(e) ⇒
         log.error(e, s"Can't fetch checkpoints. Will retry in $retryPeriod")
-        system.scheduler.scheduleOnce(retryPeriod, self, StartCheck)
+        system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(currentProcessId))
     }
   }
 
@@ -244,21 +290,21 @@ class StaleRecoveryWorker(
     futureUpdateCheckpoints map { _ ⇒
       if (nextQuantum < upperBound) {
         if (nextQuantum >= lowerBound || previous.partitions == previous.state.workerPartitions) {
-          self ! CheckQuantum(nextQuantum, previous.state.workerPartitions, previous.state)
+          scheduleNext(CheckQuantum(currentProcessId, nextQuantum, previous.state.workerPartitions, previous.state))
         } else {
           val nextQuantumPartitions = previous.state.partitionsPerQuantum.getOrElse(nextQuantum, Seq.empty)
           val partitions = (previous.partitions.toSet ++ nextQuantumPartitions).toSeq
-          self ! CheckQuantum(nextQuantum, partitions, previous.state)
+          scheduleNext(CheckQuantum(currentProcessId, nextQuantum, partitions, previous.state))
         }
       }
       else {
-        log.info(s"Stale recovery complete on ${previous.dtQuantum}. Will start new in $retryPeriod")
-        system.scheduler.scheduleOnce(retryPeriod, self, StartCheck)
+        log.info(s"Stale recovery complete on ${qts(previous.dtQuantum)}. Will start new in $retryPeriod")
+        system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(currentProcessId))
       }
     } recover {
       case NonFatal(e) ⇒
         log.error(e, s"Can't update checkpoints. Will restart in $retryPeriod")
-        system.scheduler.scheduleOnce(retryPeriod, self, StartCheck)
+        system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(currentProcessId))
     }
   }
 }
