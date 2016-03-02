@@ -108,6 +108,12 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
         and uuid=${transaction.uuid}
     """.execute()
 
+  def removeCompleteTransactionsFromList(documentUri: String, transactions: List[UUID]) = cql"""
+      update content
+        set transaction_list = transaction_list - $transactions
+      where document_uri = $documentUri
+    """.execute()
+
   def selectCheckpoint(partition: Int): Future[Option[Long]] = cql"""
       select last_quantum from checkpoint where partition = $partition
     """.oneOption[CheckPoint].map(_.map(_.lastQuantum))

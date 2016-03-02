@@ -14,6 +14,9 @@
     <logger name="org.apache.cassandra">
         <level value="warn" />
     </logger>
+    <logger name="org.apache.cassandra.service.CassandraDaemon">
+        <level value="off" />
+    </logger>
     <logger name="com.datastax.driver">
         <level value="warn" />
     </logger>

@@ -16,6 +16,7 @@ import eu.inn.revault.sharding._
 import mock.FaultClientTransport
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
+import org.scalatest.time.{Millis, Span}
 import org.scalatest.{FreeSpec, Matchers}
 import akka.pattern.gracefulStop
 
@@ -31,6 +32,7 @@ class RevaultSpec extends FreeSpec
   with Eventually {
 
   import ContentLogic._
+  override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(2000, Millis)))
 
   "Revault" - {
     "Processor in a single-node cluster" - {
@@ -146,12 +148,12 @@ class RevaultSpec extends FreeSpec
         val completerResult = expectMsgType[ShardTaskComplete]
         val rc = completerResult.result.asInstanceOf[RevaultCompleterTaskResult]
         rc.documentUri should equal("test-resource-1")
-        println(s"rc = $rc")
         rc.transactions should contain(uuid)
         selectTransactions(rc.transactions, "test-resource-1", db) foreach { transaction ⇒
           transaction.completedAt shouldNot be(None)
           transaction.revision should equal(1)
         }
+        db.selectContent("test-resource-1", "").futureValue.get.transactionList shouldBe empty
       }
 
       "Patch resource that doesn't exists" in {
@@ -404,11 +406,13 @@ class RevaultSpec extends FreeSpec
         selectTransactions(transactionUuids, path, db) foreach {
           _.completedAt shouldNot be(None)
         }
+
+        db.selectContent(path, "").futureValue.get.transactionList shouldBe empty
       }
     }
 
     "Revault worker (collections)" - {
-      "Put item" in {
+      /*"Put item" in {
         val hyperBus = testHyperBus()
         val tk = testKit()
         import tk._
@@ -455,7 +459,7 @@ class RevaultSpec extends FreeSpec
           transaction.completedAt shouldNot be(None)
           transaction.revision should equal(1)
         }*/
-      }
+      }*/
     }
 
     "Revault integrated" - {
@@ -597,12 +601,12 @@ class RevaultSpec extends FreeSpec
         // start recovery check
         hotWorker ! UpdateShardStatus(self, Active, shardData)
 
-        val completerTask2 = processorProbe.expectMsgType[RevaultCompleterTask](max = 20.seconds)
+        val completerTask2 = processorProbe.expectMsgType[RevaultCompleterTask](max = 30.seconds)
         completerTask.documentUri should equal(completerTask2.documentUri)
         processorProbe.reply(CompletionFailedException(completerTask2.documentUri, "Testing worker behavior"))
-        val completerTask3 = processorProbe.expectMsgType[RevaultCompleterTask](max = 20.seconds)
+        val completerTask3 = processorProbe.expectMsgType[RevaultCompleterTask](max = 30.seconds)
         hotWorker ! processorProbe.reply(RevaultCompleterTaskResult(completerTask2.documentUri, transactionUuids))
-        gracefulStop(hotWorker, 20 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(20.seconds))
+        gracefulStop(hotWorker, 30 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(30.seconds))
       }
 
       "StaleRecoveryWorker" in {
@@ -652,7 +656,7 @@ class RevaultSpec extends FreeSpec
         // start recovery check
         hotWorker ! UpdateShardStatus(self, Active, shardData)
 
-        val completerTask2 = processorProbe.expectMsgType[RevaultCompleterTask](max = 20.seconds)
+        val completerTask2 = processorProbe.expectMsgType[RevaultCompleterTask](max = 30.seconds)
         completerTask.documentUri should equal(completerTask2.documentUri)
         processorProbe.reply(CompletionFailedException(completerTask2.documentUri, "Testing worker behavior"))
 
@@ -660,17 +664,17 @@ class RevaultSpec extends FreeSpec
           db.selectCheckpoint(transaction.partition).futureValue shouldBe Some(newTransaction.dtQuantum - 1)
         }
 
-        val completerTask3 = processorProbe.expectMsgType[RevaultCompleterTask](max = 20.seconds)
+        val completerTask3 = processorProbe.expectMsgType[RevaultCompleterTask](max = 30.seconds)
         hotWorker ! processorProbe.reply(RevaultCompleterTaskResult(completerTask2.documentUri, newContent.transactionList))
 
         eventually {
           db.selectCheckpoint(transaction.partition).futureValue.get shouldBe >(newTransaction.dtQuantum)
         }
 
-        val completerTask4 = processorProbe.expectMsgType[RevaultCompleterTask](max = 20.seconds) // this is abandoned
+        val completerTask4 = processorProbe.expectMsgType[RevaultCompleterTask](max = 30.seconds) // this is abandoned
         hotWorker ! processorProbe.reply(RevaultCompleterTaskResult(completerTask4.documentUri, List()))
 
-        gracefulStop(hotWorker, 10 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(10.seconds))
+        gracefulStop(hotWorker, 30 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(30.seconds))
       }
     }
   }

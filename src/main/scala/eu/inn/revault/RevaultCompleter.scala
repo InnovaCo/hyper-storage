@@ -13,6 +13,7 @@ import eu.inn.revault.sharding.{ShardTask, ShardTaskComplete}
 import scala.collection.generic.CanBuildFrom
 import scala.collection.{Seq, mutable}
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.{Success, Try}
 import scala.util.control.NonFatal
 
 @SerialVersionUID(1L) case class RevaultCompleterTask(ttl: Long, documentUri: String) extends ShardTask {
@@ -75,6 +76,13 @@ class RevaultCompleter(hyperBus: HyperBus, db: Db) extends Actor with ActorLoggi
         } recover {
           case NonFatal(e) ⇒
             ShardTaskComplete(task, CompletionFailedException(task.documentUri, e.toString))
+        } andThen {
+          case Success(ShardTaskComplete(_, RevaultCompleterTaskResult(documentUri, updatedTransactions))) ⇒
+            log.debug(s"Removing completed transactions $updatedTransactions from $documentUri")
+            db.removeCompleteTransactionsFromList(documentUri, updatedTransactions.toList) recover {
+              case NonFatal(e) ⇒
+                log.error(e, s"Can't remove complete transactions $updatedTransactions from $documentUri")
+            }
         }
       }
     }

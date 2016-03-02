@@ -38,7 +38,7 @@ trait WorkerState {
   def startedAt: Long
   def startQuantum: Long
 
-  def nextCheck(currentQuantum: Long): Long = {
+  def nextCheck(currentQuantum: Long, multiplier: Int): Long = {
     if (currentQuantum <= startQuantum) { // just starting
       0
     }
@@ -48,10 +48,10 @@ trait WorkerState {
       val millisNow = System.currentTimeMillis()
       val tookTime = millisNow - startedAt
       val timeSpentPerQuantum = tookTime/(currentQuantum-startQuantum)
-      if (timeSpentPerQuantum*5 < quantumTime) {
-        // if we are 5 times faster, then we can delay our checks
+      if (timeSpentPerQuantum*multiplier < quantumTime) {
+        // if we are x (multiplier) times faster, then we can delay our checks
         // but no more than 15seconds
-        Math.min(quantumTime - timeSpentPerQuantum*5, 15000)
+        quantumTime - timeSpentPerQuantum*multiplier
       }
       else {
         0
@@ -177,7 +177,7 @@ abstract class RecoveryWorker[T <: WorkerState](
   def qts(qt: Long) = s"$qt [${new Date(TransactionLogic.getUnixTimeFromQuantum(qt))}]"
 
   def scheduleNext(next: CheckQuantum[T]) = {
-    val nextRun = next.state.nextCheck(next.dtQuantum)
+    val nextRun = Math.min(next.state.nextCheck(next.dtQuantum, 5), retryPeriod.toMillis)
     //log.trace(s"Next run in $nextRun")
     if (nextRun <= 0)
       self ! next
