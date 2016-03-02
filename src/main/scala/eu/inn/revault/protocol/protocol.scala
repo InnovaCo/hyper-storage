@@ -7,7 +7,7 @@ import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.model.annotations.{body, request}
 
 @request(Method.GET, "/revault/content/{path:*}") // todo: check if raml arg can be with pattern
-case class RevaultGet(path: String, body: EmptyBody) extends Request[EmptyBody]
+case class RevaultGet(path: String, body: Query) extends Request[Query]
 with DefinedResponse[Ok[DynamicBody]]
 
 @body("revault-transaction")

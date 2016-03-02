@@ -2,6 +2,7 @@ package eu.inn.revault
 
 import akka.actor.{Actor, ActorLogging, ActorRef}
 import akka.pattern.ask
+import eu.inn.binders.dynamic.{Lst, Obj}
 import eu.inn.hyperbus.akkaservice.AkkaHyperService
 import eu.inn.revault.db.Db
 import eu.inn.revault.protocol.{RevaultDelete, RevaultGet, RevaultPatch, RevaultPut}
@@ -14,11 +15,32 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: Finite
 
   def receive = AkkaHyperService.dispatch(this)
 
-  def ~> (implicit request: RevaultGet) = db.selectContent(request.path, "") map {
-    case None ⇒ NotFound(ErrorBody("not_found", Some(s"Resource ${request.path} is not found")))
-    case Some(content) ⇒
-      val body = StringDeserializer.dynamicBody(content.body)
-      Ok(body, Headers(Map(Header.REVISION → Seq(content.revision.toString))))
+  def ~> (implicit request: RevaultGet) = {
+    val (documentUri, itemSegment) = ContentLogic.splitPath(request.path)
+    if (itemSegment.isEmpty && request.body.pageFrom.isDefined) {
+      db.selectContentCollection(documentUri, request.body.pageSize.map(_.asInt).getOrElse(50)) map { collection ⇒ // todo:
+        val stream = collection.toStream
+        if (stream.isEmpty) {
+          NotFound(ErrorBody("not_found", Some(s"Resource ${request.path} is not found")))
+        }
+        else {
+          val result = Obj(Map("_embedded" → Lst(stream.filterNot(_.itemSegment.isEmpty).map { item ⇒
+            StringDeserializer.dynamicBody(item.body).content
+          }.toSeq)))
+
+          Ok(DynamicBody(result), Headers(Map(Header.REVISION → Seq(stream.head.revision.toString))))
+        }
+      }
+    }
+    else {
+      db.selectContent(documentUri, itemSegment) map {
+        case None ⇒
+          NotFound(ErrorBody("not_found", Some(s"Resource ${request.path} is not found")))
+        case Some(content) ⇒
+          val body = StringDeserializer.dynamicBody(content.body)
+          Ok(body, Headers(Map(Header.REVISION → Seq(content.revision.toString))))
+      }
+    }
   }
 
   def ~> (request: RevaultPut) = executeRequest(request, request.path)

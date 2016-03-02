@@ -4,7 +4,7 @@ import akka.actor.{ActorSelection, Address, Props}
 import akka.testkit.{TestActorRef, TestProbe}
 import akka.util.Timeout
 import com.datastax.driver.core.utils.UUIDs
-import eu.inn.binders.dynamic.{Null, Obj, Text}
+import eu.inn.binders.dynamic._
 import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.revault._
@@ -558,7 +558,7 @@ class RevaultSpec extends FreeSpec
     }
 
     "Revault integrated" - {
-      "Test revault (integrated)" in {
+      "Test revault PUT+GET+Event" in {
         val hyperBus = testHyperBus()
         val tk = testKit()
         import tk._
@@ -600,7 +600,7 @@ class RevaultSpec extends FreeSpec
           putEvent.headers.get(Header.REVISION) shouldNot be(None)
         }
 
-        whenReady(hyperBus <~ RevaultGet(path, EmptyBody), TestTimeout(10.seconds)) { response ⇒
+        whenReady(hyperBus <~ RevaultGet(path), TestTimeout(10.seconds)) { response ⇒
           response.status should equal(Status.OK)
           response.body.content should equal(Text("Hello"))
         }
@@ -654,9 +654,71 @@ class RevaultSpec extends FreeSpec
           patchEvent.headers.get(Header.REVISION) shouldNot be(None)
         }
 
-        whenReady(hyperBus <~ RevaultGet(path, EmptyBody), TestTimeout(10.seconds)) { response ⇒
+        whenReady(hyperBus <~ RevaultGet(path), TestTimeout(10.seconds)) { response ⇒
           response.status should equal(Status.OK)
           response.body.content should equal(Obj(Map("a" → Text("1"), "c" → Text("3"))))
+        }
+      }
+
+      "Test revault PUT+GET+GET Collection+Event" in {
+        val hyperBus = testHyperBus()
+        val tk = testKit()
+        import tk._
+        import system._
+
+        cleanUpCassandra()
+
+        val workerProps = Props(classOf[RevaultWorker], hyperBus, db, 10.seconds)
+        val completerProps = Props(classOf[RevaultCompleter], hyperBus, db)
+        val workerSettings = Map(
+          "revault" →(workerProps, 1),
+          "revault-completer" →(completerProps, 1)
+        )
+
+        val processor = TestActorRef(new ShardProcessor(workerSettings, "revault"))
+        val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20.seconds))
+        import eu.inn.hyperbus.akkaservice._
+        implicit val timeout = Timeout(20.seconds)
+        hyperBus.routeTo[HyperbusAdapter](distributor).futureValue // wait while subscription is completes
+
+        val putEventPromise = Promise[RevaultFeedPut]()
+        hyperBus |> { put: RevaultFeedPut ⇒
+          Future {
+            if (!putEventPromise.isCompleted) {
+              putEventPromise.success(put)
+            }
+          }
+        }
+
+        Thread.sleep(2000)
+
+        val path = "collection-1/item1"
+        whenReady(hyperBus <~ RevaultPut(path, DynamicBody(Text("Hello item1"))), TestTimeout(10.seconds)) { response ⇒
+          response.status should equal(Status.CREATED)
+        }
+
+        val putEventFuture = putEventPromise.future
+        whenReady(putEventFuture) { putEvent ⇒
+          putEvent.method should equal(Method.FEED_PUT)
+          putEvent.body should equal(DynamicBody(Text("Hello item1")))
+          putEvent.headers.get(Header.REVISION) shouldNot be(None)
+        }
+
+        whenReady(hyperBus <~ RevaultGet(path), TestTimeout(10.seconds)) { response ⇒
+          response.status should equal(Status.OK)
+          response.body.content should equal(Text("Hello item1"))
+        }
+
+        val path2 = "collection-1/item2"
+        whenReady(hyperBus <~ RevaultPut(path2, DynamicBody(Text("Hello item2"))), TestTimeout(10.seconds)) { response ⇒
+          response.status should equal(Status.CREATED)
+        }
+
+        whenReady(hyperBus <~ RevaultGet("collection-1", body = new QueryBuilder() pageFrom Number(0) result()), TestTimeout(10.seconds)) { response ⇒
+          response.status should equal(Status.OK)
+          response.body.content should equal(
+            Obj(Map("_embedded" -> Lst(Seq(Text("Hello item1"),Text("Hello item2"))))) // todo: need to update format
+          )
         }
       }
     }
