@@ -8,6 +8,7 @@ import eu.inn.revault._
 import eu.inn.revault.db.Db
 import eu.inn.revault.sharding.ShardMemberStatus.{Active, Deactivating}
 import eu.inn.revault.sharding.{ShardTask, ShardedClusterData, UpdateShardStatus}
+import eu.inn.revault.utils.FutureUtils
 
 import scala.concurrent.Future
 import scala.concurrent.duration._

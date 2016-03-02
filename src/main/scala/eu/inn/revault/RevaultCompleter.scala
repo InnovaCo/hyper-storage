@@ -9,11 +9,11 @@ import eu.inn.hyperbus.HyperBus
 import eu.inn.hyperbus.model.DynamicRequest
 import eu.inn.revault.db.{ContentStatic, Db, Transaction}
 import eu.inn.revault.sharding.{ShardTask, ShardTaskComplete}
+import eu.inn.revault.utils.FutureUtils
 
-import scala.collection.generic.CanBuildFrom
-import scala.collection.{Seq, mutable}
-import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Success, Try}
+import scala.collection.Seq
+import scala.concurrent.Future
+import scala.util.Success
 import scala.util.control.NonFatal
 
 @SerialVersionUID(1L) case class RevaultCompleterTask(ttl: Long, documentUri: String) extends ShardTask {
@@ -27,6 +27,7 @@ import scala.util.control.NonFatal
 @SerialVersionUID(1L) case class IncorrectDataException(documentUri: String, reason: String) extends RuntimeException(s"Data for $documentUri is incorrect: $reason")
 @SerialVersionUID(1L) case class CompletionFailedException(documentUri: String, reason: String) extends RuntimeException(s"Complete for $documentUri is failed: $reason")
 
+// todo: rename this
 class RevaultCompleter(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
   import ContentLogic._
   import context._
@@ -37,19 +38,28 @@ class RevaultCompleter(hyperBus: HyperBus, db: Db) extends Actor with ActorLoggi
   }
 
   def executeTask(owner: ActorRef, task: RevaultCompleterTask): Unit = {
-    db.selectContentStatic(task.documentUri) flatMap {
-      case None ⇒
-        log.error(s"Didn't found resource to complete, dismissing task: $task")
-        Future(ShardTaskComplete(task, new NoSuchResourceException(task.documentUri)))
-      case Some(content) ⇒
-        try {
-          completeTransactions(task, content)
-        } catch {
-          case NonFatal(e) ⇒
-            log.error(e, s"Task $task didn't complete")
-            Future(ShardTaskComplete(task, e))
-        }
-    } pipeTo owner
+    val (documentUri, itemSegment) = ContentLogic.splitPath(task.documentUri)
+    if (!itemSegment.isEmpty) {
+      Future.successful {
+        val e = new IllegalArgumentException(s"RevaultCompleter task key ${task.key} doesn't correspond to $documentUri")
+        ShardTaskComplete(task, e)
+      } pipeTo owner
+    }
+    else {
+      db.selectContentStatic(task.documentUri) flatMap {
+        case None ⇒
+          log.error(s"Didn't found resource to complete, dismissing task: $task")
+          Future(ShardTaskComplete(task, new NoSuchResourceException(task.documentUri)))
+        case Some(content) ⇒
+          try {
+            completeTransactions(task, content)
+          } catch {
+            case NonFatal(e) ⇒
+              log.error(e, s"Task $task didn't complete")
+              Future(ShardTaskComplete(task, e))
+          }
+      } pipeTo owner
+    }
   }
 
   def completeTransactions(task: RevaultCompleterTask, content: ContentStatic): Future[ShardTaskComplete] = {
@@ -99,40 +109,4 @@ class RevaultCompleter(hyperBus: HyperBus, db: Db) extends Actor with ActorLoggi
   }
 }
 
-object FutureUtils {
-  /*def takeUntilNone[T](iterable: Iterable[Future[Option[T]]])(implicit ec: ExecutionContext): Future[Seq[T]] = {
-    val iterator = iterable.iterator
-    takeUntilNone(Seq.newBuilder[T],
-      if (iterator.hasNext) iterator.next() else Future.successful(None)
-    ) map {
-      _.result()
-    }
-  }
 
-  private def takeUntilNone[T](builder: mutable.Builder[T, Seq[T]], f: ⇒ Future[Option[T]])
-                              (implicit ec: ExecutionContext): Future[mutable.Builder[T, Seq[T]]] = {
-    f flatMap {
-      case None ⇒ Future.successful(builder)
-      case Some(t) ⇒ takeUntilNone(builder += t, f)
-    }
-  }*/
-
-  def serial[A, B](in: Seq[A])(f: A ⇒ Future[B])(implicit ec: ExecutionContext): Future[Seq[B]] = {
-    in.foldLeft(Future.successful(Seq.newBuilder[B])) { case (fr, a) ⇒
-      for (result ← fr; r ← f(a)) yield result += r
-    } map (_.result())
-  }
-
-  def collectWhile[A, B, M[X] <: Seq[X]](in: M[Future[A]])(pf: PartialFunction[A, B])(implicit cbf: CanBuildFrom[M[Future[A]], B, M[B]], ec: ExecutionContext): Future[M[B]] =
-    collectWhileImpl(in, pf, cbf(in)).map(_.result())
-
-  private def collectWhileImpl[A, B, M[X] <: Seq[X]](in: M[Future[A]], pf: PartialFunction[A, B], buffer: mutable.Builder[B, M[B]])(implicit ec: ExecutionContext): Future[mutable.Builder[B, M[B]]] =
-    if (in.isEmpty) {
-      Future.successful(buffer)
-    } else {
-      in.head flatMap {
-        case r if pf.isDefinedAt(r) ⇒ collectWhileImpl(in.tail.asInstanceOf[M[Future[A]]], pf, buffer += pf(r))
-        case _ ⇒ Future.successful(buffer)
-      }
-    }
-}

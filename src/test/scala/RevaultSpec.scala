@@ -124,7 +124,7 @@ class RevaultSpec extends FreeSpec
         }
 
         val taskStr = StringSerializer.serializeToString(task)
-        worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr)
+        worker ! RevaultTask(task.path, System.currentTimeMillis() + 10000, taskStr)
         val completerTask = expectMsgType[RevaultCompleterTask]
         completerTask.documentUri should equal(task.path)
         val workerResult = expectMsgType[ShardTaskComplete]
@@ -171,7 +171,7 @@ class RevaultSpec extends FreeSpec
         )
 
         val taskStr = StringSerializer.serializeToString(task)
-        worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr)
+        worker ! RevaultTask(task.path, System.currentTimeMillis() + 10000, taskStr)
         expectMsgPF() {
           case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).status == Status.NOT_FOUND &&
             response(result.content).correlationId == task.correlationId ⇒ {
@@ -196,7 +196,7 @@ class RevaultSpec extends FreeSpec
           DynamicBody(Obj(Map("text1" → Text("abc"), "text2" → Text("klmn"))))
         ))
 
-        worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskPutStr)
+        worker ! RevaultTask(path, System.currentTimeMillis() + 10000, taskPutStr)
         expectMsgType[RevaultCompleterTask]
         expectMsgType[ShardTaskComplete]
 
@@ -205,7 +205,7 @@ class RevaultSpec extends FreeSpec
         )
         val taskPatchStr = StringSerializer.serializeToString(task)
 
-        worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskPatchStr)
+        worker ! RevaultTask(path, System.currentTimeMillis() + 10000, taskPatchStr)
         expectMsgType[RevaultCompleterTask]
         expectMsgPF() {
           case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).status == Status.OK &&
@@ -231,7 +231,7 @@ class RevaultSpec extends FreeSpec
         val task = RevaultDelete(path = "not-existing", body = EmptyBody)
 
         val taskStr = StringSerializer.serializeToString(task)
-        worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr)
+        worker ! RevaultTask(task.path, System.currentTimeMillis() + 10000, taskStr)
         expectMsgPF() {
           case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).status == Status.NOT_FOUND &&
             response(result.content).correlationId == task.correlationId ⇒ {
@@ -258,7 +258,7 @@ class RevaultSpec extends FreeSpec
           DynamicBody(Obj(Map("text1" → Text("abc"), "text2" → Text("klmn"))))
         ))
 
-        worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskPutStr)
+        worker ! RevaultTask(path, System.currentTimeMillis() + 10000, taskPutStr)
         expectMsgType[RevaultCompleterTask]
         expectMsgType[ShardTaskComplete]
 
@@ -269,7 +269,7 @@ class RevaultSpec extends FreeSpec
         val task = RevaultDelete(path, body = EmptyBody)
 
         val taskStr = StringSerializer.serializeToString(task)
-        worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr)
+        worker ! RevaultTask(path, System.currentTimeMillis() + 10000, taskStr)
         expectMsgType[RevaultCompleterTask]
         expectMsgPF() {
           case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).status == Status.OK &&
@@ -295,19 +295,19 @@ class RevaultSpec extends FreeSpec
         val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
           DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
         ))
-        worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr1)
+        worker ! RevaultTask(path, System.currentTimeMillis() + 10000, taskStr1)
         expectMsgType[RevaultCompleterTask]
         expectMsgType[ShardTaskComplete]
 
         val taskStr2 = StringSerializer.serializeToString(RevaultPatch(path,
           DynamicBody(Obj(Map("text" → Text("abc"), "text2" → Text("klmn"))))
         ))
-        worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr2)
+        worker ! RevaultTask(path, System.currentTimeMillis() + 10000, taskStr2)
         expectMsgType[RevaultCompleterTask]
         expectMsgType[ShardTaskComplete]
 
-        val taskStr3 = StringSerializer.serializeToString(RevaultDelete(path, EmptyBody))
-        worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr3)
+        val taskStr3 = StringSerializer.serializeToString(RevaultDelete(path))
+        worker ! RevaultTask(path, System.currentTimeMillis() + 10000, taskStr3)
         val completerTask = expectMsgType[RevaultCompleterTask]
         val workerResult = expectMsgType[ShardTaskComplete]
         val r = response(workerResult.result.asInstanceOf[RevaultTaskResult].content)
@@ -346,14 +346,14 @@ class RevaultSpec extends FreeSpec
         val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
           DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
         ))
-        worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr1)
+        worker ! RevaultTask(path, System.currentTimeMillis() + 10000, taskStr1)
         expectMsgType[RevaultCompleterTask]
         expectMsgType[ShardTaskComplete]
 
         val taskStr2 = StringSerializer.serializeToString(RevaultPatch(path,
           DynamicBody(Obj(Map("text" → Text("abc"), "text2" → Text("klmn"))))
         ))
-        worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr2)
+        worker ! RevaultTask(path, System.currentTimeMillis() + 10000, taskStr2)
         val completerTask = expectMsgType[RevaultCompleterTask]
         expectMsgType[ShardTaskComplete]
 
@@ -412,7 +412,7 @@ class RevaultSpec extends FreeSpec
     }
 
     "Revault worker (collections)" - {
-      /*"Put item" in {
+      "Put item" in {
         val hyperBus = testHyperBus()
         val tk = testKit()
         import tk._
@@ -429,7 +429,7 @@ class RevaultSpec extends FreeSpec
         db.selectContent("collection-1", "test-resource-1").futureValue shouldBe None
 
         val taskStr = StringSerializer.serializeToString(task)
-        worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr)
+        worker ! RevaultTask("collection-1", System.currentTimeMillis() + 10000, taskStr)
         val completerTask = expectMsgType[RevaultCompleterTask]
         completerTask.documentUri should equal("collection-1")
         val workerResult = expectMsgType[ShardTaskComplete]
@@ -441,25 +441,48 @@ class RevaultSpec extends FreeSpec
         content shouldNot equal(None)
         content.get.body should equal(Some("""{"text":"Test item value"}"""))
         content.get.transactionList.size should equal(1)
+        content.get.revision should equal(1)
         val uuid = content.get.transactionList.head
-/*
-        selectTransactions(content.get.transactionList, content.get.uri, db) foreach { transaction ⇒
-          transaction.completedAt shouldBe None
-          transaction.revision should equal(content.get.revision)
-        }
 
-        val completer = TestActorRef(new RevaultCompleter(hyperBus, db))
-        completer ! completerTask
-        val completerResult = expectMsgType[ShardTaskComplete]
-        val rc = completerResult.result.asInstanceOf[RevaultCompleterTaskResult]
-        rc.path should equal("test-resource-1")
-        println(s"rc = $rc")
-        rc.transactions should contain(uuid)
-        selectTransactions(rc.transactions, "test-resource-1", db) foreach { transaction ⇒
-          transaction.completedAt shouldNot be(None)
-          transaction.revision should equal(1)
-        }*/
-      }*/
+        val task2 = RevaultPut(
+          path = "collection-1/test-resource-2",
+          DynamicBody(Obj(Map("text" → Text("Test item value 2"))))
+        )
+        val task2Str = StringSerializer.serializeToString(task2)
+        worker ! RevaultTask("collection-1", System.currentTimeMillis() + 10000, task2Str)
+        val completerTask2 = expectMsgType[RevaultCompleterTask]
+        completerTask2.documentUri should equal("collection-1")
+        val workerResult2 = expectMsgType[ShardTaskComplete]
+        val r2 = response(workerResult2.result.asInstanceOf[RevaultTaskResult].content)
+        r2.status should equal(Status.CREATED)
+        r2.correlationId should equal(task2.correlationId)
+
+        val content2 = db.selectContent("collection-1", "test-resource-2").futureValue
+        content2 shouldNot equal(None)
+        content2.get.body should equal(Some("""{"text":"Test item value 2"}"""))
+        content2.get.transactionList.size should equal(2)
+        content2.get.revision should equal(2)
+
+
+
+        /*
+                selectTransactions(content.get.transactionList, content.get.uri, db) foreach { transaction ⇒
+                  transaction.completedAt shouldBe None
+                  transaction.revision should equal(content.get.revision)
+                }
+
+                val completer = TestActorRef(new RevaultCompleter(hyperBus, db))
+                completer ! completerTask
+                val completerResult = expectMsgType[ShardTaskComplete]
+                val rc = completerResult.result.asInstanceOf[RevaultCompleterTaskResult]
+                rc.path should equal("test-resource-1")
+                println(s"rc = $rc")
+                rc.transactions should contain(uuid)
+                selectTransactions(rc.transactions, "test-resource-1", db) foreach { transaction ⇒
+                  transaction.completedAt shouldNot be(None)
+                  transaction.revision should equal(1)
+                }*/
+      }
     }
 
     "Revault integrated" - {
@@ -579,7 +602,7 @@ class RevaultSpec extends FreeSpec
         val taskStr1 = StringSerializer.serializeToString(RevaultPut(path,
           DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
         ))
-        worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr1)
+        worker ! RevaultTask(path, System.currentTimeMillis() + 10000, taskStr1)
         val completerTask = expectMsgType[RevaultCompleterTask]
         expectMsgType[ShardTaskComplete]
 
@@ -622,7 +645,7 @@ class RevaultSpec extends FreeSpec
           DynamicBody(Obj(Map("text" → Text("Test resource value"), "null" → Null)))
         ))
         val millis = System.currentTimeMillis()
-        worker ! RevaultTask("", System.currentTimeMillis() + 10000, taskStr1)
+        worker ! RevaultTask(path, System.currentTimeMillis() + 10000, taskStr1)
         val completerTask = expectMsgType[RevaultCompleterTask]
         expectMsgType[ShardTaskComplete]
 

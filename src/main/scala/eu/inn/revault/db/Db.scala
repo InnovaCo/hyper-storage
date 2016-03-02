@@ -11,6 +11,12 @@ import org.slf4j.LoggerFactory
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 
+trait ContentBase {
+  def documentUri: String
+  def revision: Long
+  def transactionList: List[UUID]
+}
+
 case class Content(
                     documentUri: String,
                     itemSegment: String,
@@ -20,13 +26,13 @@ case class Content(
                     isDeleted: Boolean,
                     createdAt: Date,
                     modifiedAt: Option[Date]
-                  )
+                  ) extends ContentBase
 
 case class ContentStatic(
                     documentUri: String,
                     revision: Long,
                     transactionList: List[UUID]
-                  )
+                  ) extends ContentBase
 
 case class Transaction(
                     dtQuantum: Long,

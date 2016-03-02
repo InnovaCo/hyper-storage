@@ -8,7 +8,7 @@ import eu.inn.binders.dynamic._
 import eu.inn.hyperbus.HyperBus
 import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
-import eu.inn.revault.db.{Content, Db, Transaction}
+import eu.inn.revault.db._
 import eu.inn.revault.protocol.TransactionCreated
 import eu.inn.revault.sharding.{ShardTask, ShardTaskComplete}
 
@@ -25,8 +25,9 @@ import scala.util.control.NonFatal
 @SerialVersionUID(1L) case class RevaultTaskResult(content: String)
 
 case class RevaultWorkerTaskFailed(task: ShardTask, inner: Throwable)
-case class RevaultWorkerTaskAccepted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
+case class RevaultWorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
 
+// todo: rename this
 class RevaultWorker(hyperBus: HyperBus, db: Db, completerTimeout: FiniteDuration) extends Actor with ActorLogging {
   import ContentLogic._
   import context._
@@ -40,8 +41,8 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTimeout: FiniteDuration
     Try{
       val request = DynamicRequest(task.content)
       val (documentUri, itemSegment) = splitPath(request.path)
-      if (itemSegment.nonEmpty) {
-        throw new IllegalArgumentException("Collections aren't implemented yet")
+      if (documentUri != task.key) {
+        throw new IllegalArgumentException(s"RevaultWorker task key ${task.key} doesn't correspond to $documentUri")
       }
       (documentUri, itemSegment, request)
     } map {
@@ -59,8 +60,15 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTimeout: FiniteDuration
 
   def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemSegment: String, task: RevaultTask, request: DynamicRequest) = {
     db.selectContent(documentUri, itemSegment) flatMap { existingContent ⇒
-      updateResource(documentUri, itemSegment, request, existingContent) map { newTransaction ⇒
-        RevaultWorkerTaskAccepted(task, newTransaction, existingContent.isEmpty)
+      val f: Future[Option[ContentBase]] = existingContent match {
+        case Some(content) ⇒ Future.successful(Some(content))
+        case None ⇒ db.selectContentStatic(documentUri)
+      }
+
+      f flatMap { existingContentStatic ⇒
+        updateResource(documentUri, itemSegment, request, existingContent, existingContentStatic) map { newTransaction ⇒
+          RevaultWorkerTaskCompleted(task, newTransaction, existingContent.isEmpty)
+        }
       }
     } recover {
       case NonFatal(e) ⇒
@@ -68,7 +76,7 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTimeout: FiniteDuration
     } pipeTo context.self
   }
 
-  private def createNewTransaction(documentUri: String, request: DynamicRequest, existingContent: Option[Content]): Transaction = {
+  private def createNewTransaction(documentUri: String, request: DynamicRequest, existingContent: Option[ContentBase]): Transaction = {
     val revision = existingContent match {
       case None ⇒ 1
       case Some(content) ⇒ content.revision + 1
@@ -81,9 +89,9 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTimeout: FiniteDuration
   }
 
   private def taskWaitResult(owner: ActorRef, originalTask: RevaultTask)(implicit mcf: MessagingContextFactory): Receive = {
-    case RevaultWorkerTaskAccepted(task, transaction, created) if task == originalTask ⇒
+    case RevaultWorkerTaskCompleted(task, transaction, created) if task == originalTask ⇒
       if (log.isDebugEnabled) {
-        log.debug(s"Task $originalTask is accepted")
+        log.debug(s"RevaultWorker task $originalTask is completed")
       }
       owner ! RevaultCompleterTask(System.currentTimeMillis() + completerTimeout.toMillis, transaction.documentUri)
       val transactionId = transaction.documentUri + ":" + transaction.uuid + ":" + transaction.revision
@@ -119,9 +127,10 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTimeout: FiniteDuration
                             itemSegment: String,
                             newTransaction: Transaction,
                             request: DynamicRequest,
-                            existingContent: Option[Content]): Content =
+                            existingContent: Option[Content],
+                            existingContentStatic: Option[ContentBase]): Content =
   request.method match {
-    case Method.PUT ⇒ putContent(documentUri, itemSegment, newTransaction, request, existingContent)
+    case Method.PUT ⇒ putContent(documentUri, itemSegment, newTransaction, request, existingContent, existingContentStatic)
     case Method.PATCH ⇒ patchContent(documentUri, itemSegment, newTransaction, request, existingContent)
     case Method.DELETE ⇒ deleteContent(documentUri, itemSegment, newTransaction, request, existingContent)
   }
@@ -130,23 +139,24 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTimeout: FiniteDuration
                          itemSegment: String,
                          newTransaction: Transaction,
                          request: DynamicRequest,
-                         existingContent: Option[Content]): Content = existingContent match {
+                         existingContent: Option[Content],
+                         existingContentStatic: Option[ContentBase]): Content = existingContentStatic match {
     case None ⇒
       Content(documentUri, itemSegment, newTransaction.revision,
         transactionList = List(newTransaction.uuid),
         body = Some(filterNulls(request.body).serializeToString()),
         isDeleted = false,
-        createdAt = new Date(),
-        modifiedAt = None
+        createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
+        modifiedAt = existingContent.flatMap(_.modifiedAt)
       )
 
-    case Some(content) ⇒
+    case Some(static) ⇒
       Content(documentUri, itemSegment, newTransaction.revision,
-        transactionList = newTransaction.uuid +: content.transactionList,
+        transactionList = newTransaction.uuid +: static.transactionList,
         body = Some(filterNulls(request.body).serializeToString()),
         isDeleted = false,
-        createdAt = content.createdAt,
-        modifiedAt = Some(new Date())
+        createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
+        modifiedAt = existingContent.flatMap(_.modifiedAt)
       )
   }
 
@@ -193,9 +203,10 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTimeout: FiniteDuration
   private def updateResource(documentUri: String,
                              itemSegment: String,
                              request: DynamicRequest,
-                             existingContent: Option[Content]): Future[Transaction] = {
-    val newTransaction = createNewTransaction(documentUri, request, existingContent)
-    val newContent = updateContent(documentUri, itemSegment, newTransaction, request, existingContent)
+                             existingContent: Option[Content],
+                             existingContentStatic: Option[ContentBase]): Future[Transaction] = {
+    val newTransaction = createNewTransaction(documentUri, request, existingContentStatic)
+    val newContent = updateContent(documentUri, itemSegment, newTransaction, request, existingContent, existingContentStatic)
     db.insertTransaction(newTransaction) flatMap { _ ⇒
       db.insertContent(newContent) map { _ ⇒
         newTransaction
