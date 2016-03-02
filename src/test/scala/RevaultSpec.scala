@@ -266,7 +266,7 @@ class RevaultSpec extends FreeSpec
           result shouldNot be(None)
         }
 
-        val task = RevaultDelete(path, body = EmptyBody)
+        val task = RevaultDelete(path)
 
         val taskStr = StringSerializer.serializeToString(task)
         worker ! RevaultTask(path, System.currentTimeMillis() + 10000, taskStr)
@@ -463,25 +463,97 @@ class RevaultSpec extends FreeSpec
         content2.get.transactionList.size should equal(2)
         content2.get.revision should equal(2)
 
+        val transactions = selectTransactions(content2.get.transactionList, "collection-1", db)
+        transactions.size should equal(2)
+        transactions.foreach {_.completedAt shouldBe None}
+        transactions.head.revision should equal(2)
+        transactions.tail.head.revision should equal(1)
 
+        val completer = TestActorRef(new RevaultCompleter(hyperBus, db))
+        completer ! completerTask
+        val completerResult = expectMsgType[ShardTaskComplete]
+        val rc = completerResult.result.asInstanceOf[RevaultCompleterTaskResult]
+        rc.documentUri should equal("collection-1")
+        rc.transactions should equal(content2.get.transactionList.reverse)
 
-        /*
-                selectTransactions(content.get.transactionList, content.get.uri, db) foreach { transaction ⇒
-                  transaction.completedAt shouldBe None
-                  transaction.revision should equal(content.get.revision)
-                }
+        db.selectContentStatic("collection-1").futureValue.get.transactionList shouldBe empty
+        selectTransactions(content2.get.transactionList, "collection-1", db).foreach {_.completedAt shouldNot be(None)}
+      }
 
-                val completer = TestActorRef(new RevaultCompleter(hyperBus, db))
-                completer ! completerTask
-                val completerResult = expectMsgType[ShardTaskComplete]
-                val rc = completerResult.result.asInstanceOf[RevaultCompleterTaskResult]
-                rc.path should equal("test-resource-1")
-                println(s"rc = $rc")
-                rc.transactions should contain(uuid)
-                selectTransactions(rc.transactions, "test-resource-1", db) foreach { transaction ⇒
-                  transaction.completedAt shouldNot be(None)
-                  transaction.revision should equal(1)
-                }*/
+      "Patch item" in {
+        val hyperBus = testHyperBus()
+        val tk = testKit()
+        import tk._
+
+        val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
+
+        val path = "collection-1/test-resource-" + UUID.randomUUID().toString
+        val (documentUri,itemSegment) = ContentLogic.splitPath(path)
+
+        val taskPutStr = StringSerializer.serializeToString(RevaultPut(path,
+          DynamicBody(Obj(Map("text1" → Text("abc"), "text2" → Text("klmn"))))
+        ))
+
+        worker ! RevaultTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr)
+        expectMsgType[RevaultCompleterTask]
+        expectMsgType[ShardTaskComplete]
+
+        val task = RevaultPatch(path,
+          DynamicBody(Obj(Map("text1" → Text("efg"), "text2" → Null, "text3" → Text("zzz"))))
+        )
+        val taskPatchStr = StringSerializer.serializeToString(task)
+        worker ! RevaultTask(documentUri, System.currentTimeMillis() + 10000, taskPatchStr)
+
+        expectMsgType[RevaultCompleterTask]
+        expectMsgPF() {
+          case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).status == Status.OK &&
+            response(result.content).correlationId == task.correlationId ⇒ {
+            true
+          }
+        }
+
+        whenReady(db.selectContent(documentUri, itemSegment)) { result =>
+          result.get.body should equal(Some("""{"text1":"efg","text3":"zzz"}"""))
+          result.get.modifiedAt shouldNot be(None)
+          result.get.documentUri should equal(documentUri)
+          result.get.itemSegment should equal(itemSegment)
+        }
+      }
+
+      "Delete item" in {
+        val hyperBus = testHyperBus()
+        val tk = testKit()
+        import tk._
+
+        val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
+
+        val path = "collection-1/test-resource-" + UUID.randomUUID().toString
+        val (documentUri,itemSegment) = ContentLogic.splitPath(path)
+
+        val taskPutStr = StringSerializer.serializeToString(RevaultPut(path,
+          DynamicBody(Obj(Map("text1" → Text("abc"), "text2" → Text("klmn"))))
+        ))
+
+        worker ! RevaultTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr)
+        expectMsgType[RevaultCompleterTask]
+        expectMsgType[ShardTaskComplete]
+
+        val task = RevaultDelete(path)
+        val taskStr = StringSerializer.serializeToString(task)
+        worker ! RevaultTask(documentUri, System.currentTimeMillis() + 10000, taskStr)
+
+        expectMsgType[RevaultCompleterTask]
+        expectMsgPF() {
+          case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).status == Status.OK &&
+            response(result.content).correlationId == task.correlationId ⇒ {
+            true
+          }
+        }
+
+        whenReady(db.selectContent(documentUri, itemSegment)) { result =>
+          result.get.isDeleted shouldNot be(None)
+          result.get.modifiedAt shouldNot be(None)
+        }
       }
     }
 
