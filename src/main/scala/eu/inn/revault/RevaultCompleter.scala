@@ -2,7 +2,7 @@ package eu.inn.revault
 
 import java.util.UUID
 
-import akka.actor.{Actor, ActorLogging, ActorRef}
+import akka.actor.{Status, Actor, ActorLogging, ActorRef}
 import akka.pattern.pipe
 import com.datastax.driver.core.utils.UUIDs
 import eu.inn.hyperbus.HyperBus
@@ -40,10 +40,10 @@ class RevaultCompleter(hyperBus: HyperBus, db: Db) extends Actor with ActorLoggi
   def executeTask(owner: ActorRef, task: RevaultCompleterTask): Unit = {
     val (documentUri, itemSegment) = ContentLogic.splitPath(task.documentUri)
     if (!itemSegment.isEmpty) {
-      Future.successful {
+      owner ! Status.Success { // todo: is this have to be a success
         val e = new IllegalArgumentException(s"RevaultCompleter task key ${task.key} doesn't correspond to $documentUri")
         ShardTaskComplete(task, e)
-      } pipeTo owner
+      }
     }
     else {
       db.selectContentStatic(task.documentUri) flatMap {
