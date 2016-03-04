@@ -24,9 +24,12 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: Finite
           NotFound(ErrorBody("not_found", Some(s"Resource ${request.path} is not found")))
         }
         else {
-          val result = Obj(Map("_embedded" → Lst(stream.filterNot(_.itemSegment.isEmpty).map { item ⇒
-            StringDeserializer.dynamicBody(item.body).content
-          }.toSeq)))
+          val result = Obj(Map("_embedded" →
+            Obj(Map("els" →
+            Lst(stream.filterNot(_.itemSegment.isEmpty).map { item ⇒
+              StringDeserializer.dynamicBody(item.body).content
+            }.toSeq)
+          ))))
 
           Ok(DynamicBody(result), Headers(Map(Header.REVISION → Seq(stream.head.revision.toString))))
         }

@@ -5,9 +5,6 @@
             <pattern>%highlight(%.-3level) %cyan(%d{HH:mm:ss.SSS}) %yellow(%-35.35logger) %magenta(%X{subscriptionId}) %highlight(%msg) %n</pattern>
         </encoder>
     </appender>
-    <logger name="eu.inn.revault">
-        <level value="trace" />
-    </logger>
     <logger name="eu.inn.binders.cassandra.Statement">
         <level value="info" />
     </logger>
