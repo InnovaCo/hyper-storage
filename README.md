@@ -36,7 +36,7 @@ todo:
     + query filter
 
     collection item id validation!
-    
+
   * history period support, remove older transactions
     + (content transactionsList delta updates)
   * performance test
@@ -48,7 +48,6 @@ todo:
   * better DI and abstractions
   * split tests (port numbers) workerspec
   * define base classes for a RAML generated classes
-  * StringDeserializer -> accept Message
     distributed akka, use protobuf: https://github.com/akka/akka/issues/18371
 
   * document:
