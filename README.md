@@ -34,6 +34,9 @@ todo:
   * collections
     + partitioning collection events
     + query filter
+
+    collection item id validation!
+    
   * history period support, remove older transactions
     + (content transactionsList delta updates)
   * performance test

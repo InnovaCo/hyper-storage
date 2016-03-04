@@ -18,7 +18,15 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: Finite
   def ~> (implicit request: RevaultGet) = {
     val (documentUri, itemSegment) = ContentLogic.splitPath(request.path)
     if (itemSegment.isEmpty && request.body.pageFrom.isDefined) {
-      db.selectContentCollection(documentUri, request.body.pageSize.map(_.asInt).getOrElse(50)) map { collection ⇒ // todo:
+
+      val sortByDesc = request.body.sortBy.contains(SortBy("id",descending=true))
+
+      val select = if (sortByDesc)
+        db.selectContentCollectionDesc _
+      else
+        db.selectContentCollection _
+
+      select(documentUri, request.body.pageSize.map(_.asInt).getOrElse(50)) map { collection ⇒ // todo:
         val stream = collection.toStream
         if (stream.isEmpty) {
           NotFound(ErrorBody("not_found", Some(s"Resource ${request.path} is not found")))

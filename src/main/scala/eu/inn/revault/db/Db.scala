@@ -78,6 +78,13 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       limit $limit
     """.all[Content]
 
+  def selectContentCollectionDesc(documentUri: String, limit: Int): Future[Iterator[Content]] = cql"""
+      select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
+      where document_uri=$documentUri
+      order by item_segment desc
+      limit $limit
+    """.all[Content]
+
   def selectContentStatic(documentUri: String): Future[Option[ContentStatic]] = cql"""
       select document_uri,revision,transaction_list from content
       where document_uri=$documentUri

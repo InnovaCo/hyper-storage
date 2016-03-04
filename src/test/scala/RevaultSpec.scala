@@ -32,7 +32,7 @@ class RevaultSpec extends FreeSpec
   with Eventually {
 
   import ContentLogic._
-  override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(2000, Millis)))
+  override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(6000, Millis)))
 
   "Revault" - {
     "Processor in a single-node cluster" - {
@@ -727,6 +727,15 @@ class RevaultSpec extends FreeSpec
           response.status should equal(Status.OK)
           response.body.content should equal(
             ObjV("_embedded" -> ObjV("els" → LstV(c1,c2)))
+          )
+        }
+
+        val f5 = hyperBus <~ RevaultGet("collection-1",
+          body = new QueryBuilder() pageFrom Number(0) sortBy ("id", true) result())
+        whenReady(f5) { response ⇒
+          response.status should equal(Status.OK)
+          response.body.content should equal(
+            ObjV("_embedded" -> ObjV("els" → LstV(c2,c1)))
           )
         }
       }
