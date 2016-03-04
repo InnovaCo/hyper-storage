@@ -589,7 +589,8 @@ class RevaultSpec extends FreeSpec
         Thread.sleep(2000)
 
         val path = UUID.randomUUID().toString
-        whenReady(hyperBus <~ RevaultPut(path, DynamicBody(Text("Hello"))), TestTimeout(10.seconds)) { response ⇒
+        val f1 = hyperBus <~ RevaultPut(path, DynamicBody(Text("Hello")))
+        whenReady(f1) { response ⇒
           response.status should equal(Status.CREATED)
         }
 
@@ -726,11 +727,91 @@ class RevaultSpec extends FreeSpec
         whenReady(f4) { response ⇒
           response.status should equal(Status.OK)
           response.body.content should equal(
-            ObjV("_embedded" -> ObjV("els" → LstV(c1,c2)))
+            ObjV("_embedded" -> ObjV("els" → LstV(c1, c2)))
           )
         }
 
         val f5 = hyperBus <~ RevaultGet("collection-1",
+          body = new QueryBuilder() pageFrom Number(0) sortBy("id", true) result())
+        whenReady(f5) { response ⇒
+          response.status should equal(Status.OK)
+          response.body.content should equal(
+            ObjV("_embedded" -> ObjV("els" → LstV(c2, c1)))
+          )
+        }
+      }
+
+      "Test revault POST+GET+GET Collection+Event" in {
+        val hyperBus = testHyperBus()
+        val tk = testKit()
+        import tk._
+        import system._
+
+        cleanUpCassandra()
+
+        val workerProps = Props(classOf[RevaultWorker], hyperBus, db, 10.seconds)
+        val completerProps = Props(classOf[RevaultCompleter], hyperBus, db)
+        val workerSettings = Map(
+          "revault" →(workerProps, 1),
+          "revault-completer" →(completerProps, 1)
+        )
+
+        val processor = TestActorRef(new ShardProcessor(workerSettings, "revault"))
+        val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20.seconds))
+        import eu.inn.hyperbus.akkaservice._
+        implicit val timeout = Timeout(20.seconds)
+        hyperBus.routeTo[HyperbusAdapter](distributor).futureValue // wait while subscription is completes
+
+        val putEventPromise = Promise[RevaultFeedPut]()
+        hyperBus |> { put: RevaultFeedPut ⇒
+          Future {
+            if (!putEventPromise.isCompleted) {
+              putEventPromise.success(put)
+            }
+          }
+        }
+
+        Thread.sleep(2000)
+
+        val c1 = ObjV("a" → "hello", "b" → Number(100500))
+        val c2 = ObjV("a" → "good by", "b" → Number(654321))
+
+        val path = "collection-2"
+        val f = hyperBus <~ RevaultPost(path, DynamicBody(c1))
+        val itemLocation = whenReady(f) { case response: Created[CreatedBody] ⇒
+          response.status should equal(Status.CREATED)
+          response.body.location
+        }
+
+        val putEventFuture = putEventPromise.future
+        whenReady(putEventFuture) { putEvent ⇒
+          putEvent.method should equal(Method.FEED_PUT)
+          putEvent.body should equal(DynamicBody(c1))
+          putEvent.headers.get(Header.REVISION) shouldNot be(None)
+        }
+
+        val f2 = hyperBus <~ RevaultGet(itemLocation.href)
+        whenReady(f2) { response ⇒
+          response.status should equal(Status.OK)
+          response.body.content should equal(c1)
+        }
+
+        val f3 = hyperBus <~ RevaultPost(path, DynamicBody(c2))
+        val item2Location = whenReady(f3) { case response: Created[CreatedBody] ⇒
+          response.status should equal(Status.CREATED)
+          response.body.location
+        }
+
+        val f4 = hyperBus <~ RevaultGet("collection-2",
+          body = new QueryBuilder() pageFrom Number(0) result())
+        whenReady(f4) { response ⇒
+          response.status should equal(Status.OK)
+          response.body.content should equal(
+            ObjV("_embedded" -> ObjV("els" → LstV(c1,c2)))
+          )
+        }
+
+        val f5 = hyperBus <~ RevaultGet("collection-2",
           body = new QueryBuilder() pageFrom Number(0) sortBy ("id", true) result())
         whenReady(f5) { response ⇒
           response.status should equal(Status.OK)
