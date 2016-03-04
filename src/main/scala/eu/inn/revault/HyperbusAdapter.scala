@@ -5,7 +5,7 @@ import akka.pattern.ask
 import eu.inn.binders.dynamic.{Lst, Obj}
 import eu.inn.hyperbus.akkaservice.AkkaHyperService
 import eu.inn.revault.db.Db
-import eu.inn.revault.protocol.{RevaultDelete, RevaultGet, RevaultPatch, RevaultPut}
+import eu.inn.revault.protocol._
 import eu.inn.hyperbus.serialization.{StringSerializer,StringDeserializer}
 import eu.inn.hyperbus.model._
 import scala.concurrent.duration._
@@ -55,6 +55,7 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: Finite
   }
 
   def ~> (request: RevaultPut) = executeRequest(request, request.path)
+  def ~> (request: RevaultPost) = executeRequest(request, request.path)
   def ~> (request: RevaultPatch) = executeRequest(request, request.path)
   def ~> (request: RevaultDelete) = executeRequest(request, request.path)
 

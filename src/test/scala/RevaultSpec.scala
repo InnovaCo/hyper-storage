@@ -8,7 +8,6 @@ import eu.inn.binders.dynamic._
 import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.revault._
-import eu.inn.revault.db.Content
 import eu.inn.revault.protocol._
 import eu.inn.revault.recovery.{StaleRecoveryWorker, HotRecoveryWorker, ShutdownRecoveryWorker}
 import eu.inn.revault.sharding.ShardMemberStatus.Active
@@ -439,7 +438,7 @@ class RevaultSpec extends FreeSpec
 
         val content = db.selectContent("collection-1", "test-resource-1").futureValue
         content shouldNot equal(None)
-        content.get.body should equal(Some("""{"text":"Test item value"}"""))
+        content.get.body should equal(Some("""{"text":"Test item value","id":"test-resource-1"}"""))
         content.get.transactionList.size should equal(1)
         content.get.revision should equal(1)
         val uuid = content.get.transactionList.head
@@ -459,7 +458,7 @@ class RevaultSpec extends FreeSpec
 
         val content2 = db.selectContent("collection-1", "test-resource-2").futureValue
         content2 shouldNot equal(None)
-        content2.get.body should equal(Some("""{"text":"Test item value 2"}"""))
+        content2.get.body should equal(Some("""{"text":"Test item value 2","id":"test-resource-2"}"""))
         content2.get.transactionList.size should equal(2)
         content2.get.revision should equal(2)
 
@@ -476,7 +475,9 @@ class RevaultSpec extends FreeSpec
         rc.documentUri should equal("collection-1")
         rc.transactions should equal(content2.get.transactionList.reverse)
 
-        db.selectContentStatic("collection-1").futureValue.get.transactionList shouldBe empty
+        eventually {
+          db.selectContentStatic("collection-1").futureValue.get.transactionList shouldBe empty
+        }
         selectTransactions(content2.get.transactionList, "collection-1", db).foreach {_.completedAt shouldNot be(None)}
       }
 
@@ -513,7 +514,7 @@ class RevaultSpec extends FreeSpec
         }
 
         whenReady(db.selectContent(documentUri, itemSegment)) { result =>
-          result.get.body should equal(Some("""{"text1":"efg","text3":"zzz"}"""))
+          result.get.body should equal(Some(s"""{"text1":"efg","id":"$itemSegment","text3":"zzz"}"""))
           result.get.modifiedAt shouldNot be(None)
           result.get.documentUri should equal(documentUri)
           result.get.itemSegment should equal(itemSegment)
@@ -694,8 +695,10 @@ class RevaultSpec extends FreeSpec
 
         Thread.sleep(2000)
 
-        val c1 = ObjV("a" → "hello", "b" → Number(100500))
-        val c2 = ObjV("a" → "good by", "b" → Number(654321))
+        val c1 = ObjV("a" → "hello", "b" → 100500)
+        val c2 = ObjV("a" → "good by", "b" → 654321)
+        val c1x = Obj(c1.asMap + "id" → "item1")
+        val c2x = Obj(c2.asMap + "id" → "item2")
 
         val path = "collection-1/item1"
         val f = hyperBus <~ RevaultPut(path, DynamicBody(c1))
@@ -706,18 +709,18 @@ class RevaultSpec extends FreeSpec
         val putEventFuture = putEventPromise.future
         whenReady(putEventFuture) { putEvent ⇒
           putEvent.method should equal(Method.FEED_PUT)
-          putEvent.body should equal(DynamicBody(c1))
+          putEvent.body should equal(DynamicBody(c1x))
           putEvent.headers.get(Header.REVISION) shouldNot be(None)
         }
 
         val f2 = hyperBus <~ RevaultGet(path)
         whenReady(f2) { response ⇒
           response.status should equal(Status.OK)
-          response.body.content should equal(c1)
+          response.body.content should equal(c1x)
         }
 
         val path2 = "collection-1/item2"
-        val f3 = hyperBus <~ RevaultPut(path2, DynamicBody(c2))
+        val f3 = hyperBus <~ RevaultPut(path2, DynamicBody(c2x))
         whenReady(f3) { response ⇒
           response.status should equal(Status.CREATED)
         }
@@ -727,7 +730,7 @@ class RevaultSpec extends FreeSpec
         whenReady(f4) { response ⇒
           response.status should equal(Status.OK)
           response.body.content should equal(
-            ObjV("_embedded" -> ObjV("els" → LstV(c1, c2)))
+            ObjV("_embedded" -> ObjV("els" → LstV(c1x, c2x)))
           )
         }
 
@@ -736,7 +739,7 @@ class RevaultSpec extends FreeSpec
         whenReady(f5) { response ⇒
           response.status should equal(Status.OK)
           response.body.content should equal(
-            ObjV("_embedded" -> ObjV("els" → LstV(c2, c1)))
+            ObjV("_embedded" -> ObjV("els" → LstV(c2x, c1x)))
           )
         }
       }
@@ -778,36 +781,43 @@ class RevaultSpec extends FreeSpec
 
         val path = "collection-2"
         val f = hyperBus <~ RevaultPost(path, DynamicBody(c1))
-        val itemLocation = whenReady(f) { case response: Created[CreatedBody] ⇒
+        val tr1: TransactionCreated = whenReady(f) { case response: Created[TransactionCreated] ⇒
           response.status should equal(Status.CREATED)
-          response.body.location
+          response.body
         }
+
+        println(tr1)
+        val id1 = tr1.path.split('/').tail.head
+        val c1x = Obj(c1.asMap + "id" → id1)
 
         val putEventFuture = putEventPromise.future
         whenReady(putEventFuture) { putEvent ⇒
           putEvent.method should equal(Method.FEED_PUT)
-          putEvent.body should equal(DynamicBody(c1))
+          putEvent.body should equal(DynamicBody(c1x))
           putEvent.headers.get(Header.REVISION) shouldNot be(None)
         }
 
-        val f2 = hyperBus <~ RevaultGet(itemLocation.href)
+        val f2 = hyperBus <~ RevaultGet(tr1.path)
         whenReady(f2) { response ⇒
           response.status should equal(Status.OK)
-          response.body.content should equal(c1)
+          response.body.content should equal(c1x)
         }
 
         val f3 = hyperBus <~ RevaultPost(path, DynamicBody(c2))
-        val item2Location = whenReady(f3) { case response: Created[CreatedBody] ⇒
+        val tr2: TransactionCreated = whenReady(f3) { case response: Created[CreatedBody] ⇒
           response.status should equal(Status.CREATED)
-          response.body.location
+          response.body
         }
+
+        val id2 = tr2.path.split('/').tail.head
+        val c2x = Obj(c2.asMap + "id" → id2)
 
         val f4 = hyperBus <~ RevaultGet("collection-2",
           body = new QueryBuilder() pageFrom Number(0) result())
         whenReady(f4) { response ⇒
           response.status should equal(Status.OK)
           response.body.content should equal(
-            ObjV("_embedded" -> ObjV("els" → LstV(c1,c2)))
+            ObjV("_embedded" -> ObjV("els" → LstV(c1x,c2x)))
           )
         }
 
@@ -816,7 +826,7 @@ class RevaultSpec extends FreeSpec
         whenReady(f5) { response ⇒
           response.status should equal(Status.OK)
           response.body.content should equal(
-            ObjV("_embedded" -> ObjV("els" → LstV(c2,c1)))
+            ObjV("_embedded" -> ObjV("els" → LstV(c2x,c1x)))
           )
         }
       }
