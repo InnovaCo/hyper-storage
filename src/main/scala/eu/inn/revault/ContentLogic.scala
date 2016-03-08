@@ -17,22 +17,15 @@ object ContentLogic {
     def partition = TransactionLogic.partitionFromUri(content.documentUri)
   }
 
+  // ? & # is not allowed, it means that query have been sent
+  val allowedCharSet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/[]@!$&'()*+,;=".toSet
   // todo: describe uri to resource/collection item matching
   def splitPath(path: String): (String,String) = {
     if (path.startsWith("/") || path.endsWith("/"))
       throw new IllegalArgumentException(s"$path is invalid (ends or starts with '/')")
 
-    if (path.exists { char ⇒
-      !(
-        Character.isLetterOrDigit(char) ||
-          char == '/' ||
-          char == '-' ||
-          char == '_' ||
-          char == '.' ||
-          char == '~' ||
-          char == '='
-        )
-    }) throw new IllegalArgumentException(s"$path contains invalid characters")
+    if (path.exists(c ⇒ !allowedCharSet.contains(c)))
+      throw new IllegalArgumentException(s"$path contains invalid characters")
 
     val segments = path.split('/')
     if (segments.isEmpty || segments.exists(_.isEmpty))
