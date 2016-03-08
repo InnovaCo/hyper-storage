@@ -1,5 +1,8 @@
 package eu.inn.revault.protocol
 
+import eu.inn.hyperbus.model.{EmptyBody, Request, DynamicBody, Method}
+import eu.inn.hyperbus.model.annotations.request
+
 /*
 @request(Method.GET, "/revault/content/{path:*}") // todo: check if raml arg can be with pattern
 case class RevaultGet(path: String, body: QueryBody) extends Request[QueryBody]
@@ -32,27 +35,24 @@ with DefinedResponse[(
     Ok[Transaction]
   )]
 
-@request(Method.FEED_PUT, "/revault/content/{path:*}")
-case class RevaultFeedPut(path: String, body: DynamicBody) extends Request[DynamicBody]
-
 @request(Method.PATCH, "/revault/content/{path:*}")
 case class RevaultPatch(path: String, body: DynamicBody) extends Request[DynamicBody]
   with DefinedResponse[Ok[Transaction]]
-
-@request(Method.FEED_PATCH, "/revault/content/{path:*}")
-case class RevaultFeedPatch(path: String, body: DynamicBody) extends Request[DynamicBody]
 
 @request(Method.DELETE, "/revault/content/{path:*}")
 case class RevaultDelete(path: String, body: EmptyBody) extends Request[EmptyBody]
   with DefinedResponse[Ok[Transaction]]
 
-@request(Method.FEED_DELETE, "/revault/content/{path:*}")
-case class RevaultFeedDelete(path: String, body: EmptyBody) extends Request[EmptyBody]
-
 @request(Method.POST, "/revault/content/{path:*}")
 case class RevaultPost(path: String, body: DynamicBody) extends Request[DynamicBody]
   with DefinedResponse[Created[TransactionCreated]]
-
-//@request(Method.FEED_POST, "/revault/content/{path:*}")
-//case class RevaultFeedPost(path: String, body: DynamicBody) extends Request[DynamicBody]
 */
+
+@request(Method.FEED_PUT, "/revault/content/{path:*}")
+case class RevaultFeedPut(path: String, body: DynamicBody) extends Request[DynamicBody]
+
+@request(Method.FEED_PATCH, "/revault/content/{path:*}")
+case class RevaultFeedPatch(path: String, body: DynamicBody) extends Request[DynamicBody]
+
+@request(Method.FEED_DELETE, "/revault/content/{path:*}")
+case class RevaultFeedDelete(path: String, body: EmptyBody) extends Request[EmptyBody]

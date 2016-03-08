@@ -29,6 +29,7 @@ object ContentLogic {
           char == '-' ||
           char == '_' ||
           char == '.' ||
+          char == '~' ||
           char == '='
         )
     }) throw new IllegalArgumentException(s"$path contains invalid characters")
