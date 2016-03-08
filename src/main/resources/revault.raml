@@ -1,0 +1,56 @@
+#%RAML 1.0
+title: Revault API
+baseUri: https://meta.inn.eu/revault
+types:
+  Transaction:
+    type: object
+    properties:
+      transactionId: string
+  TransactionCreated:
+      type: object
+      properties:
+        transactionId: string
+        path: string
+/revault/content/{path:*}:
+  uriParameters:
+    path:*: string
+  get:
+    responses:
+      200:
+  put:
+    responses:
+      200:
+        body:
+          application/json:
+            type: Transaction
+      201:
+        body:
+            application/json:
+              type: TransactionCreated
+  patch:
+    responses:
+      200:
+        body:
+          application/json:
+            type: Transaction
+  delete:
+    responses:
+      200:
+        body:
+          application/json:
+            type: Transaction
+  post:
+    responses:
+      201:
+        body:
+            application/json:
+              type: TransactionCreated
+/revault/transactions/{transactionId}:
+  uriParameters:
+    transactionId: string
+  get:
+    responses:
+      200:
+        body:
+          application/json:
+            type: Transaction

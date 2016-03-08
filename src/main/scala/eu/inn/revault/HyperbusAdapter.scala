@@ -5,7 +5,7 @@ import akka.pattern.ask
 import eu.inn.binders.dynamic.{Lst, Obj}
 import eu.inn.hyperbus.akkaservice.AkkaHyperService
 import eu.inn.revault.db.Db
-import eu.inn.revault.protocol._
+import eu.inn.revault.api._
 import eu.inn.hyperbus.serialization.{StringSerializer,StringDeserializer}
 import eu.inn.hyperbus.model._
 import scala.concurrent.duration._
@@ -15,7 +15,7 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: Finite
 
   def receive = AkkaHyperService.dispatch(this)
 
-  def ~> (implicit request: RevaultGet) = {
+  def ~> (implicit request: RevaultContentGet) = {
     val (documentUri, itemSegment) = ContentLogic.splitPath(request.path)
     if (itemSegment.isEmpty && request.body.pageFrom.isDefined) {
 
@@ -54,10 +54,10 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: Finite
     }
   }
 
-  def ~> (request: RevaultPut) = executeRequest(request, request.path)
-  def ~> (request: RevaultPost) = executeRequest(request, request.path)
-  def ~> (request: RevaultPatch) = executeRequest(request, request.path)
-  def ~> (request: RevaultDelete) = executeRequest(request, request.path)
+  def ~> (request: RevaultContentPut) = executeRequest(request, request.path)
+  def ~> (request: RevaultContentPost) = executeRequest(request, request.path)
+  def ~> (request: RevaultContentPatch) = executeRequest(request, request.path)
+  def ~> (request: RevaultContentDelete) = executeRequest(request, request.path)
 
   private def executeRequest(implicit request: Request[Body], uri: String) = {
     val str = StringSerializer.serializeToString(request)

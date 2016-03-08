@@ -1,13 +1,8 @@
 package eu.inn.revault.protocol
 
-import java.util.Date
-
-import eu.inn.binders.annotations.fieldName
-import eu.inn.hyperbus.model._
-import eu.inn.hyperbus.model.annotations.{body, request}
-
+/*
 @request(Method.GET, "/revault/content/{path:*}") // todo: check if raml arg can be with pattern
-case class RevaultGet(path: String, body: Query) extends Request[Query]
+case class RevaultGet(path: String, body: QueryBody) extends Request[QueryBody]
 with DefinedResponse[Ok[DynamicBody]]
 
 @body("revault-transaction")
@@ -60,3 +55,4 @@ case class RevaultPost(path: String, body: DynamicBody) extends Request[DynamicB
 
 //@request(Method.FEED_POST, "/revault/content/{path:*}")
 //case class RevaultFeedPost(path: String, body: DynamicBody) extends Request[DynamicBody]
+*/

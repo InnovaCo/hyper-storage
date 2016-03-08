@@ -8,7 +8,6 @@ import eu.inn.binders.dynamic._
 import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.revault._
-import eu.inn.revault.protocol._
 import eu.inn.revault.recovery.{StaleRecoveryWorker, HotRecoveryWorker, ShutdownRecoveryWorker}
 import eu.inn.revault.sharding.ShardMemberStatus.Active
 import eu.inn.revault.sharding._

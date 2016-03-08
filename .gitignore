@@ -22,3 +22,6 @@ local.sbt
 .project
 .settings
 .cache
+
+# BuildInfo plugin
+buildinfo.properties

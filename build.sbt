@@ -13,13 +13,13 @@ resolvers ++= Seq(
   "Innova releases" at "http://repproxy.srv.inn.ru/artifactory/libs-release-local"
 )
 
+ramlHyperBusSource := file("revault.raml")
+ramlHyperBusPackageName := "eu.inn.revault.api"
+buildInfoPackage := "eu.inn.revault"
+buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion, sbtVersion, buildInfoBuildNumber)
+
 // BuildInfo
-lazy val root = (project in file(".")).
-  enablePlugins(BuildInfoPlugin).
-  settings(
-    buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion, sbtVersion, buildInfoBuildNumber),
-    buildInfoPackage := "eu.inn.revault"
-  )
+lazy val root = (project in file(".")). enablePlugins(BuildInfoPlugin, Raml2HyperBus)
 
 // Macro Paradise
 addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
