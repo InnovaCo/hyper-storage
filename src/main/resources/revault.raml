@@ -11,6 +11,8 @@ types:
       properties:
         transactionId: string
         path: string
+annotationTypes:
+  feed:
 /revault/content/{path:*}:
   uriParameters:
     path:*: string
@@ -18,6 +20,7 @@ types:
     responses:
       200:
   put:
+    (feed):
     responses:
       200:
         body:
@@ -28,12 +31,14 @@ types:
             application/json:
               type: TransactionCreated
   patch:
+    (feed):
     responses:
       200:
         body:
           application/json:
             type: Transaction
   delete:
+    (feed):
     responses:
       200:
         body:

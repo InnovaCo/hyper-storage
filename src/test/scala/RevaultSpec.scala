@@ -9,7 +9,6 @@ import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.revault._
 import eu.inn.revault.api._
-import eu.inn.revault.protocol._
 import eu.inn.revault.recovery.{StaleRecoveryWorker, HotRecoveryWorker, ShutdownRecoveryWorker}
 import eu.inn.revault.sharding.ShardMemberStatus.Active
 import eu.inn.revault.sharding._
@@ -581,8 +580,8 @@ class RevaultSpec extends FreeSpec
         implicit val timeout = Timeout(20.seconds)
         hyperBus.routeTo[HyperbusAdapter](distributor).futureValue // wait while subscription is completes
 
-        val putEventPromise = Promise[RevaultFeedPut]()
-        hyperBus |> { put: RevaultFeedPut ⇒
+        val putEventPromise = Promise[RevaultContentFeedPut]()
+        hyperBus |> { put: RevaultContentFeedPut ⇒
           Future {
             putEventPromise.success(put)
           }
@@ -630,8 +629,8 @@ class RevaultSpec extends FreeSpec
         implicit val timeout = Timeout(20.seconds)
         hyperBus.routeTo[HyperbusAdapter](distributor)
 
-        val patchEventPromise = Promise[RevaultFeedPatch]()
-        hyperBus |> { patch: RevaultFeedPatch ⇒
+        val patchEventPromise = Promise[RevaultContentFeedPatch]()
+        hyperBus |> { patch: RevaultContentFeedPatch ⇒
           Future {
             patchEventPromise.success(patch)
           }
@@ -685,8 +684,8 @@ class RevaultSpec extends FreeSpec
         implicit val timeout = Timeout(20.seconds)
         hyperBus.routeTo[HyperbusAdapter](distributor).futureValue // wait while subscription is completes
 
-        val putEventPromise = Promise[RevaultFeedPut]()
-        hyperBus |> { put: RevaultFeedPut ⇒
+        val putEventPromise = Promise[RevaultContentFeedPut]()
+        hyperBus |> { put: RevaultContentFeedPut ⇒
           Future {
             if (!putEventPromise.isCompleted) {
               putEventPromise.success(put)
@@ -766,8 +765,8 @@ class RevaultSpec extends FreeSpec
         implicit val timeout = Timeout(20.seconds)
         hyperBus.routeTo[HyperbusAdapter](distributor).futureValue // wait while subscription is completes
 
-        val putEventPromise = Promise[RevaultFeedPut]()
-        hyperBus |> { put: RevaultFeedPut ⇒
+        val putEventPromise = Promise[RevaultContentFeedPut]()
+        hyperBus |> { put: RevaultContentFeedPut ⇒
           Future {
             if (!putEventPromise.isCompleted) {
               putEventPromise.success(put)
