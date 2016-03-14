@@ -422,7 +422,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
       if (log.isDebugEnabled) {
         log.debug(s"Task is forwarded to $address: $task")
       }
-      rvm.actorRef ! task
+      rvm.actorRef forward task
       true
     } getOrElse {
       log.error(s"Task actor is not found: $address, dropping: $task")
