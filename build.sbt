@@ -14,8 +14,11 @@ resolvers ++= Seq(
 )
 
 ramlHyperBusSource := file("revault.raml")
+
 ramlHyperBusPackageName := "eu.inn.revault.api"
+
 buildInfoPackage := "eu.inn.revault"
+
 buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion, sbtVersion, buildInfoBuildNumber)
 
 // BuildInfo
@@ -27,9 +30,9 @@ addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.fu
 libraryDependencies ++= Seq(
   "eu.inn" %% "service-control" % "0.1.16",
   "eu.inn" %% "service-config" % "0.1.3",
-  "eu.inn" %% "hyperbus" % "0.1.SNAPSHOT",
-  "eu.inn" %% "hyperbus-t-distributed-akka" % "0.1.SNAPSHOT",
-  "eu.inn" %% "hyperbus-akka" % "0.1.SNAPSHOT",
+  "eu.inn" %% "hyperbus" % "0.1.60",
+  "eu.inn" %% "hyperbus-t-distributed-akka" % "0.1.60",
+  "eu.inn" %% "hyperbus-akka" % "0.1.60",
   "eu.inn" %% "binders-core" % "0.11.77",
   "eu.inn" %% "binders-cassandra" % "0.9.42",
   "com.datastax.cassandra" % "cassandra-driver-core" % "2.1.9",
