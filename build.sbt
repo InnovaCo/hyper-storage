@@ -13,16 +13,16 @@ resolvers ++= Seq(
   "Innova releases" at "http://repproxy.srv.inn.ru/artifactory/libs-release-local"
 )
 
-ramlHyperBusSource := file("revault.raml")
+ramlHyperbusSource := file("revault.raml")
 
-ramlHyperBusPackageName := "eu.inn.revault.api"
+ramlHyperbusPackageName := "eu.inn.revault.api"
 
 buildInfoPackage := "eu.inn.revault"
 
 buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion, sbtVersion, buildInfoBuildNumber)
 
 // BuildInfo
-lazy val root = (project in file(".")). enablePlugins(BuildInfoPlugin, Raml2HyperBus)
+lazy val root = (project in file(".")). enablePlugins(BuildInfoPlugin, Raml2Hyperbus)
 
 // Macro Paradise
 addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
@@ -30,10 +30,10 @@ addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.fu
 libraryDependencies ++= Seq(
   "eu.inn" %% "service-control" % "0.1.16",
   "eu.inn" %% "service-config" % "0.1.3",
-  "eu.inn" %% "hyperbus" % "0.1.62",
-  "eu.inn" %% "hyperbus-t-distributed-akka" % "0.1.62",
-  "eu.inn" %% "hyperbus-akka" % "0.1.62",
-  "eu.inn" %% "hyperbus-t-kafka" % "0.1.62",
+  "eu.inn" %% "hyperbus" % "0.1.63",
+  "eu.inn" %% "hyperbus-t-distributed-akka" % "0.1.63",
+  "eu.inn" %% "hyperbus-akka" % "0.1.63",
+  "eu.inn" %% "hyperbus-t-kafka" % "0.1.63",
   "eu.inn" %% "binders-core" % "0.11.77",
   "eu.inn" %% "binders-cassandra" % "0.9.42",
   "com.datastax.cassandra" % "cassandra-driver-core" % "2.1.9",

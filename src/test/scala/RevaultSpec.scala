@@ -105,13 +105,13 @@ class RevaultSpec extends FreeSpec
 
     "Revault worker" - {
       "Put" in {
-        val hyperBus = testHyperBus()
+        val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
 
         val task = RevaultContentPut(
           path = "test-resource-1",
@@ -142,7 +142,7 @@ class RevaultSpec extends FreeSpec
           result.get.transactionList.head
         }
 
-        val completer = TestActorRef(new RevaultCompleter(hyperBus, db))
+        val completer = TestActorRef(new RevaultCompleter(hyperbus, db))
         completer ! completerTask
         val completerResult = expectMsgType[ShardTaskComplete]
         val rc = completerResult.result.asInstanceOf[RevaultCompleterTaskResult]
@@ -156,13 +156,13 @@ class RevaultSpec extends FreeSpec
       }
 
       "Patch resource that doesn't exists" in {
-        val hyperBus = testHyperBus()
+        val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
 
         val task = RevaultContentPatch(
           path = "not-existing",
@@ -184,11 +184,11 @@ class RevaultSpec extends FreeSpec
       }
 
       "Patch existing resource" in {
-        val hyperBus = testHyperBus()
+        val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
 
-        val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
 
         val path = "test-resource-" + UUID.randomUUID().toString
         val taskPutStr = StringSerializer.serializeToString(RevaultContentPut(path,
@@ -219,13 +219,13 @@ class RevaultSpec extends FreeSpec
       }
 
       "Delete resource that doesn't exists" in {
-        val hyperBus = testHyperBus()
+        val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
 
         val task = RevaultContentDelete(path = "not-existing", body = EmptyBody)
 
@@ -244,13 +244,13 @@ class RevaultSpec extends FreeSpec
       }
 
       "Delete resource that exists" in {
-        val hyperBus = testHyperBus()
+        val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
 
         val path = "test-resource-" + UUID.randomUUID().toString
         val taskPutStr = StringSerializer.serializeToString(RevaultContentPut(path,
@@ -283,13 +283,13 @@ class RevaultSpec extends FreeSpec
       }
 
       "Test multiple transactions" in {
-        val hyperBus = testHyperBus()
+        val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
         val path = "abcde"
         val taskStr1 = StringSerializer.serializeToString(RevaultContentPut(path,
           DynamicBody(ObjV("text" → "Test resource value", "null" → Null))
@@ -321,7 +321,7 @@ class RevaultSpec extends FreeSpec
           transaction.completedAt should be(None)
         }
 
-        val completer = TestActorRef(new RevaultCompleter(hyperBus, db))
+        val completer = TestActorRef(new RevaultCompleter(hyperbus, db))
         completer ! completerTask
         val completerResult = expectMsgType[ShardTaskComplete]
         val rc = completerResult.result.asInstanceOf[RevaultCompleterTaskResult]
@@ -334,13 +334,13 @@ class RevaultSpec extends FreeSpec
       }
 
       "Test faulty publish" in {
-        val hyperBus = testHyperBus()
+        val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
         val path = "faulty"
         val taskStr1 = StringSerializer.serializeToString(RevaultContentPut(path,
           DynamicBody(ObjV("text" → "Test resource value", "null" → Null))
@@ -364,7 +364,7 @@ class RevaultSpec extends FreeSpec
           _.completedAt shouldBe None
         }
 
-        val completer = TestActorRef(new RevaultCompleter(hyperBus, db))
+        val completer = TestActorRef(new RevaultCompleter(hyperbus, db))
 
         FaultClientTransport.checkers += {
           case request: DynamicRequest ⇒
@@ -412,13 +412,13 @@ class RevaultSpec extends FreeSpec
 
     "Revault worker (collections)" - {
       "Put item" in {
-        val hyperBus = testHyperBus()
+        val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
 
         val task = RevaultContentPut(
           path = "collection-1/test-resource-1",
@@ -468,7 +468,7 @@ class RevaultSpec extends FreeSpec
         transactions.head.revision should equal(2)
         transactions.tail.head.revision should equal(1)
 
-        val completer = TestActorRef(new RevaultCompleter(hyperBus, db))
+        val completer = TestActorRef(new RevaultCompleter(hyperbus, db))
         completer ! completerTask
         val completerResult = expectMsgType[ShardTaskComplete]
         val rc = completerResult.result.asInstanceOf[RevaultCompleterTaskResult]
@@ -482,11 +482,11 @@ class RevaultSpec extends FreeSpec
       }
 
       "Patch item" in {
-        val hyperBus = testHyperBus()
+        val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
 
-        val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
 
         val path = "collection-1/test-resource-" + UUID.randomUUID().toString
         val (documentUri,itemSegment) = ContentLogic.splitPath(path)
@@ -522,11 +522,11 @@ class RevaultSpec extends FreeSpec
       }
 
       "Delete item" in {
-        val hyperBus = testHyperBus()
+        val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
 
-        val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
 
         val path = "collection-1/test-resource-" + UUID.randomUUID().toString
         val (documentUri,itemSegment) = ContentLogic.splitPath(path)
@@ -560,15 +560,15 @@ class RevaultSpec extends FreeSpec
 
     "Revault integrated" - {
       "Test revault PUT+GET+Event" in {
-        val hyperBus = testHyperBus()
+        val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
         import system._
 
         cleanUpCassandra()
 
-        val workerProps = Props(classOf[RevaultWorker], hyperBus, db, 10.seconds)
-        val completerProps = Props(classOf[RevaultCompleter], hyperBus, db)
+        val workerProps = Props(classOf[RevaultWorker], hyperbus, db, 10.seconds)
+        val completerProps = Props(classOf[RevaultCompleter], hyperbus, db)
         val workerSettings = Map(
           "revault" →(workerProps, 1),
           "revault-completer" →(completerProps, 1)
@@ -578,10 +578,10 @@ class RevaultSpec extends FreeSpec
         val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20.seconds))
         import eu.inn.hyperbus.akkaservice._
         implicit val timeout = Timeout(20.seconds)
-        hyperBus.routeTo[HyperbusAdapter](distributor).futureValue // wait while subscription is completes
+        hyperbus.routeTo[HyperbusAdapter](distributor).futureValue // wait while subscription is completes
 
         val putEventPromise = Promise[RevaultContentFeedPut]()
-        hyperBus |> { put: RevaultContentFeedPut ⇒
+        hyperbus |> { put: RevaultContentFeedPut ⇒
           Future {
             putEventPromise.success(put)
           }
@@ -590,7 +590,7 @@ class RevaultSpec extends FreeSpec
         Thread.sleep(2000)
 
         val path = UUID.randomUUID().toString
-        val f1 = hyperBus <~ RevaultContentPut(path, DynamicBody(Text("Hello")))
+        val f1 = hyperbus <~ RevaultContentPut(path, DynamicBody(Text("Hello")))
         whenReady(f1) { response ⇒
           response.status should equal(Status.CREATED)
         }
@@ -602,22 +602,22 @@ class RevaultSpec extends FreeSpec
           putEvent.headers.get(Header.REVISION) shouldNot be(None)
         }
 
-        whenReady(hyperBus <~ RevaultContentGet(path), TestTimeout(10.seconds)) { response ⇒
+        whenReady(hyperbus <~ RevaultContentGet(path), TestTimeout(10.seconds)) { response ⇒
           response.status should equal(Status.OK)
           response.body.content should equal(Text("Hello"))
         }
       }
 
       "Null patch with revault (integrated)" in {
-        val hyperBus = testHyperBus()
+        val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
         import system._
 
         cleanUpCassandra()
 
-        val workerProps = Props(classOf[RevaultWorker], hyperBus, db, 10.seconds)
-        val completerProps = Props(classOf[RevaultCompleter], hyperBus, db)
+        val workerProps = Props(classOf[RevaultWorker], hyperbus, db, 10.seconds)
+        val completerProps = Props(classOf[RevaultCompleter], hyperbus, db)
         val workerSettings = Map(
           "revault" →(workerProps, 1),
           "revault-completer" →(completerProps, 1)
@@ -627,10 +627,10 @@ class RevaultSpec extends FreeSpec
         val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20.seconds))
         import eu.inn.hyperbus.akkaservice._
         implicit val timeout = Timeout(20.seconds)
-        hyperBus.routeTo[HyperbusAdapter](distributor)
+        hyperbus.routeTo[HyperbusAdapter](distributor)
 
         val patchEventPromise = Promise[RevaultContentFeedPatch]()
-        hyperBus |> { patch: RevaultContentFeedPatch ⇒
+        hyperbus |> { patch: RevaultContentFeedPatch ⇒
           Future {
             patchEventPromise.success(patch)
           }
@@ -639,13 +639,13 @@ class RevaultSpec extends FreeSpec
         Thread.sleep(2000)
 
         val path = UUID.randomUUID().toString
-        whenReady(hyperBus <~ RevaultContentPut(path, DynamicBody(
+        whenReady(hyperbus <~ RevaultContentPut(path, DynamicBody(
           ObjV("a" → "1", "b" → "2", "c" → "3")
         )), TestTimeout(10.seconds)) { response ⇒
           response.status should equal(Status.CREATED)
         }
 
-        val f = hyperBus <~ RevaultContentPatch(path, DynamicBody(ObjV("b" → Null)))
+        val f = hyperbus <~ RevaultContentPatch(path, DynamicBody(ObjV("b" → Null)))
         whenReady(f) { response ⇒
           response.status should equal(Status.OK)
         }
@@ -657,22 +657,22 @@ class RevaultSpec extends FreeSpec
           patchEvent.headers.get(Header.REVISION) shouldNot be(None)
         }
 
-        whenReady(hyperBus <~ RevaultContentGet(path), TestTimeout(10.seconds)) { response ⇒
+        whenReady(hyperbus <~ RevaultContentGet(path), TestTimeout(10.seconds)) { response ⇒
           response.status should equal(Status.OK)
           response.body.content should equal(ObjV("a" → "1", "c" → "3"))
         }
       }
 
       "Test revault PUT+GET+GET Collection+Event" in {
-        val hyperBus = testHyperBus()
+        val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
         import system._
 
         cleanUpCassandra()
 
-        val workerProps = Props(classOf[RevaultWorker], hyperBus, db, 10.seconds)
-        val completerProps = Props(classOf[RevaultCompleter], hyperBus, db)
+        val workerProps = Props(classOf[RevaultWorker], hyperbus, db, 10.seconds)
+        val completerProps = Props(classOf[RevaultCompleter], hyperbus, db)
         val workerSettings = Map(
           "revault" →(workerProps, 1),
           "revault-completer" →(completerProps, 1)
@@ -682,10 +682,10 @@ class RevaultSpec extends FreeSpec
         val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20.seconds))
         import eu.inn.hyperbus.akkaservice._
         implicit val timeout = Timeout(20.seconds)
-        hyperBus.routeTo[HyperbusAdapter](distributor).futureValue // wait while subscription is completes
+        hyperbus.routeTo[HyperbusAdapter](distributor).futureValue // wait while subscription is completes
 
         val putEventPromise = Promise[RevaultContentFeedPut]()
-        hyperBus |> { put: RevaultContentFeedPut ⇒
+        hyperbus |> { put: RevaultContentFeedPut ⇒
           Future {
             if (!putEventPromise.isCompleted) {
               putEventPromise.success(put)
@@ -701,7 +701,7 @@ class RevaultSpec extends FreeSpec
         val c2x = Obj(c2.asMap + "id" → "item2")
 
         val path = "collection-1/item1"
-        val f = hyperBus <~ RevaultContentPut(path, DynamicBody(c1))
+        val f = hyperbus <~ RevaultContentPut(path, DynamicBody(c1))
         whenReady(f) { case response: Response[Body] ⇒
           response.status should equal(Status.CREATED)
         }
@@ -713,19 +713,19 @@ class RevaultSpec extends FreeSpec
           putEvent.headers.get(Header.REVISION) shouldNot be(None)
         }
 
-        val f2 = hyperBus <~ RevaultContentGet(path)
+        val f2 = hyperbus <~ RevaultContentGet(path)
         whenReady(f2) { response ⇒
           response.status should equal(Status.OK)
           response.body.content should equal(c1x)
         }
 
         val path2 = "collection-1/item2"
-        val f3 = hyperBus <~ RevaultContentPut(path2, DynamicBody(c2x))
+        val f3 = hyperbus <~ RevaultContentPut(path2, DynamicBody(c2x))
         whenReady(f3) { response ⇒
           response.status should equal(Status.CREATED)
         }
 
-        val f4 = hyperBus <~ RevaultContentGet("collection-1",
+        val f4 = hyperbus <~ RevaultContentGet("collection-1",
           body = new QueryBuilder() pageFrom Number(0) result())
         whenReady(f4) { response ⇒
           response.status should equal(Status.OK)
@@ -734,7 +734,7 @@ class RevaultSpec extends FreeSpec
           )
         }
 
-        val f5 = hyperBus <~ RevaultContentGet("collection-1",
+        val f5 = hyperbus <~ RevaultContentGet("collection-1",
           body = new QueryBuilder() pageFrom Number(0) sortBy("id", true) result())
         whenReady(f5) { response ⇒
           response.status should equal(Status.OK)
@@ -745,15 +745,15 @@ class RevaultSpec extends FreeSpec
       }
 
       "Test revault POST+GET+GET Collection+Event" in {
-        val hyperBus = testHyperBus()
+        val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
         import system._
 
         cleanUpCassandra()
 
-        val workerProps = Props(classOf[RevaultWorker], hyperBus, db, 10.seconds)
-        val completerProps = Props(classOf[RevaultCompleter], hyperBus, db)
+        val workerProps = Props(classOf[RevaultWorker], hyperbus, db, 10.seconds)
+        val completerProps = Props(classOf[RevaultCompleter], hyperbus, db)
         val workerSettings = Map(
           "revault" →(workerProps, 1),
           "revault-completer" →(completerProps, 1)
@@ -763,10 +763,10 @@ class RevaultSpec extends FreeSpec
         val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20.seconds))
         import eu.inn.hyperbus.akkaservice._
         implicit val timeout = Timeout(20.seconds)
-        hyperBus.routeTo[HyperbusAdapter](distributor).futureValue // wait while subscription is completes
+        hyperbus.routeTo[HyperbusAdapter](distributor).futureValue // wait while subscription is completes
 
         val putEventPromise = Promise[RevaultContentFeedPut]()
-        hyperBus |> { put: RevaultContentFeedPut ⇒
+        hyperbus |> { put: RevaultContentFeedPut ⇒
           Future {
             if (!putEventPromise.isCompleted) {
               putEventPromise.success(put)
@@ -780,7 +780,7 @@ class RevaultSpec extends FreeSpec
         val c2 = ObjV("a" → "good by", "b" → Number(654321))
 
         val path = "collection-2"
-        val f = hyperBus <~ RevaultContentPost(path, DynamicBody(c1))
+        val f = hyperbus <~ RevaultContentPost(path, DynamicBody(c1))
         val tr1: TransactionCreated = whenReady(f) { case response: Created[TransactionCreated] ⇒
           response.status should equal(Status.CREATED)
           response.body
@@ -797,13 +797,13 @@ class RevaultSpec extends FreeSpec
           putEvent.headers.get(Header.REVISION) shouldNot be(None)
         }
 
-        val f2 = hyperBus <~ RevaultContentGet(tr1.path)
+        val f2 = hyperbus <~ RevaultContentGet(tr1.path)
         whenReady(f2) { response ⇒
           response.status should equal(Status.OK)
           response.body.content should equal(c1x)
         }
 
-        val f3 = hyperBus <~ RevaultContentPost(path, DynamicBody(c2))
+        val f3 = hyperbus <~ RevaultContentPost(path, DynamicBody(c2))
         val tr2: TransactionCreated = whenReady(f3) { case response: Created[CreatedBody] ⇒
           response.status should equal(Status.CREATED)
           response.body
@@ -812,7 +812,7 @@ class RevaultSpec extends FreeSpec
         val id2 = tr2.path.split('/').tail.head
         val c2x = Obj(c2.asMap + "id" → id2)
 
-        val f4 = hyperBus <~ RevaultContentGet("collection-2",
+        val f4 = hyperbus <~ RevaultContentGet("collection-2",
           body = new QueryBuilder() pageFrom Number(0) result())
         whenReady(f4) { response ⇒
           response.status should equal(Status.OK)
@@ -821,7 +821,7 @@ class RevaultSpec extends FreeSpec
           )
         }
 
-        val f5 = hyperBus <~ RevaultContentGet("collection-2",
+        val f5 = hyperbus <~ RevaultContentGet("collection-2",
           body = new QueryBuilder() pageFrom Number(0) sortBy ("id", true) result())
         whenReady(f5) { response ⇒
           response.status should equal(Status.OK)
@@ -834,13 +834,13 @@ class RevaultSpec extends FreeSpec
 
     "Recovery" - {
       "HotRecoveryWorker" in {
-        val hyperBus = testHyperBus()
+        val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
         val path = "incomplete-" + UUID.randomUUID().toString
         val taskStr1 = StringSerializer.serializeToString(RevaultContentPut(path,
           DynamicBody(ObjV("text" → "Test resource value", "null" → Null))
@@ -876,13 +876,13 @@ class RevaultSpec extends FreeSpec
       }
 
       "StaleRecoveryWorker" in {
-        val hyperBus = testHyperBus()
+        val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperBus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
         val path = "incomplete-" + UUID.randomUUID().toString
         val taskStr1 = StringSerializer.serializeToString(RevaultContentPut(path,
           DynamicBody(ObjV("text" → "Test resource value", "null" → Null))

@@ -4,7 +4,7 @@ import akka.actor.{PoisonPill, Props}
 import akka.cluster.Cluster
 import com.typesafe.config.Config
 import eu.inn.config.ConfigExtenders._
-import eu.inn.hyperbus.HyperBus
+import eu.inn.hyperbus.Hyperbus
 import eu.inn.hyperbus.akkaservice._
 import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
@@ -42,7 +42,7 @@ class RevaultService(console: Console,
   log.info(s"Initializing hyperbus...")
   val transportConfiguration = TransportConfigurationLoader.fromConfig(config)
   val transportManager = new TransportManager(transportConfiguration)
-  val hyperBus = new HyperBus(transportManager)
+  val hyperbus = new Hyperbus(transportManager)
 
   // currently we rely on the name of system
   val actorSystem = ActorSystemRegistry.get("eu-inn").get
@@ -60,8 +60,8 @@ class RevaultService(console: Console,
   }
 
   // worker actor todo: recovery job
-  val workerProps = Props(classOf[RevaultWorker], hyperBus, db, completerTimeout)
-  val completerProps = Props(classOf[RevaultCompleter], hyperBus, db)
+  val workerProps = Props(classOf[RevaultWorker], hyperbus, db, completerTimeout)
+  val completerProps = Props(classOf[RevaultCompleter], hyperbus, db)
   val workerSettings = Map(
     "revault" → (workerProps, maxWorkers),
     "revault-completer" → (completerProps, maxCompleters)
@@ -74,7 +74,7 @@ class RevaultService(console: Console,
 
   val subscriptions = Await.result({
     implicit val timeout: akka.util.Timeout = requestTimeout
-    hyperBus.routeTo[HyperbusAdapter](distributor)
+    hyperbus.routeTo[HyperbusAdapter](distributor)
   }, requestTimeout)
 
   val hotPeriod = (hotRecovery.toMillis, failTimeout.toMillis)
@@ -95,7 +95,7 @@ class RevaultService(console: Console,
 
     staleRecoveryActorRef ! ShutdownRecoveryWorker
     hotRecoveryActorRef ! ShutdownRecoveryWorker
-    subscriptions.foreach(subscription => Await.result(hyperBus.off(subscription), shutdownTimeout/2))
+    subscriptions.foreach(subscription => Await.result(hyperbus.off(subscription), shutdownTimeout/2))
 
     try {
       akka.pattern.gracefulStop(processorActorRef, shutdownTimeout*4/5, PoisonPill)
@@ -105,10 +105,10 @@ class RevaultService(console: Console,
     }
 
     try {
-      Await.result(hyperBus.shutdown(shutdownTimeout*4/5), shutdownTimeout)
+      Await.result(hyperbus.shutdown(shutdownTimeout*4/5), shutdownTimeout)
     } catch {
       case t: Throwable ⇒
-        log.error("HyperBus didn't shutdown gracefully", t)
+        log.error("Hyperbus didn't shutdown gracefully", t)
     }
     db.close()
     log.info("Revault stopped.")

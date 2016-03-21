@@ -5,7 +5,7 @@ import akka.cluster.Cluster
 import akka.testkit._
 import com.datastax.driver.core.utils.UUIDs
 import com.typesafe.config.ConfigFactory
-import eu.inn.hyperbus.HyperBus
+import eu.inn.hyperbus.Hyperbus
 import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportManager, TransportConfigurationLoader}
 import eu.inn.revault.TransactionLogic
@@ -86,28 +86,28 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
   }
 
   //val _actorSystems = TrieMap[Int, ActorSystem]()
-  val _hyperBuses = TrieMap[Int, HyperBus]()
+  val _hyperbuses = TrieMap[Int, Hyperbus]()
 
   def testActorSystem(index: Int = 0) = {
-    testHyperBus(index)
+    testHyperbus(index)
     ActorSystemRegistry.get(s"eu-inn-$index").get
   }
 
   def testKit(index: Int = 0) = new TestKit(testActorSystem(index)) with ImplicitSender
 
-  def testHyperBus(index: Int = 0) = {
-    val hb = _hyperBuses.getOrElseUpdate ( index, {
+  def testHyperbus(index: Int = 0) = {
+    val hb = _hyperbuses.getOrElseUpdate ( index, {
         val config = ConfigFactory.load().getConfig(s"hyperbus-$index")
         val transportConfiguration = TransportConfigurationLoader.fromConfig(config)
         val transportManager = new TransportManager(transportConfiguration)
-        new HyperBus(transportManager, defaultGroupName = Some(s"subscriber-$index"), logMessages = true)
+        new Hyperbus(transportManager, defaultGroupName = Some(s"subscriber-$index"), logMessages = true)
       }
     )
     hb
   }
 
   def shutdownCluster(index: Int = 0): Unit = {
-    _hyperBuses.get(index).foreach { hb ⇒
+    _hyperbuses.get(index).foreach { hb ⇒
       hb.shutdown(5.seconds)
       Thread.sleep(1000)
     }
@@ -133,12 +133,12 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
 
   override def afterEach() {
     log.info("------- SHUTTING DOWN HYPERBUSES -------- ")
-    _hyperBuses.foreach{
+    _hyperbuses.foreach{
       case (index, hb) ⇒ {
         Await.result(hb.shutdown(10.second), 11.second)
       }
     }
-    _hyperBuses.clear()
+    _hyperbuses.clear()
     Thread.sleep(500)
     log.info("------- HYPERBUSES WERE SHUT DOWN -------- ")
   }

@@ -5,7 +5,7 @@ import java.util.UUID
 import akka.actor.{Status, Actor, ActorLogging, ActorRef}
 import akka.pattern.pipe
 import com.datastax.driver.core.utils.UUIDs
-import eu.inn.hyperbus.HyperBus
+import eu.inn.hyperbus.Hyperbus
 import eu.inn.hyperbus.model.DynamicRequest
 import eu.inn.revault.db.{ContentStatic, Db, Transaction}
 import eu.inn.revault.sharding.{ShardTask, ShardTaskComplete}
@@ -28,7 +28,7 @@ import scala.util.control.NonFatal
 @SerialVersionUID(1L) case class CompletionFailedException(documentUri: String, reason: String) extends RuntimeException(s"Complete for $documentUri is failed: $reason")
 
 // todo: rename this
-class RevaultCompleter(hyperBus: HyperBus, db: Db) extends Actor with ActorLogging {
+class RevaultCompleter(hyperbus: Hyperbus, db: Db) extends Actor with ActorLogging {
   import ContentLogic._
   import context._
 
@@ -70,7 +70,7 @@ class RevaultCompleter(hyperBus: HyperBus, db: Db) extends Actor with ActorLoggi
       selectIncompleteTransactions(content) flatMap { incompleteTransactions ⇒
         FutureUtils.serial(incompleteTransactions) { transaction ⇒
           val event = DynamicRequest(transaction.body)
-          hyperBus <| event flatMap { publishResult ⇒
+          hyperbus <| event flatMap { publishResult ⇒
             if (log.isDebugEnabled) {
               log.debug(s"Event $event is published with result $publishResult")
             }

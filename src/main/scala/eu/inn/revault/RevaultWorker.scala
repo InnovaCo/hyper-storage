@@ -7,7 +7,7 @@ import akka.pattern.pipe
 import eu.inn.binders.dynamic._
 import eu.inn.hyperbus.transport.api.matchers.Specific
 import eu.inn.hyperbus.transport.api.uri.Uri
-import eu.inn.hyperbus.{IdGenerator, HyperBus}
+import eu.inn.hyperbus.{IdGenerator, Hyperbus}
 import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.revault.db._
@@ -30,7 +30,7 @@ case class RevaultWorkerTaskFailed(task: ShardTask, inner: Throwable)
 case class RevaultWorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
 
 // todo: rename this
-class RevaultWorker(hyperBus: HyperBus, db: Db, completerTimeout: FiniteDuration) extends Actor with ActorLogging {
+class RevaultWorker(hyperbus: Hyperbus, db: Db, completerTimeout: FiniteDuration) extends Actor with ActorLogging {
   import ContentLogic._
   import context._
 
@@ -141,9 +141,9 @@ class RevaultWorker(hyperBus: HyperBus, db: Db, completerTimeout: FiniteDuration
   }
 
   private def hyperbusException(e: Throwable, task: ShardTask): RevaultTaskResult = {
-    val (response:HyperBusException[ErrorBody], logException) = e match {
+    val (response:HyperbusException[ErrorBody], logException) = e match {
       case h: NotFound[ErrorBody] ⇒ (h, false)
-      case h: HyperBusException[ErrorBody] ⇒ (h, true)
+      case h: HyperbusException[ErrorBody] ⇒ (h, true)
       case other ⇒ (InternalServerError(ErrorBody("update_failed",Some(e.toString))), true)
     }
 
