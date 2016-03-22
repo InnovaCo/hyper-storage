@@ -74,13 +74,26 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
 
   def selectContentCollection(documentUri: String, limit: Int): Future[Iterator[Content]] = cql"""
       select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
-      where document_uri=$documentUri
+      where document_uri=$documentUri and item_segment > ''
+      limit $limit
+    """.all[Content]
+
+  def selectContentCollectionFrom(documentUri: String, fromId: String, limit: Int): Future[Iterator[Content]] = cql"""
+      select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
+      where document_uri=$documentUri and item_segment > $fromId
       limit $limit
     """.all[Content]
 
   def selectContentCollectionDesc(documentUri: String, limit: Int): Future[Iterator[Content]] = cql"""
       select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
       where document_uri=$documentUri
+      order by item_segment desc
+      limit $limit
+    """.all[Content]
+
+  def selectContentCollectionDescFrom(documentUri: String, fromId: String, limit: Int): Future[Iterator[Content]] = cql"""
+      select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
+      where document_uri=$documentUri and item_segment < $fromId
       order by item_segment desc
       limit $limit
     """.all[Content]

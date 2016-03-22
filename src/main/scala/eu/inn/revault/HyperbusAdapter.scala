@@ -20,33 +20,38 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: Finite
     if (itemSegment.isEmpty && request.body.pageFrom.isDefined) {
 
       val sortByDesc = request.body.sortBy.contains(SortBy("id",descending=true))
+      val pageFrom = request.body.pageFrom.get.asString
+      val pageSize = /*(if (pageFrom.isEmpty && !sortByDesc) 1 else 0) +*/ request.body.pageSize.map(_.asInt).getOrElse(50)
 
-      val select = if (sortByDesc)
-        db.selectContentCollectionDesc _
-      else
-        db.selectContentCollection _
+      val selectResult = if (sortByDesc) {
+        if (pageFrom.isEmpty)
+          db.selectContentCollectionDesc(documentUri,pageSize)
+        else
+          db.selectContentCollectionDescFrom(documentUri,pageFrom,pageSize)
+      }
+      else {
+        if (pageFrom.isEmpty)
+          db.selectContentCollection(documentUri,pageSize)
+        else
+          db.selectContentCollectionFrom(documentUri,pageFrom,pageSize)
+      }
 
-      select(documentUri, request.body.pageSize.map(_.asInt).getOrElse(50)) map { collection ⇒ // todo:
+      selectResult map { collection ⇒ // todo: 404 if no parent resource?
         val stream = collection.toStream
-        if (stream.isEmpty) {
-          NotFound(ErrorBody("not_found", Some(s"Resource ${request.path} is not found")))
-        }
-        else {
-          val result = Obj(Map("_embedded" →
-            Obj(Map("els" →
-            Lst(stream.filterNot(_.itemSegment.isEmpty).map { item ⇒
-              StringDeserializer.dynamicBody(item.body).content
-            }.toSeq)
-          ))))
+        val result = Obj(Map("_embedded" →
+          Obj(Map("els" →
+          Lst(stream.filterNot(_.itemSegment.isEmpty).map { item ⇒
+            StringDeserializer.dynamicBody(item.body).content
+          }.toSeq)
+        ))))
 
-          Ok(DynamicBody(result), Headers(Map(Header.REVISION → Seq(stream.head.revision.toString))))
-        }
+        Ok(DynamicBody(result), Headers(Map(Header.REVISION → Seq(stream.head.revision.toString))))
       }
     }
     else {
       db.selectContent(documentUri, itemSegment) map {
         case None ⇒
-          NotFound(ErrorBody("not_found", Some(s"Resource ${request.path} is not found")))
+          NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
         case Some(content) ⇒
           val body = StringDeserializer.dynamicBody(content.body)
           Ok(body, Headers(Map(Header.REVISION → Seq(content.revision.toString))))
