@@ -40,7 +40,7 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: Finite
         val stream = collection.toStream
         val result = Obj(Map("_embedded" →
           Obj(Map("els" →
-          Lst(stream.filterNot(_.itemSegment.isEmpty).map { item ⇒
+          Lst(stream.filterNot(s ⇒ s.itemSegment.isEmpty || s.isDeleted).map { item ⇒ // todo: isDeleted & paging = :(
             StringDeserializer.dynamicBody(item.body).content
           }.toSeq)
         ))))
@@ -49,12 +49,17 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: Finite
       }
     }
     else {
+      val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
       db.selectContent(documentUri, itemSegment) map {
         case None ⇒
-          NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
+          notFound
         case Some(content) ⇒
-          val body = StringDeserializer.dynamicBody(content.body)
-          Ok(body, Headers(Map(Header.REVISION → Seq(content.revision.toString))))
+          if (!content.isDeleted) {
+            val body = StringDeserializer.dynamicBody(content.body)
+            Ok(body, Headers(Map(Header.REVISION → Seq(content.revision.toString))))
+          } else {
+            notFound
+          }
       }
     }
   }
