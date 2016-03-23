@@ -4,6 +4,12 @@ name := "revault"
 
 organization := "eu.inn"
 
+projectMajorVersion := "0.1"
+
+projectBuildNumber := "SNAPSHOT"
+
+version := projectMajorVersion.value + "." + projectBuildNumber.value
+
 scalaVersion := "2.11.7"
 
 crossScalaVersions := Seq("2.11.7")
@@ -19,10 +25,15 @@ ramlHyperbusPackageName := "eu.inn.revault.api"
 
 buildInfoPackage := "eu.inn.revault"
 
-buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion, sbtVersion, buildInfoBuildNumber)
+buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion, sbtVersion)
+
 
 // BuildInfo
 lazy val root = (project in file(".")). enablePlugins(BuildInfoPlugin, Raml2Hyperbus)
+
+val projectMajorVersion = settingKey[String]("Defines the major version number")
+
+val projectBuildNumber = settingKey[String]("Defines the build number")
 
 // Macro Paradise
 addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
