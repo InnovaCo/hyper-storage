@@ -1,6 +1,6 @@
 import sbt.Keys._
 
-name := "revault"
+name := "revault2"
 
 organization := "eu.inn"
 
