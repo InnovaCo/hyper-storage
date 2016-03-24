@@ -17,11 +17,12 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: Finite
 
   def ~> (implicit request: RevaultContentGet) = {
     val (documentUri, itemSegment) = ContentLogic.splitPath(request.path)
+    val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
     if (itemSegment.isEmpty && request.body.pageFrom.isDefined) {
-
       val sortByDesc = request.body.sortBy.contains(SortBy("id",descending=true))
       val pageFrom = request.body.pageFrom.get.asString
       val pageSize = /*(if (pageFrom.isEmpty && !sortByDesc) 1 else 0) +*/ request.body.pageSize.map(_.asInt).getOrElse(50)
+
 
       val selectResult = if (sortByDesc) {
         if (pageFrom.isEmpty)
@@ -36,22 +37,29 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: Finite
           db.selectContentCollectionFrom(documentUri,pageFrom,pageSize)
       }
 
-      selectResult map { collection ⇒ // todo: 404 if no parent resource?
-        val stream = collection.toStream
-        val result = Obj(Map("_embedded" →
-          Obj(Map("els" →
-          Lst(stream.filterNot(s ⇒ s.itemSegment.isEmpty || s.isDeleted).map { item ⇒ // todo: isDeleted & paging = :(
-            StringDeserializer.dynamicBody(item.body).content
-          }.toSeq)
-        ))))
+      for {
+        contentStatic ← db.selectContentStatic(documentUri)
+        collection ← selectResult
+      } yield { // todo: 404 if no parent resource?
+        if (contentStatic.isDefined) {
+          val stream = collection.toStream
+          val result = Obj(Map("_embedded" →
+            Obj(Map("els" →
+              Lst(stream.filterNot(s ⇒ s.itemSegment.isEmpty || s.isDeleted).map { item ⇒ // todo: isDeleted & paging = :(
+                StringDeserializer.dynamicBody(item.body).content
+              }.toSeq)
+            ))))
 
-        Ok(DynamicBody(result), Headers(
-          stream.headOption.map(h ⇒ Header.REVISION → Seq(h.revision.toString)).toMap
-        ))
+          Ok(DynamicBody(result), Headers(
+            stream.headOption.map(h ⇒ Header.REVISION → Seq(h.revision.toString)).toMap
+          ))
+        }
+        else {
+          notFound
+        }
       }
     }
     else {
-      val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
       db.selectContent(documentUri, itemSegment) map {
         case None ⇒
           notFound

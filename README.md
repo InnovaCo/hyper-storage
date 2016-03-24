@@ -49,6 +49,10 @@ todo:
   * split tests (port numbers) workerspec
   * define base classes for a RAML generated classes
     distributed akka, use protobuf: https://github.com/akka/akka/issues/18371
+  * paging when deleted items
+  * test:
+    - deleted collection elements
+    - 404 on documents and collections
 
   * document:
     - stash-size

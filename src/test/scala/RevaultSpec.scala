@@ -726,7 +726,7 @@ class RevaultSpec extends FreeSpec
         }
 
         val f4 = hyperbus <~ RevaultContentGet("collection-1",
-          body = new QueryBuilder() pageFrom Number(0) result())
+          body = new QueryBuilder() pageFrom Null result())
         whenReady(f4) { response ⇒
           response.status should equal(Status.OK)
           response.body.content should equal(
@@ -735,7 +735,7 @@ class RevaultSpec extends FreeSpec
         }
 
         val f5 = hyperbus <~ RevaultContentGet("collection-1",
-          body = new QueryBuilder() pageFrom Number(0) sortBy("id", true) result())
+          body = new QueryBuilder() pageFrom Null sortBy("id", true) result())
         whenReady(f5) { response ⇒
           response.status should equal(Status.OK)
           response.body.content should equal(
@@ -786,7 +786,6 @@ class RevaultSpec extends FreeSpec
           response.body
         }
 
-        println(tr1)
         val id1 = tr1.path.split('/').tail.head
         val c1x = Obj(c1.asMap + "id" → id1)
 
@@ -813,7 +812,7 @@ class RevaultSpec extends FreeSpec
         val c2x = Obj(c2.asMap + "id" → id2)
 
         val f4 = hyperbus <~ RevaultContentGet("collection-2",
-          body = new QueryBuilder() pageFrom Number(0) result())
+          body = new QueryBuilder() pageFrom Null result())
         whenReady(f4) { response ⇒
           response.status should equal(Status.OK)
           response.body.content should equal(
@@ -822,7 +821,7 @@ class RevaultSpec extends FreeSpec
         }
 
         val f5 = hyperbus <~ RevaultContentGet("collection-2",
-          body = new QueryBuilder() pageFrom Number(0) sortBy ("id", true) result())
+          body = new QueryBuilder() pageFrom Null sortBy ("id", true) result())
         whenReady(f5) { response ⇒
           response.status should equal(Status.OK)
           response.body.content should equal(
