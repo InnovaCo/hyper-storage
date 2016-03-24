@@ -54,5 +54,8 @@ libraryDependencies ++= Seq(
   "org.mockito" % "mockito-all" % "1.10.19" % "test",
   "com.typesafe.akka" %% "akka-testkit" % "2.4.1" % "test",
   "org.cassandraunit" % "cassandra-unit" % "2.2.2.1" % "test",
+  "org.pegdown" % "pegdown" % "1.6.0" % "test",
   "junit" % "junit" % "4.12" % "test"
 )
+
+testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports")
