@@ -45,7 +45,9 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: Finite
           }.toSeq)
         ))))
 
-        Ok(DynamicBody(result), Headers(Map(Header.REVISION → Seq(stream.head.revision.toString))))
+        Ok(DynamicBody(result), Headers(
+          stream.headOption.map(h ⇒ Header.REVISION → Seq(h.revision.toString)).toMap
+        ))
       }
     }
     else {
