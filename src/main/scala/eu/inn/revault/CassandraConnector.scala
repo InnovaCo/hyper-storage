@@ -20,8 +20,8 @@ object CassandraConnector {
   def createCassandraSession(hosts: Seq[String], datacenter: String, keyspace: String, connectTimeoutMillis: Int = 3000, readTimeoutMillis: Int = 500) =
     CassandraSessionBuilder.build(hosts, datacenter, keyspace, connectTimeoutMillis, readTimeoutMillis)
 
-  def createCassandraSession(config: Config, keyspace: String) =
-    CassandraSessionBuilder.build(config, keyspace)
+  def createCassandraSession(config: Config) =
+    CassandraSessionBuilder.build(config)
 
 
   private object CassandraSessionBuilder {
@@ -32,8 +32,9 @@ object CassandraConnector {
       readTimeoutMillis    = conf.getDuration("read-timeout", TimeUnit.MILLISECONDS).toInt
     )
 
-    def build(config: Config, keyspace: String) = {
+    def build(config: Config) = {
       val (cluster, listener) = defaultCluster(config)
+      val keyspace = config.getString("keyspace")
       try {
         session(cluster, listener, keyspace)
       }

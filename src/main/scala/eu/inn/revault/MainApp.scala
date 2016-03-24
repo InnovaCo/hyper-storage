@@ -14,7 +14,7 @@ object MainApp extends ConsoleModule {
   bind [CassandraConnector] to new CassandraConnector {
     override def connect(): Session = {
       val config = inject[Config]
-      CassandraConnector.createCassandraSession(config.getConfig("cassandra"), "revault")
+      CassandraConnector.createCassandraSession(config.getConfig("cassandra"))
     }
   }
   bind [Service] to injected [RevaultService]
