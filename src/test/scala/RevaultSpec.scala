@@ -128,7 +128,7 @@ class RevaultSpec extends FreeSpec
         completerTask.documentUri should equal(task.path)
         val workerResult = expectMsgType[ShardTaskComplete]
         val r = response(workerResult.result.asInstanceOf[RevaultTaskResult].content)
-        r.status should equal(Status.CREATED)
+        r.statusCode should equal(Status.CREATED)
         r.correlationId should equal(task.correlationId)
 
         val uuid = whenReady(db.selectContent("test-resource-1", "")) { result =>
@@ -172,7 +172,7 @@ class RevaultSpec extends FreeSpec
         val taskStr = StringSerializer.serializeToString(task)
         worker ! RevaultTask(task.path, System.currentTimeMillis() + 10000, taskStr)
         expectMsgPF() {
-          case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).status == Status.NOT_FOUND &&
+          case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).statusCode == Status.NOT_FOUND &&
             response(result.content).correlationId == task.correlationId ⇒ {
             true
           }
@@ -207,7 +207,7 @@ class RevaultSpec extends FreeSpec
         worker ! RevaultTask(path, System.currentTimeMillis() + 10000, taskPatchStr)
         expectMsgType[RevaultCompleterTask]
         expectMsgPF() {
-          case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).status == Status.OK &&
+          case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).statusCode == Status.OK &&
             response(result.content).correlationId == task.correlationId ⇒ {
             true
           }
@@ -232,7 +232,7 @@ class RevaultSpec extends FreeSpec
         val taskStr = StringSerializer.serializeToString(task)
         worker ! RevaultTask(task.path, System.currentTimeMillis() + 10000, taskStr)
         expectMsgPF() {
-          case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).status == Status.NOT_FOUND &&
+          case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).statusCode == Status.NOT_FOUND &&
             response(result.content).correlationId == task.correlationId ⇒ {
             true
           }
@@ -271,7 +271,7 @@ class RevaultSpec extends FreeSpec
         worker ! RevaultTask(path, System.currentTimeMillis() + 10000, taskStr)
         expectMsgType[RevaultCompleterTask]
         expectMsgPF() {
-          case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).status == Status.OK &&
+          case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).statusCode == Status.OK &&
             response(result.content).correlationId == task.correlationId ⇒ {
             true
           }
@@ -310,7 +310,7 @@ class RevaultSpec extends FreeSpec
         val completerTask = expectMsgType[RevaultCompleterTask]
         val workerResult = expectMsgType[ShardTaskComplete]
         val r = response(workerResult.result.asInstanceOf[RevaultTaskResult].content)
-        r.status should equal(Status.OK)
+        r.statusCode should equal(Status.OK)
 
         val transactions = whenReady(db.selectContent(path, "")) { result =>
           result.get.isDeleted should equal(true)
@@ -433,7 +433,7 @@ class RevaultSpec extends FreeSpec
         completerTask.documentUri should equal("collection-1")
         val workerResult = expectMsgType[ShardTaskComplete]
         val r = response(workerResult.result.asInstanceOf[RevaultTaskResult].content)
-        r.status should equal(Status.CREATED)
+        r.statusCode should equal(Status.CREATED)
         r.correlationId should equal(task.correlationId)
 
         val content = db.selectContent("collection-1", "test-resource-1").futureValue
@@ -453,7 +453,7 @@ class RevaultSpec extends FreeSpec
         completerTask2.documentUri should equal("collection-1")
         val workerResult2 = expectMsgType[ShardTaskComplete]
         val r2 = response(workerResult2.result.asInstanceOf[RevaultTaskResult].content)
-        r2.status should equal(Status.CREATED)
+        r2.statusCode should equal(Status.CREATED)
         r2.correlationId should equal(task2.correlationId)
 
         val content2 = db.selectContent("collection-1", "test-resource-2").futureValue
@@ -507,7 +507,7 @@ class RevaultSpec extends FreeSpec
 
         expectMsgType[RevaultCompleterTask]
         expectMsgPF() {
-          case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).status == Status.OK &&
+          case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).statusCode == Status.OK &&
             response(result.content).correlationId == task.correlationId ⇒ {
             true
           }
@@ -545,7 +545,7 @@ class RevaultSpec extends FreeSpec
 
         expectMsgType[RevaultCompleterTask]
         expectMsgPF() {
-          case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).status == Status.OK &&
+          case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).statusCode == Status.OK &&
             response(result.content).correlationId == task.correlationId ⇒ {
             true
           }
@@ -592,7 +592,7 @@ class RevaultSpec extends FreeSpec
         val path = UUID.randomUUID().toString
         val f1 = hyperbus <~ RevaultContentPut(path, DynamicBody(Text("Hello")))
         whenReady(f1) { response ⇒
-          response.status should equal(Status.CREATED)
+          response.statusCode should equal(Status.CREATED)
         }
 
         val putEventFuture = putEventPromise.future
@@ -603,7 +603,7 @@ class RevaultSpec extends FreeSpec
         }
 
         whenReady(hyperbus <~ RevaultContentGet(path), TestTimeout(10.seconds)) { response ⇒
-          response.status should equal(Status.OK)
+          response.statusCode should equal(Status.OK)
           response.body.content should equal(Text("Hello"))
         }
       }
@@ -642,12 +642,12 @@ class RevaultSpec extends FreeSpec
         whenReady(hyperbus <~ RevaultContentPut(path, DynamicBody(
           ObjV("a" → "1", "b" → "2", "c" → "3")
         )), TestTimeout(10.seconds)) { response ⇒
-          response.status should equal(Status.CREATED)
+          response.statusCode should equal(Status.CREATED)
         }
 
         val f = hyperbus <~ RevaultContentPatch(path, DynamicBody(ObjV("b" → Null)))
         whenReady(f) { response ⇒
-          response.status should equal(Status.OK)
+          response.statusCode should equal(Status.OK)
         }
 
         val patchEventFuture = patchEventPromise.future
@@ -658,7 +658,7 @@ class RevaultSpec extends FreeSpec
         }
 
         whenReady(hyperbus <~ RevaultContentGet(path), TestTimeout(10.seconds)) { response ⇒
-          response.status should equal(Status.OK)
+          response.statusCode should equal(Status.OK)
           response.body.content should equal(ObjV("a" → "1", "c" → "3"))
         }
       }
@@ -703,7 +703,7 @@ class RevaultSpec extends FreeSpec
         val path = "collection-1/item1"
         val f = hyperbus <~ RevaultContentPut(path, DynamicBody(c1))
         whenReady(f) { case response: Response[Body] ⇒
-          response.status should equal(Status.CREATED)
+          response.statusCode should equal(Status.CREATED)
         }
 
         val putEventFuture = putEventPromise.future
@@ -715,20 +715,20 @@ class RevaultSpec extends FreeSpec
 
         val f2 = hyperbus <~ RevaultContentGet(path)
         whenReady(f2) { response ⇒
-          response.status should equal(Status.OK)
+          response.statusCode should equal(Status.OK)
           response.body.content should equal(c1x)
         }
 
         val path2 = "collection-1/item2"
         val f3 = hyperbus <~ RevaultContentPut(path2, DynamicBody(c2x))
         whenReady(f3) { response ⇒
-          response.status should equal(Status.CREATED)
+          response.statusCode should equal(Status.CREATED)
         }
 
         val f4 = hyperbus <~ RevaultContentGet("collection-1",
           body = new QueryBuilder() pageFrom Null result())
         whenReady(f4) { response ⇒
-          response.status should equal(Status.OK)
+          response.statusCode should equal(Status.OK)
           response.body.content should equal(
             ObjV("_embedded" -> ObjV("els" → LstV(c1x, c2x)))
           )
@@ -737,7 +737,7 @@ class RevaultSpec extends FreeSpec
         val f5 = hyperbus <~ RevaultContentGet("collection-1",
           body = new QueryBuilder() pageFrom Null sortBy("id", true) result())
         whenReady(f5) { response ⇒
-          response.status should equal(Status.OK)
+          response.statusCode should equal(Status.OK)
           response.body.content should equal(
             ObjV("_embedded" -> ObjV("els" → LstV(c2x, c1x)))
           )
@@ -782,7 +782,7 @@ class RevaultSpec extends FreeSpec
         val path = "collection-2"
         val f = hyperbus <~ RevaultContentPost(path, DynamicBody(c1))
         val tr1: TransactionCreated = whenReady(f) { case response: Created[TransactionCreated] ⇒
-          response.status should equal(Status.CREATED)
+          response.statusCode should equal(Status.CREATED)
           response.body
         }
 
@@ -798,13 +798,13 @@ class RevaultSpec extends FreeSpec
 
         val f2 = hyperbus <~ RevaultContentGet(tr1.path)
         whenReady(f2) { response ⇒
-          response.status should equal(Status.OK)
+          response.statusCode should equal(Status.OK)
           response.body.content should equal(c1x)
         }
 
         val f3 = hyperbus <~ RevaultContentPost(path, DynamicBody(c2))
         val tr2: TransactionCreated = whenReady(f3) { case response: Created[CreatedBody] ⇒
-          response.status should equal(Status.CREATED)
+          response.statusCode should equal(Status.CREATED)
           response.body
         }
 
@@ -814,7 +814,7 @@ class RevaultSpec extends FreeSpec
         val f4 = hyperbus <~ RevaultContentGet("collection-2",
           body = new QueryBuilder() pageFrom Null result())
         whenReady(f4) { response ⇒
-          response.status should equal(Status.OK)
+          response.statusCode should equal(Status.OK)
           response.body.content should equal(
             ObjV("_embedded" -> ObjV("els" → LstV(c1x,c2x)))
           )
@@ -823,7 +823,7 @@ class RevaultSpec extends FreeSpec
         val f5 = hyperbus <~ RevaultContentGet("collection-2",
           body = new QueryBuilder() pageFrom Null sortBy ("id", true) result())
         whenReady(f5) { response ⇒
-          response.status should equal(Status.OK)
+          response.statusCode should equal(Status.OK)
           response.body.content should equal(
             ObjV("_embedded" -> ObjV("els" → LstV(c2x,c1x)))
           )
