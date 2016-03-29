@@ -11,8 +11,9 @@ import scala.concurrent.Await
 import scala.concurrent.ExecutionContext.Implicits.global
 
 object Cassandra extends CassandraCQLUnit(
-    new ClassPathCQLDataSet("schema.cql","revault_test"), null, 30000
+    new ClassPathCQLDataSet("schema.cql","revault_test")
   ) {
+  this.startupTimeoutMillis = 30000l
   lazy val start = {
     before()
   }
