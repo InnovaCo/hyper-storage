@@ -781,7 +781,7 @@ class RevaultSpec extends FreeSpec
 
         val path = "collection-2"
         val f = hyperbus <~ RevaultContentPost(path, DynamicBody(c1))
-        val tr1: TransactionCreated = whenReady(f) { case response: Created[TransactionCreated] ⇒
+        val tr1: RevaultTransactionCreated = whenReady(f) { case response: Created[RevaultTransactionCreated] ⇒
           response.status should equal(Status.CREATED)
           response.body
         }
@@ -803,7 +803,7 @@ class RevaultSpec extends FreeSpec
         }
 
         val f3 = hyperbus <~ RevaultContentPost(path, DynamicBody(c2))
-        val tr2: TransactionCreated = whenReady(f3) { case response: Created[CreatedBody] ⇒
+        val tr2: RevaultTransactionCreated = whenReady(f3) { case response: Created[CreatedBody] ⇒
           response.status should equal(Status.CREATED)
           response.body
         }

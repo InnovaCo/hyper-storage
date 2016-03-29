@@ -2,11 +2,11 @@
 title: Revault API
 baseUri: https://meta.inn.eu/revault
 types:
-  Transaction:
+  RevaultTransaction:
     type: object
     properties:
       transactionId: string
-  TransactionCreated:
+  RevaultTransactionCreated:
       type: object
       properties:
         transactionId: string
@@ -25,31 +25,31 @@ annotationTypes:
       200:
         body:
           application/json:
-            type: Transaction
+            type: RevaultTransaction
       201:
         body:
             application/json:
-              type: TransactionCreated
+              type: RevaultTransactionCreated
   patch:
     (feed):
     responses:
       200:
         body:
           application/json:
-            type: Transaction
+            type: RevaultTransaction
   delete:
     (feed):
     responses:
       200:
         body:
           application/json:
-            type: Transaction
+            type: RevaultTransaction
   post:
     responses:
       201:
         body:
             application/json:
-              type: TransactionCreated
+              type: RevaultTransactionCreated
 /revault/transactions/{transactionId}:
   uriParameters:
     transactionId: string
@@ -58,4 +58,4 @@ annotationTypes:
       200:
         body:
           application/json:
-            type: Transaction
+            type: RevaultTransaction

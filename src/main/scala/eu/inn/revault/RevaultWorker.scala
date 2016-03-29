@@ -11,7 +11,7 @@ import eu.inn.hyperbus.{IdGenerator, Hyperbus}
 import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.revault.db._
-import eu.inn.revault.api.{RevaultContentGet, TransactionCreated}
+import eu.inn.revault.api.{RevaultContentGet, RevaultTransactionCreated}
 import eu.inn.revault.sharding.{ShardTask, ShardTaskComplete}
 
 import scala.concurrent.Future
@@ -121,16 +121,16 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, completerTimeout: FiniteDuration
       owner ! RevaultCompleterTask(System.currentTimeMillis() + completerTimeout.toMillis, transaction.documentUri)
       val transactionId = transaction.documentUri + ":" + transaction.uuid + ":" + transaction.revision
       val result: Response[Body] = if (created) {
-        Created(TransactionCreated(transactionId,
+        Created(RevaultTransactionCreated(transactionId,
           path = request.path,
           links = new LinksBuilder()
-            .self(api.Transaction.selfPattern, templated = true)
+            .self(api.RevaultTransaction.selfPattern, templated = true)
             .location(RevaultContentGet.uriPattern)
             .result()
         ))
       }
       else {
-        Ok(api.Transaction(transactionId))
+        Ok(api.RevaultTransaction(transactionId))
       }
       owner ! ShardTaskComplete(task, RevaultTaskResult(result.serializeToString()))
       unbecome()
