@@ -10,9 +10,9 @@ projectBuildNumber := "SNAPSHOT"
 
 version := projectMajorVersion.value + "." + projectBuildNumber.value
 
-scalaVersion := "2.11.7"
+scalaVersion := "2.11.8"
 
-crossScalaVersions := Seq("2.11.7")
+crossScalaVersions := Seq("2.11.8")
 
 resolvers ++= Seq(
   Resolver.sonatypeRepo("public"),
@@ -41,16 +41,16 @@ addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.fu
 libraryDependencies ++= Seq(
   "eu.inn" %% "service-control" % "0.1.16",
   "eu.inn" %% "service-config" % "0.1.3",
-  "eu.inn" %% "hyperbus" % "0.1.65",
-  "eu.inn" %% "hyperbus-t-distributed-akka" % "0.1.65",
-  "eu.inn" %% "hyperbus-akka" % "0.1.65",
-  "eu.inn" %% "hyperbus-t-kafka" % "0.1.65",
-  "eu.inn" %% "binders-core" % "0.11.77",
-  "eu.inn" %% "binders-cassandra" % "0.9.43",
+  "eu.inn" %% "hyperbus" % "0.1.76",
+  "eu.inn" %% "hyperbus-t-distributed-akka" % "0.1.76",
+  "eu.inn" %% "hyperbus-akka" % "0.1.76",
+  "eu.inn" %% "hyperbus-t-kafka" % "0.1.76",
+  "eu.inn" %% "binders-core" % "0.12.85",
+  "eu.inn" %% "binders-cassandra" % "0.12.44",
   "com.datastax.cassandra" % "cassandra-driver-core" % "2.1.9",
   "org.slf4j" % "slf4j-api" % "1.7.12",
   "ch.qos.logback" % "logback-classic" % "1.1.3",
-  "org.scalatest" %% "scalatest" % "2.2.1" % "test",
+  "org.scalatest" %% "scalatest" % "2.2.6" % "test",
   "org.mockito" % "mockito-all" % "1.10.19" % "test",
   "com.typesafe.akka" %% "akka-testkit" % "2.4.1" % "test",
   "org.cassandraunit" % "cassandra-unit" % "2.2.2.1" % "test",

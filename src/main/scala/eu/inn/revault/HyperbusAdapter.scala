@@ -2,7 +2,7 @@ package eu.inn.revault
 
 import akka.actor.{Actor, ActorLogging, ActorRef}
 import akka.pattern.ask
-import eu.inn.binders.dynamic.{Lst, Obj}
+import eu.inn.binders.value.{Lst, Obj}
 import eu.inn.hyperbus.akkaservice.AkkaHyperService
 import eu.inn.revault.db.Db
 import eu.inn.revault.api._

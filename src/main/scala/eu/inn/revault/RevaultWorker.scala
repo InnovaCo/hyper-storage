@@ -4,7 +4,7 @@ import java.util.Date
 
 import akka.actor.{Actor, ActorLogging, ActorRef}
 import akka.pattern.pipe
-import eu.inn.binders.dynamic._
+import eu.inn.binders.value._
 import eu.inn.hyperbus.transport.api.matchers.Specific
 import eu.inn.hyperbus.transport.api.uri.Uri
 import eu.inn.hyperbus.{IdGenerator, Hyperbus}
@@ -246,7 +246,7 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, completerTimeout: FiniteDuration
   }
 
   private def mergeBody(existing: DynamicBody, patch: DynamicBody): DynamicBody = {
-    DynamicBody(filterNulls(existing.content.merge(patch.content)))
+    DynamicBody(filterNulls(existing.content + patch.content))
   }
 
   implicit class RequestWrapper(val request: DynamicRequest) {
@@ -279,11 +279,11 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, completerTimeout: FiniteDuration
   }
 
   def filterNulls(content: Value): Value = {
-    content.accept[Value](filterNullsVisitor)
+    content ~~ filterNullsVisitor
   }
 
   def filterNulls(body: DynamicBody): DynamicBody = {
-    body.copy(content = body.content.accept[Value](filterNullsVisitor))
+    body.copy(content = body.content ~~ filterNullsVisitor)
   }
 
   def appendId(body: DynamicBody, id: Value): DynamicBody = {

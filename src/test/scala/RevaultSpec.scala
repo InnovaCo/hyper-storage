@@ -4,7 +4,7 @@ import akka.actor.{ActorSelection, Address, Props}
 import akka.testkit.{TestActorRef, TestProbe}
 import akka.util.Timeout
 import com.datastax.driver.core.utils.UUIDs
-import eu.inn.binders.dynamic._
+import eu.inn.binders.value._
 import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.revault._
