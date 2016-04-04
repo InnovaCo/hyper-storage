@@ -183,7 +183,7 @@ class RevaultSpec extends FreeSpec
         }
       }
 
-      "Patch existing resource" in {
+      "Patch existing and deleted resource" in {
         val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
@@ -215,6 +215,24 @@ class RevaultSpec extends FreeSpec
 
         whenReady(db.selectContent(path, "")) { result =>
           result.get.body should equal(Some("""{"text1":"efg","text3":"zzz"}"""))
+        }
+
+        // delete element
+        val deleteTask = RevaultContentDelete(path)
+        val deleteTaskStr = StringSerializer.serializeToString(deleteTask)
+        worker ! RevaultTask(path, System.currentTimeMillis() + 10000, deleteTaskStr)
+        expectMsgType[RevaultCompleterTask]
+        expectMsgType[ShardTaskComplete]
+
+        // now patch should return 404
+        worker ! RevaultTask(path, System.currentTimeMillis() + 10000, taskPatchStr)
+
+        expectMsgType[RevaultCompleterTask]
+        expectMsgPF() {
+          case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).statusCode == Status.NOT_FOUND &&
+            response(result.content).correlationId == task.correlationId ⇒ {
+            true
+          }
         }
       }
 
@@ -518,6 +536,24 @@ class RevaultSpec extends FreeSpec
           result.get.modifiedAt shouldNot be(None)
           result.get.documentUri should equal(documentUri)
           result.get.itemSegment should equal(itemSegment)
+        }
+
+        // delete element
+        val deleteTask = RevaultContentDelete(path)
+        val deleteTaskStr = StringSerializer.serializeToString(deleteTask)
+        worker ! RevaultTask(documentUri, System.currentTimeMillis() + 10000, deleteTaskStr)
+        expectMsgType[RevaultCompleterTask]
+        expectMsgType[ShardTaskComplete]
+
+        // now patch should return 404
+        worker ! RevaultTask(documentUri, System.currentTimeMillis() + 10000, taskPatchStr)
+
+        expectMsgType[RevaultCompleterTask]
+        expectMsgPF() {
+          case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).statusCode == Status.NOT_FOUND &&
+            response(result.content).correlationId == task.correlationId ⇒ {
+            true
+          }
         }
       }
 

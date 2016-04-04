@@ -65,7 +65,6 @@ class RevaultCompleter(hyperbus: Hyperbus, db: Db) extends Actor with ActorLoggi
   def completeTransactions(task: RevaultCompleterTask, content: ContentStatic): Future[ShardTaskComplete] = {
     if (content.transactionList.isEmpty) {
       Future.successful(ShardTaskComplete(task, RevaultCompleterTaskResult(task.documentUri, Seq.empty)))
-      //throw new IncorrectDataException(content.documentUri, "empty transaction list")
     }
     else {
       selectIncompleteTransactions(content) flatMap { incompleteTransactions ⇒

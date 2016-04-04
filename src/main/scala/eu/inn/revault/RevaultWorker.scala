@@ -196,12 +196,8 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, completerTimeout: FiniteDuration
                            newTransaction: Transaction,
                            request: DynamicRequest,
                            existingContent: Option[Content]): Content = existingContent match {
-    case None ⇒ {
-      implicit val mcx = request
-      throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
-    }
 
-    case Some(content) ⇒
+    case Some(content) if !content.isDeleted ⇒
       Content(documentUri, itemSegment, newTransaction.revision,
         transactionList = newTransaction.uuid +: content.transactionList,
         body = Some(mergeBody(StringDeserializer.dynamicBody(content.body), request.body).serializeToString()),
@@ -209,6 +205,10 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, completerTimeout: FiniteDuration
         createdAt = content.createdAt,
         modifiedAt = Some(new Date())
       )
+
+    case _ ⇒
+      implicit val mcx = request
+      throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
   }
 
   private def deleteContent(documentUri: String,
