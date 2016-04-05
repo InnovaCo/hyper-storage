@@ -1,9 +1,9 @@
 package eu.inn.revault.sharding
 
 import akka.actor._
-import akka.cluster.ClusterEvent.{MemberEvent, MemberExited, MemberRemoved, MemberUp}
+import akka.cluster.ClusterEvent._
 import akka.cluster.Member.addressOrdering
-import akka.cluster.{Cluster, ClusterEvent, Member}
+import akka.cluster.{Cluster, ClusterEvent, Member, MemberStatus}
 import akka.routing.{ConsistentHash, MurmurHash}
 
 import scala.collection.mutable
@@ -134,6 +134,10 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
       else {
         stay
       }
+
+    // ignore those when Deactivating
+    case Event(MemberLeft(member), _) ⇒ stay()
+    case Event(ShutdownProcessor, _) ⇒ stay()
   }
 
   whenUnhandled {
@@ -151,6 +155,13 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
 
     case Event(MemberExited(member), data) ⇒
       removeMember(member, data) andUpdate
+
+    case Event(MemberLeft(member), _) ⇒
+      log.warning(s"Someone have commanded leaving to me! Shutting down processor")
+      if (member.address == selfAddress && member.status == MemberStatus.Leaving) {
+        self ! ShutdownProcessor
+      }
+      stay()
 
     case Event(ShardTaskComplete(task, result), data) ⇒
       workerIsReadyForNextTask(task, result)

@@ -9,8 +9,8 @@ import eu.inn.hyperbus.akkaservice._
 import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
 import eu.inn.revault.db.Db
-import eu.inn.revault.recovery.{ShutdownRecoveryWorker, HotRecoveryWorker, StaleRecoveryWorker}
-import eu.inn.revault.sharding.{ShardProcessor, SubscribeToShardStatus}
+import eu.inn.revault.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
+import eu.inn.revault.sharding.{ShardProcessor, ShutdownProcessor, SubscribeToShardStatus}
 import eu.inn.servicecontrol.api.{Console, Service}
 import org.slf4j.LoggerFactory
 import scaldi.Injectable
@@ -97,11 +97,12 @@ class RevaultService(console: Console,
     hotRecoveryActorRef ! ShutdownRecoveryWorker
     subscriptions.foreach(subscription => Await.result(hyperbus.off(subscription), shutdownTimeout/2))
 
+    log.info("Stopping processor actor...")
     try {
-      akka.pattern.gracefulStop(processorActorRef, shutdownTimeout*4/5, PoisonPill)
+      akka.pattern.gracefulStop(processorActorRef, shutdownTimeout*4/5, ShutdownProcessor)
     } catch {
       case t: Throwable ⇒
-        log.error("ProcessorActor didn't shutdown gracefully", t)
+        log.error("ProcessorActor didn't stopped gracefully", t)
     }
 
     try {
