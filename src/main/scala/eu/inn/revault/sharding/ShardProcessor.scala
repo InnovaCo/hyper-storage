@@ -157,8 +157,8 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
       removeMember(member, data) andUpdate
 
     case Event(MemberLeft(member), _) ⇒
-      log.warning(s"Someone have commanded leaving to me! Shutting down processor")
       if (member.address == selfAddress && member.status == MemberStatus.Leaving) {
+        log.warning(s"Someone have commanded leaving to me! Shutting down processor")
         self ! ShutdownProcessor
       }
       stay()
