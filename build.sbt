@@ -58,4 +58,4 @@ libraryDependencies ++= Seq(
   "org.pegdown" % "pegdown" % "1.6.0" % "test"
 )
 
-testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports")
+testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports", "-oDS")

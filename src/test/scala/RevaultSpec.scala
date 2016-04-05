@@ -227,7 +227,6 @@ class RevaultSpec extends FreeSpec
         // now patch should return 404
         worker ! RevaultTask(path, System.currentTimeMillis() + 10000, taskPatchStr)
 
-        expectMsgType[RevaultCompleterTask]
         expectMsgPF() {
           case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).statusCode == Status.NOT_FOUND &&
             response(result.content).correlationId == task.correlationId ⇒ {
@@ -548,7 +547,6 @@ class RevaultSpec extends FreeSpec
         // now patch should return 404
         worker ! RevaultTask(documentUri, System.currentTimeMillis() + 10000, taskPatchStr)
 
-        expectMsgType[RevaultCompleterTask]
         expectMsgPF() {
           case ShardTaskComplete(_, result: RevaultTaskResult) if response(result.content).statusCode == Status.NOT_FOUND &&
             response(result.content).correlationId == task.correlationId ⇒ {
