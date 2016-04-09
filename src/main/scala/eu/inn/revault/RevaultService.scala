@@ -46,6 +46,8 @@ class RevaultService(console: Console,
   import eu.inn.binders.tconfig._
   val revaultConfig = config.getValue("revault").read[RevaultConfig]
 
+  log.info(s"Revault configuration: $revaultConfig")
+
   // metrics tracker
   val tracker = inject[MetricsTracker]
   MetricsReporter.startReporter(tracker)
