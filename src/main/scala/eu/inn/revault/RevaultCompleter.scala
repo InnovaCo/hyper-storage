@@ -2,12 +2,14 @@ package eu.inn.revault
 
 import java.util.UUID
 
-import akka.actor.{Status, Actor, ActorLogging, ActorRef}
+import akka.actor.{Actor, ActorLogging, ActorRef, Props, Status}
 import akka.pattern.pipe
 import com.datastax.driver.core.utils.UUIDs
 import eu.inn.hyperbus.Hyperbus
 import eu.inn.hyperbus.model.DynamicRequest
+import eu.inn.metrics.MetricsTracker
 import eu.inn.revault.db.{ContentStatic, Db, Transaction}
+import eu.inn.revault.metrics.Metrics
 import eu.inn.revault.sharding.{ShardTask, ShardTaskComplete}
 import eu.inn.revault.utils.FutureUtils
 
@@ -28,7 +30,7 @@ import scala.util.control.NonFatal
 @SerialVersionUID(1L) case class CompletionFailedException(documentUri: String, reason: String) extends RuntimeException(s"Complete for $documentUri is failed: $reason")
 
 // todo: rename this
-class RevaultCompleter(hyperbus: Hyperbus, db: Db) extends Actor with ActorLogging {
+class RevaultCompleter(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) extends Actor with ActorLogging {
   import ContentLogic._
   import context._
 
@@ -46,18 +48,20 @@ class RevaultCompleter(hyperbus: Hyperbus, db: Db) extends Actor with ActorLoggi
       }
     }
     else {
-      db.selectContentStatic(task.documentUri) flatMap {
-        case None ⇒
-          log.error(s"Didn't found resource to complete, dismissing task: $task")
-          Future(ShardTaskComplete(task, new NoSuchResourceException(task.documentUri)))
-        case Some(content) ⇒
-          try {
-            completeTransactions(task, content)
-          } catch {
-            case NonFatal(e) ⇒
-              log.error(e, s"Task $task didn't complete")
-              Future(ShardTaskComplete(task, e))
-          }
+      tracker.timeOfFuture(Metrics.COMPLETER_PROCESS_TIME) {
+        db.selectContentStatic(task.documentUri) flatMap {
+          case None ⇒
+            log.error(s"Didn't found resource to complete, dismissing task: $task")
+            Future(ShardTaskComplete(task, new NoSuchResourceException(task.documentUri)))
+          case Some(content) ⇒
+            try {
+              completeTransactions(task, content)
+            } catch {
+              case NonFatal(e) ⇒
+                log.error(e, s"Task $task didn't complete")
+                Future(ShardTaskComplete(task, e))
+            }
+        }
       } pipeTo owner
     }
   }
@@ -109,4 +113,8 @@ class RevaultCompleter(hyperbus: Hyperbus, db: Db) extends Actor with ActorLoggi
   }
 }
 
-
+object RevaultCompleter {
+  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) = Props(classOf[RevaultCompleter],
+    hyperbus, db, tracker
+  )
+}

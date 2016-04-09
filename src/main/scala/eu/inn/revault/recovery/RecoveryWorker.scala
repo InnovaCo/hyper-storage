@@ -4,8 +4,11 @@ import java.util.Date
 
 import akka.actor._
 import akka.pattern.ask
+import com.codahale.metrics.Meter
+import eu.inn.metrics.MetricsTracker
 import eu.inn.revault._
 import eu.inn.revault.db.Db
+import eu.inn.revault.metrics.Metrics
 import eu.inn.revault.sharding.ShardMemberStatus.{Active, Deactivating}
 import eu.inn.revault.sharding.{ShardTask, ShardedClusterData, UpdateShardStatus}
 import eu.inn.revault.utils.FutureUtils
@@ -64,11 +67,15 @@ trait WorkerState {
 abstract class RecoveryWorker[T <: WorkerState](
                                   db: Db,
                                   shardProcessor: ActorRef,
+                                  tracker: MetricsTracker,
                                   retryPeriod: FiniteDuration,
                                   completerTimeout: FiniteDuration
                                 ) extends Actor with ActorLogging {
   import context._
   var currentProcessId: Long = 0
+
+  def checkQuantumTimerName: String
+  def trackIncompleteMeter: Meter
 
   def receive = {
     case UpdateShardStatus(_, Active, stateData) ⇒
@@ -93,12 +100,14 @@ abstract class RecoveryWorker[T <: WorkerState](
       runNewRecoveryCheck(workerPartitions)
 
     case CheckQuantum(processId, dtQuantum, partitionsForQuantum, state) if processId == currentProcessId ⇒
-      checkQuantum(dtQuantum, partitionsForQuantum) map { _ ⇒
-        runNextRecoveryCheck(CheckQuantum(processId, dtQuantum, partitionsForQuantum, state.asInstanceOf[T]))
-      } recover {
-        case NonFatal(e) ⇒
-          log.error(e, s"Quantum check for $dtQuantum is failed. Will retry in $retryPeriod")
-          system.scheduler.scheduleOnce(retryPeriod, self, CheckQuantum(processId, dtQuantum, partitionsForQuantum, state))
+      tracker.timeOfFuture(checkQuantumTimerName) {
+        checkQuantum(dtQuantum, partitionsForQuantum) map { _ ⇒
+          runNextRecoveryCheck(CheckQuantum(processId, dtQuantum, partitionsForQuantum, state.asInstanceOf[T]))
+        } recover {
+          case NonFatal(e) ⇒
+            log.error(e, s"Quantum check for $dtQuantum is failed. Will retry in $retryPeriod")
+            system.scheduler.scheduleOnce(retryPeriod, self, CheckQuantum(processId, dtQuantum, partitionsForQuantum, state))
+        }
       }
 
     case ShutdownRecoveryWorker ⇒
@@ -127,7 +136,7 @@ abstract class RecoveryWorker[T <: WorkerState](
       db.selectPartitionTransactions(dtQuantum, partition).flatMap { partitionTransactions ⇒
         val incompleteTransactions = partitionTransactions.toList.filter(_.completedAt.isEmpty).groupBy(_.documentUri)
         FutureUtils.serial(incompleteTransactions.toSeq) { case (documentUri, transactions) ⇒
-
+          trackIncompleteMeter.mark(transactions.length)
           val task = RevaultCompleterTask(
             System.currentTimeMillis() + completerTimeout.toMillis + 1000,
             documentUri
@@ -195,10 +204,11 @@ class HotRecoveryWorker(
                          hotPeriod: (Long,Long),
                          db: Db,
                          shardProcessor: ActorRef,
+                         tracker: MetricsTracker,
                          retryPeriod: FiniteDuration,
                          recoveryCompleterTimeout: FiniteDuration
                        ) extends RecoveryWorker[HotWorkerState] (
-    db,shardProcessor,retryPeriod, recoveryCompleterTimeout
+    db, shardProcessor, tracker, retryPeriod, recoveryCompleterTimeout
   ) {
 
   import context._
@@ -222,6 +232,9 @@ class HotRecoveryWorker(
       system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(currentProcessId))
     }
   }
+
+  override def checkQuantumTimerName: String = Metrics.HOT_QUANTUM_TIMER
+  override def trackIncompleteMeter: Meter = tracker.meter(Metrics.HOT_INCOMPLETE_METER)
 }
 
 case class StaleWorkerState(workerPartitions: Seq[Int],
@@ -234,10 +247,11 @@ class StaleRecoveryWorker(
                            stalePeriod: (Long,Long),
                            db: Db,
                            shardProcessor: ActorRef,
+                           tracker: MetricsTracker,
                            retryPeriod: FiniteDuration,
                            completerTimeout: FiniteDuration
                          ) extends RecoveryWorker[StaleWorkerState] (
-  db,shardProcessor,retryPeriod, completerTimeout
+  db, shardProcessor, tracker, retryPeriod, completerTimeout
   ) {
 
   import context._
@@ -307,5 +321,45 @@ class StaleRecoveryWorker(
         system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(currentProcessId))
     }
   }
+
+  override def checkQuantumTimerName: String = Metrics.STALE_QUANTUM_TIMER
+  override def trackIncompleteMeter: Meter = tracker.meter(Metrics.STALE_INCOMPLETE_METER)
 }
 
+object HotRecoveryWorker {
+  def props(
+              hotPeriod: (Long, Long),
+              db: Db,
+              shardProcessor: ActorRef,
+              tracker: MetricsTracker,
+              retryPeriod: FiniteDuration,
+              recoveryCompleterTimeout: FiniteDuration
+           ) = Props(
+    classOf[HotRecoveryWorker],
+    hotPeriod,
+    db,
+    shardProcessor,
+    tracker,
+    retryPeriod,
+    recoveryCompleterTimeout
+  )
+}
+
+object StaleRecoveryWorker {
+  def props(
+             stalePeriod: (Long,Long),
+             db: Db,
+             shardProcessor: ActorRef,
+             tracker: MetricsTracker,
+             retryPeriod: FiniteDuration,
+             completerTimeout: FiniteDuration
+           ) = Props(
+    classOf[StaleRecoveryWorker],
+    stalePeriod,
+    db,
+    shardProcessor,
+    tracker,
+    retryPeriod,
+    completerTimeout
+  )
+}

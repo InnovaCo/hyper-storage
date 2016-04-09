@@ -20,7 +20,7 @@ import org.scalatest.{FreeSpec, Matchers}
 import akka.pattern.gracefulStop
 import com.codahale.metrics.ConsoleReporter
 import com.yammer.metrics.core.MetricsRegistry
-import eu.inn.metrics.Metrics
+import eu.inn.metrics.MetricsTracker
 import eu.inn.metrics.loaders.MetricsReporterLoader
 import eu.inn.metrics.modules.ConsoleReporterModule
 import scaldi.Injectable
@@ -117,7 +117,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
+        val worker = TestActorRef(RevaultWorker.props(hyperbus, db, tracker, 10.seconds))
 
         val task = RevaultContentPut(
           path = "test-resource-1",
@@ -148,7 +148,7 @@ class RevaultSpec extends FreeSpec
           result.get.transactionList.head
         }
 
-        val completer = TestActorRef(new RevaultCompleter(hyperbus, db))
+        val completer = TestActorRef(RevaultCompleter.props(hyperbus, db, tracker))
         completer ! completerTask
         val completerResult = expectMsgType[ShardTaskComplete]
         val rc = completerResult.result.asInstanceOf[RevaultCompleterTaskResult]
@@ -168,7 +168,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
+        val worker = TestActorRef(RevaultWorker.props(hyperbus, db, tracker, 10.seconds))
 
         val task = RevaultContentPatch(
           path = "not-existing",
@@ -194,7 +194,7 @@ class RevaultSpec extends FreeSpec
         val tk = testKit()
         import tk._
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
+        val worker = TestActorRef(RevaultWorker.props(hyperbus, db, tracker, 10.seconds))
 
         val path = "test-resource-" + UUID.randomUUID().toString
         val taskPutStr = StringSerializer.serializeToString(RevaultContentPut(path,
@@ -248,7 +248,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
+        val worker = TestActorRef(RevaultWorker.props(hyperbus, db, tracker, 10.seconds))
 
         val task = RevaultContentDelete(path = "not-existing", body = EmptyBody)
 
@@ -273,7 +273,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
+        val worker = TestActorRef(RevaultWorker.props(hyperbus, db, tracker, 10.seconds))
 
         val path = "test-resource-" + UUID.randomUUID().toString
         val taskPutStr = StringSerializer.serializeToString(RevaultContentPut(path,
@@ -312,7 +312,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
+        val worker = TestActorRef(RevaultWorker.props(hyperbus, db, tracker, 10.seconds))
         val path = "abcde"
         val taskStr1 = StringSerializer.serializeToString(RevaultContentPut(path,
           DynamicBody(ObjV("text" → "Test resource value", "null" → Null))
@@ -344,7 +344,7 @@ class RevaultSpec extends FreeSpec
           transaction.completedAt should be(None)
         }
 
-        val completer = TestActorRef(new RevaultCompleter(hyperbus, db))
+        val completer = TestActorRef(RevaultCompleter.props(hyperbus, db, tracker))
         completer ! completerTask
         val completerResult = expectMsgType[ShardTaskComplete]
         val rc = completerResult.result.asInstanceOf[RevaultCompleterTaskResult]
@@ -363,7 +363,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
+        val worker = TestActorRef(RevaultWorker.props(hyperbus, db, tracker, 10.seconds))
         val path = "faulty"
         val taskStr1 = StringSerializer.serializeToString(RevaultContentPut(path,
           DynamicBody(ObjV("text" → "Test resource value", "null" → Null))
@@ -387,7 +387,7 @@ class RevaultSpec extends FreeSpec
           _.completedAt shouldBe None
         }
 
-        val completer = TestActorRef(new RevaultCompleter(hyperbus, db))
+        val completer = TestActorRef(RevaultCompleter.props(hyperbus, db, tracker))
 
         FaultClientTransport.checkers += {
           case request: DynamicRequest ⇒
@@ -441,7 +441,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
+        val worker = TestActorRef(RevaultWorker.props(hyperbus, db, tracker, 10.seconds))
 
         val task = RevaultContentPut(
           path = "collection-1/test-resource-1",
@@ -491,7 +491,7 @@ class RevaultSpec extends FreeSpec
         transactions.head.revision should equal(2)
         transactions.tail.head.revision should equal(1)
 
-        val completer = TestActorRef(new RevaultCompleter(hyperbus, db))
+        val completer = TestActorRef(RevaultCompleter.props(hyperbus, db, tracker))
         completer ! completerTask
         val completerResult = expectMsgType[ShardTaskComplete]
         val rc = completerResult.result.asInstanceOf[RevaultCompleterTaskResult]
@@ -509,7 +509,7 @@ class RevaultSpec extends FreeSpec
         val tk = testKit()
         import tk._
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
+        val worker = TestActorRef(RevaultWorker.props(hyperbus, db, tracker, 10.seconds))
 
         val path = "collection-1/test-resource-" + UUID.randomUUID().toString
         val (documentUri,itemSegment) = ContentLogic.splitPath(path)
@@ -566,7 +566,7 @@ class RevaultSpec extends FreeSpec
         val tk = testKit()
         import tk._
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
+        val worker = TestActorRef(RevaultWorker.props(hyperbus, db, tracker, 10.seconds))
 
         val path = "collection-1/test-resource-" + UUID.randomUUID().toString
         val (documentUri,itemSegment) = ContentLogic.splitPath(path)
@@ -607,15 +607,15 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val workerProps = Props(classOf[RevaultWorker], hyperbus, db, 10.seconds)
-        val completerProps = Props(classOf[RevaultCompleter], hyperbus, db)
+        val workerProps = RevaultWorker.props(hyperbus, db, tracker, 10.seconds)
+        val completerProps = RevaultCompleter.props(hyperbus, db, tracker)
         val workerSettings = Map(
           "revault" →(workerProps, 1),
           "revault-completer" →(completerProps, 1)
         )
 
-        val processor = TestActorRef(new ShardProcessor(workerSettings, "revault"))
-        val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20.seconds))
+        val processor = TestActorRef(ShardProcessor.props(workerSettings, "revault", tracker))
+        val distributor = TestActorRef(HyperbusAdapter.props(processor, db, tracker, 20.seconds))
         import eu.inn.hyperbus.akkaservice._
         implicit val timeout = Timeout(20.seconds)
         hyperbus.routeTo[HyperbusAdapter](distributor).futureValue // wait while subscription is completes
@@ -656,15 +656,15 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val workerProps = Props(classOf[RevaultWorker], hyperbus, db, 10.seconds)
-        val completerProps = Props(classOf[RevaultCompleter], hyperbus, db)
+        val workerProps = RevaultWorker.props(hyperbus, db, tracker, 10.seconds)
+        val completerProps = RevaultCompleter.props(hyperbus, db, tracker)
         val workerSettings = Map(
           "revault" →(workerProps, 1),
           "revault-completer" →(completerProps, 1)
         )
 
-        val processor = TestActorRef(new ShardProcessor(workerSettings, "revault"))
-        val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20.seconds))
+        val processor = TestActorRef(ShardProcessor.props(workerSettings, "revault", tracker))
+        val distributor = TestActorRef(HyperbusAdapter.props(processor, db, tracker, 20.seconds))
         import eu.inn.hyperbus.akkaservice._
         implicit val timeout = Timeout(20.seconds)
         hyperbus.routeTo[HyperbusAdapter](distributor)
@@ -711,15 +711,15 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val workerProps = Props(classOf[RevaultWorker], hyperbus, db, 10.seconds)
-        val completerProps = Props(classOf[RevaultCompleter], hyperbus, db)
+        val workerProps = RevaultWorker.props(hyperbus, db, tracker, 10.seconds)
+        val completerProps = RevaultCompleter.props(hyperbus, db, tracker)
         val workerSettings = Map(
           "revault" →(workerProps, 1),
           "revault-completer" →(completerProps, 1)
         )
 
-        val processor = TestActorRef(new ShardProcessor(workerSettings, "revault"))
-        val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20.seconds))
+        val processor = TestActorRef(ShardProcessor.props(workerSettings, "revault", tracker))
+        val distributor = TestActorRef(HyperbusAdapter.props(processor, db, tracker, 20.seconds))
         import eu.inn.hyperbus.akkaservice._
         implicit val timeout = Timeout(20.seconds)
         hyperbus.routeTo[HyperbusAdapter](distributor).futureValue // wait while subscription is completes
@@ -792,15 +792,15 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val workerProps = Props(classOf[RevaultWorker], hyperbus, db, 10.seconds)
-        val completerProps = Props(classOf[RevaultCompleter], hyperbus, db)
+        val workerProps = RevaultWorker.props(hyperbus, db, tracker, 10.seconds)
+        val completerProps = RevaultCompleter.props(hyperbus, db, tracker)
         val workerSettings = Map(
           "revault" →(workerProps, 1),
           "revault-completer" →(completerProps, 1)
         )
 
-        val processor = TestActorRef(new ShardProcessor(workerSettings, "revault"))
-        val distributor = TestActorRef(new HyperbusAdapter(processor, db, 20.seconds))
+        val processor = TestActorRef(ShardProcessor.props(workerSettings, "revault", tracker))
+        val distributor = TestActorRef(HyperbusAdapter.props(processor, db, tracker, 20.seconds))
         import eu.inn.hyperbus.akkaservice._
         implicit val timeout = Timeout(20.seconds)
         hyperbus.routeTo[HyperbusAdapter](distributor).futureValue // wait while subscription is completes
@@ -879,7 +879,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
+        val worker = TestActorRef(RevaultWorker.props(hyperbus, db, tracker, 10.seconds))
         val path = "incomplete-" + UUID.randomUUID().toString
         val taskStr1 = StringSerializer.serializeToString(RevaultContentPut(path,
           DynamicBody(ObjV("text" → "Test resource value", "null" → Null))
@@ -893,8 +893,8 @@ class RevaultSpec extends FreeSpec
         }
 
         val processorProbe = TestProbe("processor")
-        val hotWorkerProps = Props(classOf[HotRecoveryWorker],
-          (60 * 1000l, -60 * 1000l), db, processorProbe.ref, 1.seconds, 10.seconds
+        val hotWorkerProps = HotRecoveryWorker.props(
+          (60 * 1000l, -60 * 1000l), db, processorProbe.ref, tracker, 1.seconds, 10.seconds
         )
 
         val hotWorker = TestActorRef(hotWorkerProps)
@@ -921,7 +921,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
+        val worker = TestActorRef(RevaultWorker.props(hyperbus, db, tracker, 10.seconds))
         val path = "incomplete-" + UUID.randomUUID().toString
         val taskStr1 = StringSerializer.serializeToString(RevaultContentPut(path,
           DynamicBody(ObjV("text" → "Test resource value", "null" → Null))
@@ -948,8 +948,8 @@ class RevaultSpec extends FreeSpec
         db.updateCheckpoint(transaction.partition, transaction.dtQuantum - 10) // checkpoint to - 10 minutes
 
         val processorProbe = TestProbe("processor")
-        val staleWorkerProps = Props(classOf[StaleRecoveryWorker],
-          (60 * 1000l, -60 * 1000l), db, processorProbe.ref, 1.seconds, 2.seconds
+        val staleWorkerProps = StaleRecoveryWorker.props(
+          (60 * 1000l, -60 * 1000l), db, processorProbe.ref, tracker, 1.seconds, 2.seconds
         )
 
         val hotWorker = TestActorRef(staleWorkerProps)

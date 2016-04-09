@@ -1,24 +1,22 @@
 package eu.inn.revault
 
-import akka.actor.{PoisonPill, Props}
+import akka.actor.Props
 import akka.cluster.Cluster
 import com.typesafe.config.Config
-import eu.inn.config.ConfigExtenders._
 import eu.inn.hyperbus.Hyperbus
 import eu.inn.hyperbus.akkaservice._
 import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
-import eu.inn.metrics.{Metrics, ProcessMetrics}
-import eu.inn.metrics.loaders.MetricsReporterLoader
+import eu.inn.metrics.MetricsTracker
 import eu.inn.revault.db.Db
+import eu.inn.revault.metrics.MetricsReporter
 import eu.inn.revault.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
 import eu.inn.revault.sharding.{ShardProcessor, ShutdownProcessor, SubscribeToShardStatus}
-import eu.inn.revault.utils.MetricsUtils
 import eu.inn.servicecontrol.api.{Console, Service}
 import org.slf4j.LoggerFactory
-import scaldi.{Injectable, Injector, TypeTagIdentifier}
+import scaldi.{Injectable, Injector}
 
-import scala.concurrent.duration.{Duration, FiniteDuration}
+import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{Await, ExecutionContext}
 import scala.util.control.NonFatal
 
@@ -48,9 +46,9 @@ class RevaultService(console: Console,
   import eu.inn.binders.tconfig._
   val revaultConfig = config.getValue("revault").read[RevaultConfig]
 
-  // metrics reporter
-  val metrics = inject[Metrics]
-  MetricsUtils.startReporter(metrics)
+  // metrics tracker
+  val tracker = inject[MetricsTracker]
+  MetricsReporter.startReporter(tracker)
 
   import revaultConfig._
 
@@ -76,32 +74,34 @@ class RevaultService(console: Console,
   }
 
   // worker actor todo: recovery job
-  val workerProps = Props(classOf[RevaultWorker], hyperbus, db, metrics, completerTimeout)
-  val completerProps = Props(classOf[RevaultCompleter], hyperbus, db)
+  val workerProps = RevaultWorker.props(hyperbus, db, tracker, completerTimeout)
+  val completerProps = RevaultCompleter.props(hyperbus, db, tracker)
   val workerSettings = Map(
     "revault" → (workerProps, maxWorkers),
     "revault-completer" → (completerProps, maxCompleters)
   )
 
-  // processor actor
-  val processorActorRef = actorSystem.actorOf(Props(new ShardProcessor(workerSettings, "revault", shardSyncTimeout)), "revault")
+  // shard processor actor
+  val shardProcessorRef = actorSystem.actorOf(
+    ShardProcessor.props(workerSettings, "revault", tracker, shardSyncTimeout), "revault"
+  )
 
-  val distributor = actorSystem.actorOf(Props(classOf[HyperbusAdapter], processorActorRef, db, requestTimeout))
+  val distributorRef = actorSystem.actorOf(HyperbusAdapter.props(shardProcessorRef, db, tracker, requestTimeout))
 
   val subscriptions = Await.result({
     implicit val timeout: akka.util.Timeout = requestTimeout
-    hyperbus.routeTo[HyperbusAdapter](distributor)
+    hyperbus.routeTo[HyperbusAdapter](distributorRef)
   }, requestTimeout)
 
   val hotPeriod = (hotRecovery.toMillis, failTimeout.toMillis)
   log.info(s"Launching hot recovery $hotRecovery-$failTimeout")
-  val hotRecoveryActorRef = actorSystem.actorOf(Props(classOf[HotRecoveryWorker], hotPeriod, db, processorActorRef, hotRecoveryRetry, completerTimeout))
-  processorActorRef ! SubscribeToShardStatus(hotRecoveryActorRef)
+  val hotRecoveryRef = actorSystem.actorOf(HotRecoveryWorker.props(hotPeriod, db, shardProcessorRef, tracker, hotRecoveryRetry, completerTimeout))
+  shardProcessorRef ! SubscribeToShardStatus(hotRecoveryRef)
 
   val stalePeriod = (staleRecovery.toMillis, hotRecovery.toMillis)
   log.info(s"Launching stale recovery $staleRecovery-$hotRecovery")
-  val staleRecoveryActorRef = actorSystem.actorOf(Props(classOf[StaleRecoveryWorker], stalePeriod, db, processorActorRef, staleRecoveryRetry, completerTimeout))
-  processorActorRef ! SubscribeToShardStatus(staleRecoveryActorRef)
+  val staleRecoveryRef = actorSystem.actorOf(StaleRecoveryWorker.props(stalePeriod, db, shardProcessorRef, tracker, staleRecoveryRetry, completerTimeout))
+  shardProcessorRef ! SubscribeToShardStatus(staleRecoveryRef)
 
   log.info("Revault started!")
 
@@ -109,13 +109,13 @@ class RevaultService(console: Console,
   override def stopService(controlBreak: Boolean): Unit = {
     log.info("Stopping Revault service...")
 
-    staleRecoveryActorRef ! ShutdownRecoveryWorker
-    hotRecoveryActorRef ! ShutdownRecoveryWorker
+    staleRecoveryRef ! ShutdownRecoveryWorker
+    hotRecoveryRef ! ShutdownRecoveryWorker
     subscriptions.foreach(subscription => Await.result(hyperbus.off(subscription), shutdownTimeout/2))
 
     log.info("Stopping processor actor...")
     try {
-      akka.pattern.gracefulStop(processorActorRef, shutdownTimeout*4/5, ShutdownProcessor)
+      akka.pattern.gracefulStop(shardProcessorRef, shutdownTimeout*4/5, ShutdownProcessor)
     } catch {
       case t: Throwable ⇒
         log.error("ProcessorActor didn't stopped gracefully", t)

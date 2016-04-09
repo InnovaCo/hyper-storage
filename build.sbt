@@ -41,7 +41,7 @@ addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.fu
 libraryDependencies ++= Seq(
   "eu.inn" %% "service-control" % "0.2.17",
   "eu.inn" %% "service-config" % "0.1.6",
-  "eu.inn" %% "service-metrics" % "0.1.6",
+  "eu.inn" %% "service-metrics" % "0.2.9",
   "eu.inn" %% "binders-typesafe-config" % "0.12.14",
   "eu.inn" %% "hyperbus" % "0.1.76",
   "eu.inn" %% "hyperbus-t-distributed-akka" % "0.1.76",

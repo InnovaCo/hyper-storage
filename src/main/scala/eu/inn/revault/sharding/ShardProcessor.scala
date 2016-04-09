@@ -5,6 +5,8 @@ import akka.cluster.ClusterEvent._
 import akka.cluster.Member.addressOrdering
 import akka.cluster.{Cluster, ClusterEvent, Member, MemberStatus}
 import akka.routing.{ConsistentHash, MurmurHash}
+import eu.inn.metrics.MetricsTracker
+import eu.inn.revault.metrics.Metrics
 
 import scala.collection.mutable
 import scala.concurrent.duration._
@@ -77,6 +79,7 @@ case class ShardTaskComplete(task: ShardTask, result: Any)
 
 class ShardProcessor(workersSettings: Map[String, (Props, Int)],
                      roleName: String,
+                     tracker: MetricsTracker,
                      syncTimeout: FiniteDuration = 1000.millisecond)
                      extends FSMEx[ShardMemberStatus, ShardedClusterData] with Stash {
 
@@ -90,6 +93,11 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
   }
   private val shardStatusSubscribers = mutable.MutableList[ActorRef]()
   cluster.subscribe(self, initialStateMode = ClusterEvent.InitialStateAsEvents, classOf[MemberEvent])
+
+  // trackers
+  val trackStashMeter = tracker.meter(Metrics.SHARD_PROCESSOR_STASH_METER)
+  val trackTaskMeter = tracker.meter(Metrics.SHARD_PROCESSOR_TASK_METER)
+  val trackForwardMeter = tracker.meter(Metrics.SHARD_PROCESSOR_FORWARD_METER)
 
   startWith(ShardMemberStatus.Activating, ShardedClusterData(Map.empty, selfAddress, ShardMemberStatus.Activating))
 
@@ -339,6 +347,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
   }
 
   def processTask(task: ShardTask, data: ShardedClusterData): Unit = {
+    trackTaskMeter.mark()
     if (log.isDebugEnabled) {
       log.debug(s"Got task to process: $task")
     }
@@ -396,6 +405,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
   }
 
   def holdTask(task: ShardTask, data: ShardedClusterData): Unit = {
+    trackTaskMeter.mark()
     if (log.isDebugEnabled) {
       log.debug(s"Got task to process while activating: $task")
     }
@@ -414,6 +424,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
   }
 
   def safeStash(task: ShardTask) = try {
+    trackStashMeter.mark()
     stash()
   } catch {
     case NonFatal(e) ⇒
@@ -428,6 +439,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
   }
 
   def forwardTask(task: ShardTask, data: ShardedClusterData): Unit = {
+    trackForwardMeter.mark()
     val address = data.taskIsFor(task)
     data.members.get(address) map { rvm ⇒
       if (log.isDebugEnabled) {
@@ -475,4 +487,15 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
       }
     }
   }
+}
+
+object ShardProcessor {
+  def props(
+             workersSettings: Map[String, (Props, Int)],
+             roleName: String,
+             tracker: MetricsTracker,
+             syncTimeout: FiniteDuration = 1000.millisecond // todo: move to config!
+           ) = Props(classOf[ShardProcessor],
+    workersSettings, roleName, tracker, syncTimeout
+  )
 }

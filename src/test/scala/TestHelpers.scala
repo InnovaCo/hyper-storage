@@ -3,13 +3,13 @@ import java.util.UUID
 import akka.actor._
 import akka.cluster.Cluster
 import akka.testkit._
-import com.codahale.metrics.{ConsoleReporter, MetricRegistry}
+import com.codahale.metrics.ScheduledReporter
 import com.datastax.driver.core.utils.UUIDs
 import com.typesafe.config.ConfigFactory
 import eu.inn.hyperbus.Hyperbus
 import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
-import eu.inn.metrics.Metrics
+import eu.inn.metrics.MetricsTracker
 import eu.inn.metrics.modules.ConsoleReporterModule
 import eu.inn.revault.TransactionLogic
 import eu.inn.revault.db.{Db, Transaction}
@@ -72,14 +72,14 @@ class TestWorker extends Actor with ActorLogging {
 trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures with Injectable  {
   this : org.scalatest.BeforeAndAfterEach with org.scalatest.Suite =>
   private [this] val log = LoggerFactory.getLogger(getClass)
-  implicit val injector = new ConsoleReporterModule
-  val metrics = inject[Metrics]
-  val consoleReporter = ConsoleReporter.forRegistry(inject[MetricRegistry]).build()
+  implicit val injector = new ConsoleReporterModule(Duration.Inf)
+  val tracker = inject[MetricsTracker]
+  val reporter = inject[ScheduledReporter]
 
   def createRevaultActor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
     val workerSettings = Map(groupName → (Props[TestWorker], workerCount))
     val fsm = new TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor](actorSystem,
-      Props(new ShardProcessor(workerSettings, "revault")).withDispatcher("deque-dispatcher"),
+      ShardProcessor.props(workerSettings, "revault", tracker).withDispatcher("deque-dispatcher"),
       GuardianExtractor.guardian(actorSystem),
       "revault"
     )
@@ -149,7 +149,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     _hyperbuses.clear()
     Thread.sleep(500)
     log.info("------- HYPERBUSES WERE SHUT DOWN -------- ")
-    consoleReporter.report()
+    reporter.report()
   }
 
   implicit class TaskEx(t: ShardTask) {

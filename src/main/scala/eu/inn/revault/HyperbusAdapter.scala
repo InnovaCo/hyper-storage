@@ -1,75 +1,81 @@
 package eu.inn.revault
 
-import akka.actor.{Actor, ActorLogging, ActorRef}
+import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.ask
 import eu.inn.binders.value.{Lst, Obj}
 import eu.inn.hyperbus.akkaservice.AkkaHyperService
 import eu.inn.revault.db.Db
 import eu.inn.revault.api._
-import eu.inn.hyperbus.serialization.{StringSerializer,StringDeserializer}
+import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.hyperbus.model._
+import eu.inn.metrics.MetricsTracker
+import eu.inn.revault.metrics.Metrics
+
 import scala.concurrent.duration._
 
-class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: FiniteDuration) extends Actor with ActorLogging {
+class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, tracker: MetricsTracker, requestTimeout: FiniteDuration) extends Actor with ActorLogging {
   import context._
 
   def receive = AkkaHyperService.dispatch(this)
 
   def ~> (implicit request: RevaultContentGet) = {
-    val (documentUri, itemSegment) = ContentLogic.splitPath(request.path)
-    val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
-    if (itemSegment.isEmpty && request.body.pageFrom.isDefined) {
-      val sortByDesc = request.body.sortBy.contains(SortBy("id",descending=true))
-      val pageFrom = request.body.pageFrom.get.asString
-      val pageSize = /*(if (pageFrom.isEmpty && !sortByDesc) 1 else 0) +*/ request.body.pageSize.map(_.asInt).getOrElse(50)
+    tracker.timeOfFuture(Metrics.RETRIEVE_TIME) {
+      val (documentUri, itemSegment) = ContentLogic.splitPath(request.path)
+      val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
+      if (itemSegment.isEmpty && request.body.pageFrom.isDefined) {
+        val sortByDesc = request.body.sortBy.contains(SortBy("id", descending = true))
+        val pageFrom = request.body.pageFrom.get.asString
+        val pageSize = /*(if (pageFrom.isEmpty && !sortByDesc) 1 else 0) +*/ request.body.pageSize.map(_.asInt).getOrElse(50)
 
 
-      val selectResult = if (sortByDesc) {
-        if (pageFrom.isEmpty)
-          db.selectContentCollectionDesc(documentUri,pageSize)
-        else
-          db.selectContentCollectionDescFrom(documentUri,pageFrom,pageSize)
-      }
-      else {
-        if (pageFrom.isEmpty)
-          db.selectContentCollection(documentUri,pageSize)
-        else
-          db.selectContentCollectionFrom(documentUri,pageFrom,pageSize)
-      }
-
-      for {
-        contentStatic ← db.selectContentStatic(documentUri)
-        collection ← selectResult
-      } yield { // todo: 404 if no parent resource?
-        if (contentStatic.isDefined) {
-          val stream = collection.toStream
-          val result = Obj(Map("_embedded" →
-            Obj(Map("els" →
-              Lst(stream.filterNot(s ⇒ s.itemSegment.isEmpty || s.isDeleted).map { item ⇒ // todo: isDeleted & paging = :(
-                StringDeserializer.dynamicBody(item.body).content
-              }.toSeq)
-            ))))
-
-          Ok(DynamicBody(result), Headers(
-            stream.headOption.map(h ⇒ Header.REVISION → Seq(h.revision.toString)).toMap
-          ))
+        val selectResult = if (sortByDesc) {
+          if (pageFrom.isEmpty)
+            db.selectContentCollectionDesc(documentUri, pageSize)
+          else
+            db.selectContentCollectionDescFrom(documentUri, pageFrom, pageSize)
         }
         else {
-          notFound
+          if (pageFrom.isEmpty)
+            db.selectContentCollection(documentUri, pageSize)
+          else
+            db.selectContentCollectionFrom(documentUri, pageFrom, pageSize)
         }
-      }
-    }
-    else {
-      db.selectContent(documentUri, itemSegment) map {
-        case None ⇒
-          notFound
-        case Some(content) ⇒
-          if (!content.isDeleted) {
-            val body = StringDeserializer.dynamicBody(content.body)
-            Ok(body, Headers(Map(Header.REVISION → Seq(content.revision.toString))))
-          } else {
+
+        for {
+          contentStatic ← db.selectContentStatic(documentUri)
+          collection ← selectResult
+        } yield {
+          // todo: 404 if no parent resource?
+          if (contentStatic.isDefined) {
+            val stream = collection.toStream
+            val result = Obj(Map("_embedded" →
+              Obj(Map("els" →
+                Lst(stream.filterNot(s ⇒ s.itemSegment.isEmpty || s.isDeleted).map { item ⇒ // todo: isDeleted & paging = :(
+                  StringDeserializer.dynamicBody(item.body).content
+                }.toSeq)
+              ))))
+
+            Ok(DynamicBody(result), Headers(
+              stream.headOption.map(h ⇒ Header.REVISION → Seq(h.revision.toString)).toMap
+            ))
+          }
+          else {
             notFound
           }
+        }
+      }
+      else {
+        db.selectContent(documentUri, itemSegment) map {
+          case None ⇒
+            notFound
+          case Some(content) ⇒
+            if (!content.isDeleted) {
+              val body = StringDeserializer.dynamicBody(content.body)
+              Ok(body, Headers(Map(Header.REVISION → Seq(content.revision.toString))))
+            } else {
+              notFound
+            }
+        }
       }
     }
   }
@@ -91,4 +97,11 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, requestTimeout: Finite
         StringDeserializer.dynamicResponse(content)
     }
   }
+}
+
+object HyperbusAdapter {
+  def props(revaultProcessor: ActorRef, db: Db, tracker: MetricsTracker, requestTimeout: FiniteDuration) = Props(
+    classOf[HyperbusAdapter],
+    revaultProcessor, db, tracker, requestTimeout
+  )
 }

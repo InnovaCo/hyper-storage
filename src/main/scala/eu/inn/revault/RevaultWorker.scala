@@ -2,7 +2,7 @@ package eu.inn.revault
 
 import java.util.Date
 
-import akka.actor.{Actor, ActorLogging, ActorRef}
+import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.pipe
 import com.codahale.metrics.Timer
 import eu.inn.binders.value._
@@ -11,9 +11,10 @@ import eu.inn.hyperbus.transport.api.uri.Uri
 import eu.inn.hyperbus.{Hyperbus, IdGenerator}
 import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
-import eu.inn.metrics.Metrics
+import eu.inn.metrics.MetricsTracker
 import eu.inn.revault.db._
 import eu.inn.revault.api.{RevaultContentGet, RevaultTransactionCreated}
+import eu.inn.revault.metrics.Metrics
 import eu.inn.revault.sharding.{ShardTask, ShardTaskComplete}
 
 import scala.concurrent.Future
@@ -32,7 +33,7 @@ case class RevaultWorkerTaskFailed(task: ShardTask, inner: Throwable)
 case class RevaultWorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
 
 // todo: rename this
-class RevaultWorker(hyperbus: Hyperbus, db: Db, metrics: Metrics, completerTimeout: FiniteDuration) extends Actor with ActorLogging {
+class RevaultWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, completerTimeout: FiniteDuration) extends Actor with ActorLogging {
   import ContentLogic._
   import context._
 
@@ -42,7 +43,7 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, metrics: Metrics, completerTimeo
   }
 
   def executeTask(owner: ActorRef, task: RevaultTask): Unit = {
-    val trackProcessTime = metrics.timer("revault.worker.process-time").time()
+    val trackProcessTime = tracker.timer(Metrics.WORKER_PROCESS_TIME).time()
 
     Try{
       val request = DynamicRequest(task.content)
@@ -223,10 +224,9 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, metrics: Metrics, completerTimeo
                             newTransaction: Transaction,
                             request: DynamicRequest,
                             existingContent: Option[Content]): Content = existingContent match {
-    case None ⇒ {
+    case None ⇒
       implicit val mcx = request
       throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
-    }
 
     case Some(content) ⇒
       Content(documentUri, itemSegment, newTransaction.revision,
@@ -296,4 +296,9 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, metrics: Metrics, completerTimeo
   def appendId(body: DynamicBody, id: Value): DynamicBody = {
     body.copy(content = Obj(body.content.asMap + ("id" → id)))
   }
+}
+
+object RevaultWorker {
+  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, completerTimeout: FiniteDuration) =
+    Props(classOf[RevaultWorker], hyperbus, db, tracker, completerTimeout)
 }
