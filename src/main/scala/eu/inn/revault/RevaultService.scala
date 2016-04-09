@@ -8,35 +8,51 @@ import eu.inn.hyperbus.Hyperbus
 import eu.inn.hyperbus.akkaservice._
 import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
+import eu.inn.metrics.{Metrics, ProcessMetrics}
+import eu.inn.metrics.loaders.MetricsReporterLoader
 import eu.inn.revault.db.Db
 import eu.inn.revault.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
 import eu.inn.revault.sharding.{ShardProcessor, ShutdownProcessor, SubscribeToShardStatus}
+import eu.inn.revault.utils.MetricsUtils
 import eu.inn.servicecontrol.api.{Console, Service}
 import org.slf4j.LoggerFactory
-import scaldi.Injectable
+import scaldi.{Injectable, Injector, TypeTagIdentifier}
 
+import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.concurrent.{Await, ExecutionContext}
 import scala.util.control.NonFatal
+
+case class RevaultConfig(
+                          shutdownTimeout: FiniteDuration,
+                          shardSyncTimeout: FiniteDuration,
+                          maxWorkers: Int,
+                          maxCompleters: Int,
+                          completerTimeout: FiniteDuration,
+                          requestTimeout: FiniteDuration,
+                          failTimeout: FiniteDuration,
+                          hotRecovery: FiniteDuration,
+                          hotRecoveryRetry: FiniteDuration,
+                          staleRecovery: FiniteDuration,
+                          staleRecoveryRetry: FiniteDuration
+                        )
 
 class RevaultService(console: Console,
                      config: Config,
                      connector: CassandraConnector,
-                     implicit val ec: ExecutionContext) extends Service with Injectable {
+                     implicit val ec: ExecutionContext,
+                     implicit val injector: Injector) extends Service with Injectable {
   var log = LoggerFactory.getLogger(getClass)
   log.info(s"Starting Revault service v${BuildInfo.version}...")
 
   // configuration
-  val shutdownTimeout = config.getFiniteDuration("revault.shutdown-timeout")
-  val shardSyncTimeout = config.getFiniteDuration("revault.shards-sync-time")
-  val maxWorkers = config.getInt("revault.max-workers")
-  val maxCompleters = config.getInt("revault.max-completers")
-  val completerTimeout = config.getFiniteDuration("revault.completer-timeout")
-  val requestTimeout = config.getFiniteDuration("revault.request-timeout")
-  val failTimeout = config.getFiniteDuration("revault.fail-timeout")
-  val hotRecovery = config.getFiniteDuration("revault.hot-recovery")
-  val hotRecoveryRetry = config.getFiniteDuration("revault.hot-recovery-retry")
-  val staleRecovery = config.getFiniteDuration("revault.stale-recovery")
-  val staleRecoveryRetry = config.getFiniteDuration("revault.stale-recovery-retry")
+  import eu.inn.binders.tconfig._
+  val revaultConfig = config.getValue("revault").read[RevaultConfig]
+
+  // metrics reporter
+  val metrics = inject[Metrics]
+  MetricsUtils.startReporter(metrics)
+
+  import revaultConfig._
 
   // initialize
   log.info(s"Initializing hyperbus...")
@@ -60,7 +76,7 @@ class RevaultService(console: Console,
   }
 
   // worker actor todo: recovery job
-  val workerProps = Props(classOf[RevaultWorker], hyperbus, db, completerTimeout)
+  val workerProps = Props(classOf[RevaultWorker], hyperbus, db, metrics, completerTimeout)
   val completerProps = Props(classOf[RevaultCompleter], hyperbus, db)
   val workerSettings = Map(
     "revault" → (workerProps, maxWorkers),

@@ -39,13 +39,15 @@ val projectBuildNumber = settingKey[String]("Defines the build number")
 addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
 
 libraryDependencies ++= Seq(
-  "eu.inn" %% "service-control" % "0.1.16",
-  "eu.inn" %% "service-config" % "0.1.3",
+  "eu.inn" %% "service-control" % "0.2.17",
+  "eu.inn" %% "service-config" % "0.1.6",
+  "eu.inn" %% "service-metrics" % "0.1.6",
+  "eu.inn" %% "binders-typesafe-config" % "0.12.14",
   "eu.inn" %% "hyperbus" % "0.1.76",
   "eu.inn" %% "hyperbus-t-distributed-akka" % "0.1.76",
   "eu.inn" %% "hyperbus-akka" % "0.1.76",
   "eu.inn" %% "hyperbus-t-kafka" % "0.1.76",
-  "eu.inn" %% "binders-core" % "0.12.85",
+  "eu.inn" %% "binders-core" % "0.12.89",
   "eu.inn" %% "binders-cassandra" % "0.12.44",
   "com.datastax.cassandra" % "cassandra-driver-core" % "2.1.9",
   "org.slf4j" % "slf4j-api" % "1.7.12",

@@ -4,12 +4,14 @@ import java.util.Date
 
 import akka.actor.{Actor, ActorLogging, ActorRef}
 import akka.pattern.pipe
+import com.codahale.metrics.Timer
 import eu.inn.binders.value._
 import eu.inn.hyperbus.transport.api.matchers.Specific
 import eu.inn.hyperbus.transport.api.uri.Uri
-import eu.inn.hyperbus.{IdGenerator, Hyperbus}
+import eu.inn.hyperbus.{Hyperbus, IdGenerator}
 import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
+import eu.inn.metrics.Metrics
 import eu.inn.revault.db._
 import eu.inn.revault.api.{RevaultContentGet, RevaultTransactionCreated}
 import eu.inn.revault.sharding.{ShardTask, ShardTaskComplete}
@@ -30,7 +32,7 @@ case class RevaultWorkerTaskFailed(task: ShardTask, inner: Throwable)
 case class RevaultWorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
 
 // todo: rename this
-class RevaultWorker(hyperbus: Hyperbus, db: Db, completerTimeout: FiniteDuration) extends Actor with ActorLogging {
+class RevaultWorker(hyperbus: Hyperbus, db: Db, metrics: Metrics, completerTimeout: FiniteDuration) extends Actor with ActorLogging {
   import ContentLogic._
   import context._
 
@@ -40,6 +42,8 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, completerTimeout: FiniteDuration
   }
 
   def executeTask(owner: ActorRef, task: RevaultTask): Unit = {
+    val trackProcessTime = metrics.timer("revault.worker.process-time").time()
+
     Try{
       val request = DynamicRequest(task.content)
       val (documentUri, itemSegment) = splitPath(request.path)
@@ -72,7 +76,7 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, completerTimeout: FiniteDuration
       (documentUri, updatedItemSegment, updatedRequest)
     } map {
       case (documentUri: String, itemSegment: String, request: DynamicRequest) ⇒
-        become(taskWaitResult(owner, task, request)(request))
+        become(taskWaitResult(owner, task, request, trackProcessTime)(request))
 
         // fetch and complete existing content
         executeResourceUpdateTask(owner, documentUri, itemSegment, task, request)
@@ -113,7 +117,8 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, completerTimeout: FiniteDuration
     ).serializeToString())
   }
 
-  private def taskWaitResult(owner: ActorRef, originalTask: RevaultTask, request: DynamicRequest)(implicit mcf: MessagingContextFactory): Receive = {
+  private def taskWaitResult(owner: ActorRef, originalTask: RevaultTask, request: DynamicRequest, trackProcessTime: Timer.Context)
+                            (implicit mcf: MessagingContextFactory): Receive = {
     case RevaultWorkerTaskCompleted(task, transaction, created) if task == originalTask ⇒
       if (log.isDebugEnabled) {
         log.debug(s"RevaultWorker task $originalTask is completed")
@@ -133,10 +138,12 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, completerTimeout: FiniteDuration
         Ok(api.RevaultTransaction(transactionId))
       }
       owner ! ShardTaskComplete(task, RevaultTaskResult(result.serializeToString()))
+      trackProcessTime.stop()
       unbecome()
 
     case RevaultWorkerTaskFailed(task, e) if task == originalTask ⇒
       owner ! ShardTaskComplete(task, hyperbusException(e, task))
+      trackProcessTime.stop()
       unbecome()
   }
 

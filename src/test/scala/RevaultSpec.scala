@@ -9,7 +9,7 @@ import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.revault._
 import eu.inn.revault.api._
-import eu.inn.revault.recovery.{StaleRecoveryWorker, HotRecoveryWorker, ShutdownRecoveryWorker}
+import eu.inn.revault.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
 import eu.inn.revault.sharding.ShardMemberStatus.Active
 import eu.inn.revault.sharding._
 import mock.FaultClientTransport
@@ -18,6 +18,12 @@ import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
 import org.scalatest.{FreeSpec, Matchers}
 import akka.pattern.gracefulStop
+import com.codahale.metrics.ConsoleReporter
+import com.yammer.metrics.core.MetricsRegistry
+import eu.inn.metrics.Metrics
+import eu.inn.metrics.loaders.MetricsReporterLoader
+import eu.inn.metrics.modules.ConsoleReporterModule
+import scaldi.Injectable
 
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
@@ -111,7 +117,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
 
         val task = RevaultContentPut(
           path = "test-resource-1",
@@ -162,7 +168,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
 
         val task = RevaultContentPatch(
           path = "not-existing",
@@ -188,7 +194,7 @@ class RevaultSpec extends FreeSpec
         val tk = testKit()
         import tk._
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
 
         val path = "test-resource-" + UUID.randomUUID().toString
         val taskPutStr = StringSerializer.serializeToString(RevaultContentPut(path,
@@ -242,7 +248,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
 
         val task = RevaultContentDelete(path = "not-existing", body = EmptyBody)
 
@@ -267,7 +273,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
 
         val path = "test-resource-" + UUID.randomUUID().toString
         val taskPutStr = StringSerializer.serializeToString(RevaultContentPut(path,
@@ -306,7 +312,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
         val path = "abcde"
         val taskStr1 = StringSerializer.serializeToString(RevaultContentPut(path,
           DynamicBody(ObjV("text" → "Test resource value", "null" → Null))
@@ -357,7 +363,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
         val path = "faulty"
         val taskStr1 = StringSerializer.serializeToString(RevaultContentPut(path,
           DynamicBody(ObjV("text" → "Test resource value", "null" → Null))
@@ -435,7 +441,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
 
         val task = RevaultContentPut(
           path = "collection-1/test-resource-1",
@@ -503,7 +509,7 @@ class RevaultSpec extends FreeSpec
         val tk = testKit()
         import tk._
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
 
         val path = "collection-1/test-resource-" + UUID.randomUUID().toString
         val (documentUri,itemSegment) = ContentLogic.splitPath(path)
@@ -560,7 +566,7 @@ class RevaultSpec extends FreeSpec
         val tk = testKit()
         import tk._
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
 
         val path = "collection-1/test-resource-" + UUID.randomUUID().toString
         val (documentUri,itemSegment) = ContentLogic.splitPath(path)
@@ -873,7 +879,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
         val path = "incomplete-" + UUID.randomUUID().toString
         val taskStr1 = StringSerializer.serializeToString(RevaultContentPut(path,
           DynamicBody(ObjV("text" → "Test resource value", "null" → Null))
@@ -915,7 +921,7 @@ class RevaultSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val worker = TestActorRef(new RevaultWorker(hyperbus, db, 10.seconds))
+        val worker = TestActorRef(new RevaultWorker(hyperbus, db, metrics, 10.seconds))
         val path = "incomplete-" + UUID.randomUUID().toString
         val taskStr1 = StringSerializer.serializeToString(RevaultContentPut(path,
           DynamicBody(ObjV("text" → "Test resource value", "null" → Null))

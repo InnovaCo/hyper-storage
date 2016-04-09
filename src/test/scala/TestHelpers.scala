@@ -1,23 +1,28 @@
-import java.util.{Date, UUID}
+import java.util.UUID
 
 import akka.actor._
 import akka.cluster.Cluster
 import akka.testkit._
+import com.codahale.metrics.{ConsoleReporter, MetricRegistry}
 import com.datastax.driver.core.utils.UUIDs
 import com.typesafe.config.ConfigFactory
 import eu.inn.hyperbus.Hyperbus
 import eu.inn.hyperbus.transport.ActorSystemRegistry
-import eu.inn.hyperbus.transport.api.{TransportManager, TransportConfigurationLoader}
+import eu.inn.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
+import eu.inn.metrics.Metrics
+import eu.inn.metrics.modules.ConsoleReporterModule
 import eu.inn.revault.TransactionLogic
 import eu.inn.revault.db.{Db, Transaction}
 import eu.inn.revault.sharding._
-import org.cassandraunit.dataset.cql.ClassPathCQLDataSet
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{BeforeAndAfterEach, Matchers}
 import org.slf4j.LoggerFactory
+import scaldi.Injectable
+
+import scala.collection.concurrent.TrieMap
 import scala.concurrent.Await
 import scala.concurrent.duration._
-import scala.collection.concurrent.TrieMap
+
 import scala.concurrent.ExecutionContext.Implicits.global
 
 case class TestShardTask(key: String, value: String,
@@ -64,9 +69,12 @@ class TestWorker extends Actor with ActorLogging {
   }
 }
 
-trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
+trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures with Injectable  {
   this : org.scalatest.BeforeAndAfterEach with org.scalatest.Suite =>
   private [this] val log = LoggerFactory.getLogger(getClass)
+  implicit val injector = new ConsoleReporterModule
+  val metrics = inject[Metrics]
+  val consoleReporter = ConsoleReporter.forRegistry(inject[MetricRegistry]).build()
 
   def createRevaultActor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
     val workerSettings = Map(groupName → (Props[TestWorker], workerCount))
@@ -141,6 +149,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures {
     _hyperbuses.clear()
     Thread.sleep(500)
     log.info("------- HYPERBUSES WERE SHUT DOWN -------- ")
+    consoleReporter.report()
   }
 
   implicit class TaskEx(t: ShardTask) {

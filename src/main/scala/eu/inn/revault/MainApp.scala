@@ -1,25 +1,12 @@
 package eu.inn.revault
 
-import com.datastax.driver.core.Session
-import com.typesafe.config.Config
-import eu.inn.config.ConfigLoader
-import eu.inn.servicecontrol.ConsoleModule
-import eu.inn.servicecontrol.api.{Service, ServiceController}
+import eu.inn.revault.modules.ModuleAggregator
+import eu.inn.servicecontrol.api.ServiceController
+import scaldi.Injectable
 
-import scala.concurrent.ExecutionContext
-
-object MainApp extends ConsoleModule {
-  bind [Config] to ConfigLoader()
-  bind [ExecutionContext] to scala.concurrent.ExecutionContext.Implicits.global
-  bind [CassandraConnector] to new CassandraConnector {
-    override def connect(): Session = {
-      val config = inject[Config]
-      CassandraConnector.createCassandraSession(config.getConfig("cassandra"))
-    }
-  }
-  bind [Service] to injected [RevaultService]
-
+object MainApp extends Injectable {
   def main(args: Array[String]): Unit = {
+    implicit val injector = ModuleAggregator.injector
     inject[ServiceController].run()
   }
 }
