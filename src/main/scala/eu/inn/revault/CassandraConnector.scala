@@ -4,9 +4,10 @@ import java.util.concurrent.{CountDownLatch, TimeUnit}
 
 import com.datastax.driver.core._
 import com.datastax.driver.core.exceptions.NoHostAvailableException
-import com.datastax.driver.core.policies.{DCAwareRoundRobinPolicy, TokenAwarePolicy, LatencyAwarePolicy}
+import com.datastax.driver.core.policies.{DCAwareRoundRobinPolicy, LatencyAwarePolicy, TokenAwarePolicy}
 import com.typesafe.config.Config
 import org.slf4j.LoggerFactory
+
 import scala.collection.JavaConversions._
 import scala.util.control.NonFatal
 

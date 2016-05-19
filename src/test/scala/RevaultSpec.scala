@@ -1,11 +1,13 @@
 import java.util.UUID
 
-import akka.actor.{ActorSelection, Address, Props}
+import akka.actor.{ActorSelection, Address}
+import akka.pattern.gracefulStop
 import akka.testkit.{TestActorRef, TestProbe}
 import akka.util.Timeout
 import com.datastax.driver.core.utils.UUIDs
 import eu.inn.binders.value._
 import eu.inn.hyperbus.model._
+import eu.inn.hyperbus.model.utils.{Sort, SortBy}
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.revault._
 import eu.inn.revault.api._
@@ -17,14 +19,6 @@ import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
 import org.scalatest.{FreeSpec, Matchers}
-import akka.pattern.gracefulStop
-import com.codahale.metrics.ConsoleReporter
-import com.yammer.metrics.core.MetricsRegistry
-import eu.inn.hyperbus.model.utils.{Sort, SortBy}
-import eu.inn.metrics.MetricsTracker
-import eu.inn.metrics.loaders.MetricsReporterLoader
-import eu.inn.metrics.modules.ConsoleReporterModule
-import scaldi.Injectable
 
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}

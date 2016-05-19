@@ -6,14 +6,14 @@ import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.pipe
 import com.codahale.metrics.Timer
 import eu.inn.binders.value._
+import eu.inn.hyperbus.model._
+import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.hyperbus.transport.api.matchers.Specific
 import eu.inn.hyperbus.transport.api.uri.Uri
 import eu.inn.hyperbus.{Hyperbus, IdGenerator}
-import eu.inn.hyperbus.model._
-import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.metrics.MetricsTracker
-import eu.inn.revault.db._
 import eu.inn.revault.api.{RevaultContentGet, RevaultTransactionCreated}
+import eu.inn.revault.db._
 import eu.inn.revault.metrics.Metrics
 import eu.inn.revault.sharding.{ShardTask, ShardTaskComplete}
 

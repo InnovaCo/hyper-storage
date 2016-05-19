@@ -1,5 +1,5 @@
 import eu.inn.revault.ContentLogic
-import org.scalatest.{Matchers, FreeSpec}
+import org.scalatest.{FreeSpec, Matchers}
 
 class ContentLogicSpec extends FreeSpec with Matchers{
   "ContentLogic" - {

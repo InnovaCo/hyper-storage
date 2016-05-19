@@ -4,12 +4,12 @@ import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.ask
 import eu.inn.binders.value.{Lst, Number, Obj}
 import eu.inn.hyperbus.akkaservice.AkkaHyperService
-import eu.inn.revault.db.Db
-import eu.inn.revault.api._
-import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.model.utils.{Sort, SortBy}
+import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.metrics.MetricsTracker
+import eu.inn.revault.api._
+import eu.inn.revault.db.Db
 import eu.inn.revault.metrics.Metrics
 
 import scala.concurrent.duration._

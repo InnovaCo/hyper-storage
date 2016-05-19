@@ -1,6 +1,5 @@
 package eu.inn.revault
 
-import akka.actor.Props
 import akka.cluster.Cluster
 import com.typesafe.config.Config
 import eu.inn.hyperbus.Hyperbus

@@ -20,10 +20,8 @@ import org.slf4j.LoggerFactory
 import scaldi.Injectable
 
 import scala.collection.concurrent.TrieMap
-import scala.concurrent.Await
+import scala.concurrent.{Await, ExecutionContext}
 import scala.concurrent.duration._
-
-import scala.concurrent.ExecutionContext.Implicits.global
 
 case class TestShardTask(key: String, value: String,
                          sleep: Int = 0,
@@ -75,6 +73,10 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
   implicit val injector = new ConsoleReporterModule(Duration.Inf)
   val tracker = inject[MetricsTracker]
   val reporter = inject[ScheduledReporter]
+
+  implicit def executionContext: ExecutionContext = {
+    scala.concurrent.ExecutionContext.Implicits.global
+  }
 
   def createRevaultActor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
     val workerSettings = Map(groupName → (Props[TestWorker], workerCount))
