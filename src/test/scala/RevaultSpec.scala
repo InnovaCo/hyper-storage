@@ -20,6 +20,7 @@ import org.scalatest.{FreeSpec, Matchers}
 import akka.pattern.gracefulStop
 import com.codahale.metrics.ConsoleReporter
 import com.yammer.metrics.core.MetricsRegistry
+import eu.inn.hyperbus.model.utils.{Sort, SortBy}
 import eu.inn.metrics.MetricsTracker
 import eu.inn.metrics.loaders.MetricsReporterLoader
 import eu.inn.metrics.modules.ConsoleReporterModule
@@ -766,7 +767,8 @@ class RevaultSpec extends FreeSpec
         }
 
         val f4 = hyperbus <~ RevaultContentGet("collection-1",
-          body = new QueryBuilder() pageFrom Null result())
+          body = new QueryBuilder() add("ct", Null) result())
+
         whenReady(f4) { response ⇒
           response.statusCode should equal(Status.OK)
           response.body.content should equal(
@@ -774,8 +776,11 @@ class RevaultSpec extends FreeSpec
           )
         }
 
+        import Sort._
+
         val f5 = hyperbus <~ RevaultContentGet("collection-1",
-          body = new QueryBuilder() pageFrom Null sortBy("id", true) result())
+          body = new QueryBuilder() add("ct", Null) sortBy(Seq(SortBy("id", true))) result())
+
         whenReady(f5) { response ⇒
           response.statusCode should equal(Status.OK)
           response.body.content should equal(
@@ -852,7 +857,8 @@ class RevaultSpec extends FreeSpec
         val c2x = Obj(c2.asMap + "id" → id2)
 
         val f4 = hyperbus <~ RevaultContentGet("collection-2",
-          body = new QueryBuilder() pageFrom Null result())
+          body = new QueryBuilder() add("ct", Null) result())
+
         whenReady(f4) { response ⇒
           response.statusCode should equal(Status.OK)
           response.body.content should equal(
@@ -860,8 +866,10 @@ class RevaultSpec extends FreeSpec
           )
         }
 
+        import Sort._
+
         val f5 = hyperbus <~ RevaultContentGet("collection-2",
-          body = new QueryBuilder() pageFrom Null sortBy ("id", true) result())
+          body = new QueryBuilder() add("ct", Null) sortBy(Seq(SortBy("id", true))) result())
         whenReady(f5) { response ⇒
           response.statusCode should equal(Status.OK)
           response.body.content should equal(

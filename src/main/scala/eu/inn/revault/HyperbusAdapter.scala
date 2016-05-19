@@ -2,12 +2,13 @@ package eu.inn.revault
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.ask
-import eu.inn.binders.value.{Lst, Obj}
+import eu.inn.binders.value.{Lst, Number, Obj}
 import eu.inn.hyperbus.akkaservice.AkkaHyperService
 import eu.inn.revault.db.Db
 import eu.inn.revault.api._
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.hyperbus.model._
+import eu.inn.hyperbus.model.utils.{Sort, SortBy}
 import eu.inn.metrics.MetricsTracker
 import eu.inn.revault.metrics.Metrics
 
@@ -16,17 +17,22 @@ import scala.concurrent.duration._
 class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, tracker: MetricsTracker, requestTimeout: FiniteDuration) extends Actor with ActorLogging {
   import context._
 
+  val COLLECTION_TOKEN_FIELD_NAME = "ct"
+  val COLLECTION_SIZE_FIELD_NAME = "sz"
+
   def receive = AkkaHyperService.dispatch(this)
 
   def ~> (implicit request: RevaultContentGet) = {
     tracker.timeOfFuture(Metrics.RETRIEVE_TIME) {
       val (documentUri, itemSegment) = ContentLogic.splitPath(request.path)
       val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
-      if (itemSegment.isEmpty && request.body.pageFrom.isDefined) {
-        val sortByDesc = request.body.sortBy.contains(SortBy("id", descending = true))
-        val pageFrom = request.body.pageFrom.get.asString
-        val pageSize = /*(if (pageFrom.isEmpty && !sortByDesc) 1 else 0) +*/ request.body.pageSize.map(_.asInt).getOrElse(50)
+      if (itemSegment.isEmpty && request.body.content.asMap.contains(COLLECTION_TOKEN_FIELD_NAME)) { // collection
+        import Sort._
 
+        val sortByDesc = request.body.sortBy.exists(_.contains(SortBy("id", descending = true)))
+        val pageFrom = request.body.content.asMap(COLLECTION_TOKEN_FIELD_NAME).asString
+        val pageSize = request.body.content.asMap.getOrElse(COLLECTION_SIZE_FIELD_NAME, Number(50)).asInt
+        // (if (pageFrom.isEmpty && !sortByDesc) 1 else 0) + request.body.pageSize.map(_.asInt).getOrElse(50)
 
         val selectResult = if (sortByDesc) {
           if (pageFrom.isEmpty)
