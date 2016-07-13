@@ -439,22 +439,22 @@ class HyperStorageSpec extends FreeSpec
         val worker = TestActorRef(HyperStorageWorker.props(hyperbus, db, tracker, 10.seconds))
 
         val task = HyperStorageContentPut(
-          path = "collection-1/test-resource-1",
+          path = "collection-1~/test-resource-1",
           DynamicBody(ObjV("text" → "Test item value", "null" → Null))
         )
 
-        db.selectContent("collection-1", "test-resource-1").futureValue shouldBe None
+        db.selectContent("collection-1~", "test-resource-1").futureValue shouldBe None
 
         val taskStr = StringSerializer.serializeToString(task)
-        worker ! HyperStorageTask("collection-1", System.currentTimeMillis() + 10000, taskStr)
+        worker ! HyperStorageTask("collection-1~", System.currentTimeMillis() + 10000, taskStr)
         val completerTask = expectMsgType[CompleterTask]
-        completerTask.documentUri should equal("collection-1")
+        completerTask.documentUri should equal("collection-1~")
         val workerResult = expectMsgType[ShardTaskComplete]
         val r = response(workerResult.result.asInstanceOf[HyperStorageTaskResult].content)
         r.statusCode should equal(Status.CREATED)
         r.correlationId should equal(task.correlationId)
 
-        val content = db.selectContent("collection-1", "test-resource-1").futureValue
+        val content = db.selectContent("collection-1~", "test-resource-1").futureValue
         content shouldNot equal(None)
         content.get.body should equal(Some("""{"text":"Test item value","id":"test-resource-1"}"""))
         content.get.transactionList.size should equal(1)
@@ -462,25 +462,25 @@ class HyperStorageSpec extends FreeSpec
         val uuid = content.get.transactionList.head
 
         val task2 = HyperStorageContentPut(
-          path = "collection-1/test-resource-2",
+          path = "collection-1~/test-resource-2",
           DynamicBody(ObjV("text" → "Test item value 2"))
         )
         val task2Str = StringSerializer.serializeToString(task2)
-        worker ! HyperStorageTask("collection-1", System.currentTimeMillis() + 10000, task2Str)
+        worker ! HyperStorageTask("collection-1~", System.currentTimeMillis() + 10000, task2Str)
         val completerTask2 = expectMsgType[CompleterTask]
-        completerTask2.documentUri should equal("collection-1")
+        completerTask2.documentUri should equal("collection-1~")
         val workerResult2 = expectMsgType[ShardTaskComplete]
         val r2 = response(workerResult2.result.asInstanceOf[HyperStorageTaskResult].content)
         r2.statusCode should equal(Status.CREATED)
         r2.correlationId should equal(task2.correlationId)
 
-        val content2 = db.selectContent("collection-1", "test-resource-2").futureValue
+        val content2 = db.selectContent("collection-1~", "test-resource-2").futureValue
         content2 shouldNot equal(None)
         content2.get.body should equal(Some("""{"text":"Test item value 2","id":"test-resource-2"}"""))
         content2.get.transactionList.size should equal(2)
         content2.get.revision should equal(2)
 
-        val transactions = selectTransactions(content2.get.transactionList, "collection-1", db)
+        val transactions = selectTransactions(content2.get.transactionList, "collection-1~", db)
         transactions.size should equal(2)
         transactions.foreach {_.completedAt shouldBe None}
         transactions.head.revision should equal(2)
@@ -490,13 +490,13 @@ class HyperStorageSpec extends FreeSpec
         completer ! completerTask
         val completerResult = expectMsgType[ShardTaskComplete]
         val rc = completerResult.result.asInstanceOf[CompleterTaskResult]
-        rc.documentUri should equal("collection-1")
+        rc.documentUri should equal("collection-1~")
         rc.transactions should equal(content2.get.transactionList.reverse)
 
         eventually {
-          db.selectContentStatic("collection-1").futureValue.get.transactionList shouldBe empty
+          db.selectContentStatic("collection-1~").futureValue.get.transactionList shouldBe empty
         }
-        selectTransactions(content2.get.transactionList, "collection-1", db).foreach {_.completedAt shouldNot be(None)}
+        selectTransactions(content2.get.transactionList, "collection-1~", db).foreach {_.completedAt shouldNot be(None)}
       }
 
       "Patch item" in {
@@ -506,8 +506,8 @@ class HyperStorageSpec extends FreeSpec
 
         val worker = TestActorRef(HyperStorageWorker.props(hyperbus, db, tracker, 10.seconds))
 
-        val path = "collection-1/test-resource-" + UUID.randomUUID().toString
-        val (documentUri,itemSegment) = ContentLogic.splitPath(path)
+        val path = "collection-1~/test-resource-" + UUID.randomUUID().toString
+        val ResourcePath(documentUri,itemSegment) = ContentLogic.splitPath(path)
 
         val taskPutStr = StringSerializer.serializeToString(HyperStorageContentPut(path,
           DynamicBody(ObjV("text1" → "abc", "text2" → "klmn"))
@@ -563,8 +563,8 @@ class HyperStorageSpec extends FreeSpec
 
         val worker = TestActorRef(HyperStorageWorker.props(hyperbus, db, tracker, 10.seconds))
 
-        val path = "collection-1/test-resource-" + UUID.randomUUID().toString
-        val (documentUri,itemSegment) = ContentLogic.splitPath(path)
+        val path = "collection-1~/test-resource-" + UUID.randomUUID().toString
+        val ResourcePath(documentUri,itemSegment) = ContentLogic.splitPath(path)
 
         val taskPutStr = StringSerializer.serializeToString(HyperStorageContentPut(path,
           DynamicBody(ObjV("text1" → "abc", "text2" → "klmn"))
@@ -735,7 +735,7 @@ class HyperStorageSpec extends FreeSpec
         val c1x = Obj(c1.asMap + "id" → "item1")
         val c2x = Obj(c2.asMap + "id" → "item2")
 
-        val path = "collection-1/item1"
+        val path = "collection-1~/item1"
         val f = hyperbus <~ HyperStorageContentPut(path, DynamicBody(c1))
         whenReady(f) { case response: Response[Body] ⇒
           response.statusCode should equal(Status.CREATED)
@@ -754,13 +754,13 @@ class HyperStorageSpec extends FreeSpec
           response.body.content should equal(c1x)
         }
 
-        val path2 = "collection-1/item2"
+        val path2 = "collection-1~/item2"
         val f3 = hyperbus <~ HyperStorageContentPut(path2, DynamicBody(c2x))
         whenReady(f3) { response ⇒
           response.statusCode should equal(Status.CREATED)
         }
 
-        val f4 = hyperbus <~ HyperStorageContentGet("collection-1",
+        val f4 = hyperbus <~ HyperStorageContentGet("collection-1~",
           body = new QueryBuilder() add("ct", Null) result())
 
         whenReady(f4) { response ⇒
@@ -772,7 +772,7 @@ class HyperStorageSpec extends FreeSpec
 
         import Sort._
 
-        val f5 = hyperbus <~ HyperStorageContentGet("collection-1",
+        val f5 = hyperbus <~ HyperStorageContentGet("collection-1~",
           body = new QueryBuilder() add("ct", Null) sortBy(Seq(SortBy("id", true))) result())
 
         whenReady(f5) { response ⇒
@@ -818,7 +818,7 @@ class HyperStorageSpec extends FreeSpec
         val c1 = ObjV("a" → "hello", "b" → Number(100500))
         val c2 = ObjV("a" → "good by", "b" → Number(654321))
 
-        val path = "collection-2"
+        val path = "collection-2~"
         val f = hyperbus <~ HyperStorageContentPost(path, DynamicBody(c1))
         val tr1: HyperStorageTransactionCreated = whenReady(f) { case response: Created[HyperStorageTransactionCreated] ⇒
           response.statusCode should equal(Status.CREATED)
@@ -850,7 +850,7 @@ class HyperStorageSpec extends FreeSpec
         val id2 = tr2.path.split('/').tail.head
         val c2x = Obj(c2.asMap + "id" → id2)
 
-        val f4 = hyperbus <~ HyperStorageContentGet("collection-2",
+        val f4 = hyperbus <~ HyperStorageContentGet("collection-2~",
           body = new QueryBuilder() add("ct", Null) result())
 
         whenReady(f4) { response ⇒
@@ -862,7 +862,7 @@ class HyperStorageSpec extends FreeSpec
 
         import Sort._
 
-        val f5 = hyperbus <~ HyperStorageContentGet("collection-2",
+        val f5 = hyperbus <~ HyperStorageContentGet("collection-2~",
           body = new QueryBuilder() add("ct", Null) sortBy(Seq(SortBy("id", true))) result())
         whenReady(f5) { response ⇒
           response.statusCode should equal(Status.OK)

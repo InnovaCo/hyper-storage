@@ -40,7 +40,7 @@ class Completer(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) extends Act
   }
 
   def executeTask(owner: ActorRef, task: CompleterTask): Unit = {
-    val (documentUri, itemSegment) = ContentLogic.splitPath(task.documentUri)
+    val ResourcePath(documentUri, itemSegment) = ContentLogic.splitPath(task.documentUri)
     if (!itemSegment.isEmpty) {
       owner ! Status.Success { // todo: is this have to be a success
         val e = new IllegalArgumentException(s"Completer task key ${task.key} doesn't correspond to $documentUri")

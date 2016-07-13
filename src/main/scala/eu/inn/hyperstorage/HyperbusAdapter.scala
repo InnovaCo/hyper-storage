@@ -24,7 +24,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
 
   def ~> (implicit request: HyperStorageContentGet) = {
     tracker.timeOfFuture(Metrics.RETRIEVE_TIME) {
-      val (documentUri, itemSegment) = ContentLogic.splitPath(request.path)
+      val ResourcePath(documentUri, itemSegment) = ContentLogic.splitPath(request.path)
       val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
       if (itemSegment.isEmpty && request.body.content.asMap.contains(COLLECTION_TOKEN_FIELD_NAME)) { // collection
         import Sort._
@@ -94,7 +94,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
   private def executeRequest(implicit request: Request[Body], uri: String) = {
     val str = StringSerializer.serializeToString(request)
     val ttl = Math.min(requestTimeout.toMillis - 100, 100)
-    val (documentUri, _) = ContentLogic.splitPath(uri)
+    val documentUri = ContentLogic.splitPath(uri).documentUri
     val task = HyperStorageTask(documentUri, System.currentTimeMillis() + ttl, str)
     implicit val timeout: akka.util.Timeout = requestTimeout
 

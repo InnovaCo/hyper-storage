@@ -1,16 +1,16 @@
-import eu.inn.hyperstorage.ContentLogic
+import eu.inn.hyperstorage.{ContentLogic, ResourcePath}
 import org.scalatest.{FreeSpec, Matchers}
 
 class ContentLogicSpec extends FreeSpec with Matchers{
   "ContentLogic" - {
     "splitPath should parse document" in {
-      ContentLogic.splitPath("document") should equal(("document", ""))
-      ContentLogic.splitPath("some/other/document") should equal(("some/other/document", ""))
+      ContentLogic.splitPath("document") should equal(ResourcePath("document", ""))
+      ContentLogic.splitPath("some/other/document") should equal(ResourcePath("some/other/document", ""))
     }
 
     "splitPath should parse collection item" in {
-      ContentLogic.splitPath("document/item") should equal(("document", "item"))
-      ContentLogic.splitPath("some/other/document/item") should equal(("some/other/document", "item"))
+      ContentLogic.splitPath("document~/item") should equal(ResourcePath("document~", "item"))
+      ContentLogic.splitPath("some/other/document~/item") should equal(ResourcePath("some/other/document~", "item"))
     }
 
     "splitPath should fail when invalid chars are used" in {

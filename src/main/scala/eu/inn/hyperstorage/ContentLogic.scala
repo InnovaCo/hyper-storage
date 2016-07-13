@@ -2,6 +2,8 @@ package eu.inn.hyperstorage
 
 import eu.inn.hyperstorage.db.{Content, ContentStatic}
 
+case class ResourcePath(documentUri: String, itemSegment: String)
+
 object ContentLogic {
   implicit class ContentWrapper(val content: Content) {
     def uri = {
@@ -20,7 +22,8 @@ object ContentLogic {
   // ? & # is not allowed, it means that query have been sent
   val allowedCharSet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/[]@!$&'()*+,;=".toSet
   // todo: describe uri to resource/collection item matching
-  def splitPath(path: String): (String,String) = {
+
+  def splitPath(path: String): ResourcePath = {
     if (path.startsWith("/") || path.endsWith("/"))
       throw new IllegalArgumentException(s"$path is invalid (ends or starts with '/')")
 
@@ -31,15 +34,21 @@ object ContentLogic {
     if (segments.isEmpty || segments.exists(_.isEmpty))
       throw new IllegalArgumentException(s"$path is invalid (empty segments)")
 
-    if (segments.length % 2 == 0) {
+    if (segments.length > 1) {
       // collection item
       val r = segments.reverse
-      val documentUri = r.tail.reverse.mkString("/")
-      val itemSegment = r.head
-      (documentUri, itemSegment)
+      val a = r(1)
+      if (a.endsWith("~")) {
+        val documentUri = r.tail.reverse.mkString("/")
+        val itemSegment = r.head
+        ResourcePath(documentUri, itemSegment)
+      }
+      else {
+        ResourcePath(path, "")
+      }
     } else {
       // document
-      (path, "")
+      ResourcePath(path, "")
     }
   }
 }

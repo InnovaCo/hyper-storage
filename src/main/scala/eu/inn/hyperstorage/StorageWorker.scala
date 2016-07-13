@@ -47,7 +47,7 @@ class HyperStorageWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, co
 
     Try{
       val request = DynamicRequest(task.content)
-      val (documentUri, itemSegment) = splitPath(request.path)
+      val ResourcePath(documentUri, itemSegment) = splitPath(request.path)
       if (documentUri != task.key) {
         throw new IllegalArgumentException(s"HyperStorage task key ${task.key} doesn't correspond to $documentUri")
       }
