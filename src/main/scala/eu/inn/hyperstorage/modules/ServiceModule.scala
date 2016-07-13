@@ -1,8 +1,8 @@
-package eu.inn.revault.modules
+package eu.inn.hyperstorage.modules
 
 import com.datastax.driver.core.Session
 import com.typesafe.config.Config
-import eu.inn.revault.{CassandraConnector, RevaultService}
+import eu.inn.hyperstorage.{CassandraConnector, HyperStorageService}
 import eu.inn.servicecontrol.ConsoleModule
 import eu.inn.servicecontrol.api.Service
 
@@ -16,5 +16,5 @@ class ServiceModule(config: Config) extends ConsoleModule {
       CassandraConnector.createCassandraSession(config.getConfig("cassandra"))
     }
   }
-  bind [Service] to injected [RevaultService]
+  bind [Service] to injected [HyperStorageService]
 }

@@ -1,4 +1,4 @@
-package eu.inn.revault.metrics
+package eu.inn.hyperstorage.metrics
 
 import eu.inn.metrics.loaders.MetricsReporterLoader
 import eu.inn.metrics.{MetricsTracker, ProcessMetrics}

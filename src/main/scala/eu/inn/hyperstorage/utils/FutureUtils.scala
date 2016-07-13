@@ -1,4 +1,4 @@
-package eu.inn.revault.utils
+package eu.inn.hyperstorage.utils
 
 import scala.collection.generic.CanBuildFrom
 import scala.collection.{Seq, mutable}

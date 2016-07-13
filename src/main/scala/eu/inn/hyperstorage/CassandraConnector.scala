@@ -1,4 +1,4 @@
-package eu.inn.revault
+package eu.inn.hyperstorage
 
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 

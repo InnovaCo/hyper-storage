@@ -1,6 +1,6 @@
-package eu.inn.revault
+package eu.inn.hyperstorage
 
-import eu.inn.revault.db.{Content, ContentStatic}
+import eu.inn.hyperstorage.db.{Content, ContentStatic}
 
 object ContentLogic {
   implicit class ContentWrapper(val content: Content) {

@@ -1,6 +1,6 @@
-package eu.inn.revault
+package eu.inn.hyperstorage
 
-import eu.inn.revault.modules.ModuleAggregator
+import eu.inn.hyperstorage.modules.ModuleAggregator
 import eu.inn.servicecontrol.api.ServiceController
 import scaldi.Injectable
 

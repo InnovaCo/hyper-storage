@@ -1,4 +1,4 @@
-package eu.inn.revault
+package eu.inn.hyperstorage
 
 import java.util.UUID
 
@@ -8,42 +8,42 @@ import com.datastax.driver.core.utils.UUIDs
 import eu.inn.hyperbus.Hyperbus
 import eu.inn.hyperbus.model.DynamicRequest
 import eu.inn.metrics.MetricsTracker
-import eu.inn.revault.db.{ContentStatic, Db, Transaction}
-import eu.inn.revault.metrics.Metrics
-import eu.inn.revault.sharding.{ShardTask, ShardTaskComplete}
-import eu.inn.revault.utils.FutureUtils
+import eu.inn.hyperstorage.db.{ContentStatic, Db, Transaction}
+import eu.inn.hyperstorage.metrics.Metrics
+import eu.inn.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
+import eu.inn.hyperstorage.utils.FutureUtils
 
 import scala.collection.Seq
 import scala.concurrent.Future
 import scala.util.Success
 import scala.util.control.NonFatal
 
-@SerialVersionUID(1L) case class RevaultCompleterTask(ttl: Long, documentUri: String) extends ShardTask {
+@SerialVersionUID(1L) case class CompleterTask(ttl: Long, documentUri: String) extends ShardTask {
   def key = documentUri
   def isExpired = ttl < System.currentTimeMillis()
-  def group = "revault-completer"
+  def group = "hyper-storage-completer"
 }
 
-@SerialVersionUID(1L) case class RevaultCompleterTaskResult(documentUri: String, transactions: Seq[UUID])
+@SerialVersionUID(1L) case class CompleterTaskResult(documentUri: String, transactions: Seq[UUID])
 @SerialVersionUID(1L) case class NoSuchResourceException(documentUri: String) extends RuntimeException(s"No such resource: $documentUri")
 @SerialVersionUID(1L) case class IncorrectDataException(documentUri: String, reason: String) extends RuntimeException(s"Data for $documentUri is incorrect: $reason")
 @SerialVersionUID(1L) case class CompletionFailedException(documentUri: String, reason: String) extends RuntimeException(s"Complete for $documentUri is failed: $reason")
 
 // todo: rename this
-class RevaultCompleter(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) extends Actor with ActorLogging {
+class Completer(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) extends Actor with ActorLogging {
   import ContentLogic._
   import context._
 
   override def receive: Receive = {
-    case task: RevaultCompleterTask ⇒
+    case task: CompleterTask ⇒
       executeTask(sender(), task)
   }
 
-  def executeTask(owner: ActorRef, task: RevaultCompleterTask): Unit = {
+  def executeTask(owner: ActorRef, task: CompleterTask): Unit = {
     val (documentUri, itemSegment) = ContentLogic.splitPath(task.documentUri)
     if (!itemSegment.isEmpty) {
       owner ! Status.Success { // todo: is this have to be a success
-        val e = new IllegalArgumentException(s"RevaultCompleter task key ${task.key} doesn't correspond to $documentUri")
+        val e = new IllegalArgumentException(s"Completer task key ${task.key} doesn't correspond to $documentUri")
         ShardTaskComplete(task, e)
       }
     }
@@ -66,9 +66,9 @@ class RevaultCompleter(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) exte
     }
   }
 
-  def completeTransactions(task: RevaultCompleterTask, content: ContentStatic): Future[ShardTaskComplete] = {
+  def completeTransactions(task: CompleterTask, content: ContentStatic): Future[ShardTaskComplete] = {
     if (content.transactionList.isEmpty) {
-      Future.successful(ShardTaskComplete(task, RevaultCompleterTaskResult(task.documentUri, Seq.empty)))
+      Future.successful(ShardTaskComplete(task, CompleterTaskResult(task.documentUri, Seq.empty)))
     }
     else {
       selectIncompleteTransactions(content) flatMap { incompleteTransactions ⇒
@@ -86,12 +86,12 @@ class RevaultCompleter(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) exte
             }
           }
         } map { updatedTransactions ⇒
-          ShardTaskComplete(task, RevaultCompleterTaskResult(task.documentUri, updatedTransactions.map(_.uuid)))
+          ShardTaskComplete(task, CompleterTaskResult(task.documentUri, updatedTransactions.map(_.uuid)))
         } recover {
           case NonFatal(e) ⇒
             ShardTaskComplete(task, CompletionFailedException(task.documentUri, e.toString))
         } andThen {
-          case Success(ShardTaskComplete(_, RevaultCompleterTaskResult(documentUri, updatedTransactions))) ⇒
+          case Success(ShardTaskComplete(_, CompleterTaskResult(documentUri, updatedTransactions))) ⇒
             log.debug(s"Removing completed transactions $updatedTransactions from $documentUri")
             db.removeCompleteTransactionsFromList(documentUri, updatedTransactions.toList) recover {
               case NonFatal(e) ⇒
@@ -113,8 +113,8 @@ class RevaultCompleter(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) exte
   }
 }
 
-object RevaultCompleter {
-  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) = Props(classOf[RevaultCompleter],
+object Completer {
+  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) = Props(classOf[Completer],
     hyperbus, db, tracker
   )
 }

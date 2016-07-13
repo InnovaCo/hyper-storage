@@ -11,9 +11,9 @@ import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
 import eu.inn.metrics.MetricsTracker
 import eu.inn.metrics.modules.ConsoleReporterModule
-import eu.inn.revault.TransactionLogic
-import eu.inn.revault.db.{Db, Transaction}
-import eu.inn.revault.sharding._
+import eu.inn.hyperstorage.TransactionLogic
+import eu.inn.hyperstorage.db.{Db, Transaction}
+import eu.inn.hyperstorage.sharding._
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{BeforeAndAfterEach, Matchers}
 import org.slf4j.LoggerFactory
@@ -78,14 +78,14 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     scala.concurrent.ExecutionContext.Implicits.global
   }
 
-  def createRevaultActor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
+  def createHyperStorageActor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
     val workerSettings = Map(groupName → (Props[TestWorker], workerCount))
     val fsm = new TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor](actorSystem,
-      ShardProcessor.props(workerSettings, "revault", tracker).withDispatcher("deque-dispatcher"),
+      ShardProcessor.props(workerSettings, "hyper-storage", tracker).withDispatcher("deque-dispatcher"),
       GuardianExtractor.guardian(actorSystem),
-      "revault"
+      "hyper-storage"
     )
-    //val fsm = TestFSMRef(new ShardProcessor(Props[TestWorker], workerCount), "revault")
+    //val fsm = TestFSMRef(new ShardProcessor(Props[TestWorker], workerCount), "hyperstorage")
     //val ShardProcessor: TestActorRef[ShardProcessor] = fsm
     fsm.stateName should equal(ShardMemberStatus.Activating)
     if (waitWhileActivates) {
@@ -133,7 +133,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     }
   }
 
-  def shutdownRevaultActor(fsm: TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor])(implicit actorSystem: ActorSystem) = {
+  def shutdownHyperStorageActor(fsm: TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor])(implicit actorSystem: ActorSystem) = {
     val probe = TestProbe()
     probe watch fsm
     fsm ! ShutdownProcessor

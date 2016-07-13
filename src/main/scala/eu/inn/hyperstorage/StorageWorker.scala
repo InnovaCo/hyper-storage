@@ -1,4 +1,4 @@
-package eu.inn.revault
+package eu.inn.hyperstorage
 
 import java.util.Date
 
@@ -12,44 +12,44 @@ import eu.inn.hyperbus.transport.api.matchers.Specific
 import eu.inn.hyperbus.transport.api.uri.Uri
 import eu.inn.hyperbus.{Hyperbus, IdGenerator}
 import eu.inn.metrics.MetricsTracker
-import eu.inn.revault.api.{RevaultContentGet, RevaultTransactionCreated}
-import eu.inn.revault.db._
-import eu.inn.revault.metrics.Metrics
-import eu.inn.revault.sharding.{ShardTask, ShardTaskComplete}
+import eu.inn.hyperstorage.api.{HyperStorageContentGet, HyperStorageTransactionCreated}
+import eu.inn.hyperstorage.db._
+import eu.inn.hyperstorage.metrics.Metrics
+import eu.inn.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
 
 import scala.concurrent.Future
 import scala.concurrent.duration.FiniteDuration
 import scala.util.Try
 import scala.util.control.NonFatal
 
-@SerialVersionUID(1L) case class RevaultTask(key: String, ttl: Long, content: String) extends ShardTask {
+@SerialVersionUID(1L) case class HyperStorageTask(key: String, ttl: Long, content: String) extends ShardTask {
   def isExpired = ttl < System.currentTimeMillis()
-  def group = "revault"
+  def group = "hyper-storage"
 }
 
-@SerialVersionUID(1L) case class RevaultTaskResult(content: String)
+@SerialVersionUID(1L) case class HyperStorageTaskResult(content: String)
 
-case class RevaultWorkerTaskFailed(task: ShardTask, inner: Throwable)
-case class RevaultWorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
+case class WorkerTaskFailed(task: ShardTask, inner: Throwable)
+case class WorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
 
 // todo: rename this
-class RevaultWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, completerTimeout: FiniteDuration) extends Actor with ActorLogging {
+class HyperStorageWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, completerTimeout: FiniteDuration) extends Actor with ActorLogging {
   import ContentLogic._
   import context._
 
   def receive = {
-    case task: RevaultTask ⇒
+    case task: HyperStorageTask ⇒
       executeTask(sender(), task)
   }
 
-  def executeTask(owner: ActorRef, task: RevaultTask): Unit = {
+  def executeTask(owner: ActorRef, task: HyperStorageTask): Unit = {
     val trackProcessTime = tracker.timer(Metrics.WORKER_PROCESS_TIME).time()
 
     Try{
       val request = DynamicRequest(task.content)
       val (documentUri, itemSegment) = splitPath(request.path)
       if (documentUri != task.key) {
-        throw new IllegalArgumentException(s"RevaultWorker task key ${task.key} doesn't correspond to $documentUri")
+        throw new IllegalArgumentException(s"HyperStorage task key ${task.key} doesn't correspond to $documentUri")
       }
       val (updatedItemSegment, updatedRequest) = request.method match {
         case Method.POST ⇒
@@ -63,7 +63,7 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, complet
             ))
           }
           else {
-            throw new IllegalArgumentException(s"RevaultWorker POST on collection item is not supported")
+            throw new IllegalArgumentException(s"HyperStorage POST on collection item is not supported")
           }
 
         case Method.PUT ⇒
@@ -88,7 +88,7 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, complet
     }
   }
 
-  def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemSegment: String, task: RevaultTask, request: DynamicRequest) = {
+  def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemSegment: String, task: HyperStorageTask, request: DynamicRequest) = {
     db.selectContent(documentUri, itemSegment) flatMap { existingContent ⇒
       val f: Future[Option[ContentBase]] = existingContent match {
         case Some(content) ⇒ Future.successful(Some(content))
@@ -97,12 +97,12 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, complet
 
       f flatMap { existingContentStatic ⇒
         updateResource(documentUri, itemSegment, request, existingContent, existingContentStatic) map { newTransaction ⇒
-          RevaultWorkerTaskCompleted(task, newTransaction, existingContent.isEmpty)
+          WorkerTaskCompleted(task, newTransaction, existingContent.isEmpty)
         }
       }
     } recover {
       case NonFatal(e) ⇒
-        RevaultWorkerTaskFailed(task, e)
+        WorkerTaskFailed(task, e)
     } pipeTo context.self
   }
 
@@ -118,37 +118,37 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, complet
     ).serializeToString())
   }
 
-  private def taskWaitResult(owner: ActorRef, originalTask: RevaultTask, request: DynamicRequest, trackProcessTime: Timer.Context)
+  private def taskWaitResult(owner: ActorRef, originalTask: HyperStorageTask, request: DynamicRequest, trackProcessTime: Timer.Context)
                             (implicit mcf: MessagingContextFactory): Receive = {
-    case RevaultWorkerTaskCompleted(task, transaction, created) if task == originalTask ⇒
+    case WorkerTaskCompleted(task, transaction, created) if task == originalTask ⇒
       if (log.isDebugEnabled) {
-        log.debug(s"RevaultWorker task $originalTask is completed")
+        log.debug(s"HyperStorage task $originalTask is completed")
       }
-      owner ! RevaultCompleterTask(System.currentTimeMillis() + completerTimeout.toMillis, transaction.documentUri)
+      owner ! CompleterTask(System.currentTimeMillis() + completerTimeout.toMillis, transaction.documentUri)
       val transactionId = transaction.documentUri + ":" + transaction.uuid + ":" + transaction.revision
       val result: Response[Body] = if (created) {
-        Created(RevaultTransactionCreated(transactionId,
+        Created(HyperStorageTransactionCreated(transactionId,
           path = request.path,
           links = new LinksBuilder()
-            .self(api.RevaultTransaction.selfPattern, templated = true)
-            .location(RevaultContentGet.uriPattern)
+            .self(api.HyperStorageTransaction.selfPattern, templated = true)
+            .location(HyperStorageContentGet.uriPattern)
             .result()
         ))
       }
       else {
-        Ok(api.RevaultTransaction(transactionId))
+        Ok(api.HyperStorageTransaction(transactionId))
       }
-      owner ! ShardTaskComplete(task, RevaultTaskResult(result.serializeToString()))
+      owner ! ShardTaskComplete(task, HyperStorageTaskResult(result.serializeToString()))
       trackProcessTime.stop()
       unbecome()
 
-    case RevaultWorkerTaskFailed(task, e) if task == originalTask ⇒
+    case WorkerTaskFailed(task, e) if task == originalTask ⇒
       owner ! ShardTaskComplete(task, hyperbusException(e, task))
       trackProcessTime.stop()
       unbecome()
   }
 
-  private def hyperbusException(e: Throwable, task: ShardTask): RevaultTaskResult = {
+  private def hyperbusException(e: Throwable, task: ShardTask): HyperStorageTaskResult = {
     val (response:HyperbusException[ErrorBody], logException) = e match {
       case h: NotFound[ErrorBody] ⇒ (h, false)
       case h: HyperbusException[ErrorBody] ⇒ (h, true)
@@ -159,7 +159,7 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, complet
       log.error(e, s"Task $task is failed")
     }
 
-    RevaultTaskResult(response.serializeToString())
+    HyperStorageTaskResult(response.serializeToString())
   }
 
   private def updateContent(documentUri: String,
@@ -298,7 +298,7 @@ class RevaultWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, complet
   }
 }
 
-object RevaultWorker {
+object HyperStorageWorker {
   def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, completerTimeout: FiniteDuration) =
-    Props(classOf[RevaultWorker], hyperbus, db, tracker, completerTimeout)
+    Props(classOf[HyperStorageWorker], hyperbus, db, tracker, completerTimeout)
 }

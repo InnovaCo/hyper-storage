@@ -1,4 +1,4 @@
-package eu.inn.revault.modules
+package eu.inn.hyperstorage.modules
 
 import eu.inn.config.ConfigLoader
 import eu.inn.metrics.modules.MetricsModule

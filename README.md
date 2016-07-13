@@ -1,10 +1,10 @@
-# revault
+# hyper-storage
 
 ```
     {
         "request": {
             "uri": {
-                "pattern":"/revault/{path:*}/feed",
+                "pattern":"/hyper-storage/{path:*}/feed",
                 "args": {
                     "path": "about-author"
                 }
@@ -18,7 +18,7 @@
         },
         "body": {
             "_links": {
-                "self": { "href": "/revault/about-author" }
+                "self": { "href": "/hyper-storage/about-author" }
             },
             "authorName": "Jack London",
             "books": {
@@ -41,7 +41,7 @@ todo:
     + (content transactionsList delta updates)
   * performance test
   * facade JS test
-  * revault transactions query (/revault/transactions/?)
+  * transactions query (/hyper-storage/transactions/?)
   * cache results
   * integration test
     + kafka + recovery + switch

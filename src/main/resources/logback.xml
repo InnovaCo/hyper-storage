@@ -1,5 +1,5 @@
 <configuration>
-    <property name="tag" value="inn-revault-service"/>
+    <property name="tag" value="inn-hyper-storage-service"/>
     <appender name="stdout" class="ch.qos.logback.core.ConsoleAppender">
         <withJansi>true</withJansi>
         <encoder>
@@ -11,11 +11,11 @@
         <level value="INFO" />
     </logger>
 
-    <logger name="eu.inn.revault">
+    <logger name="eu.inn.hyperstorage">
         <level value="TRACE" />
     </logger>
 
-    <logger name="eu.inn.revault.recovery">
+    <logger name="eu.inn.hyperstorage.recovery">
         <level value="INFO" />
     </logger>
 

@@ -1,11 +1,11 @@
-package eu.inn.revault.db
+package eu.inn.hyperstorage.db
 
 import java.util.{Date, UUID}
 
 import eu.inn.binders._
 import eu.inn.binders.cassandra._
 import eu.inn.binders.naming.CamelCaseToSnakeCaseConverter
-import eu.inn.revault.CassandraConnector
+import eu.inn.hyperstorage.CassandraConnector
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.{ExecutionContext, Future}

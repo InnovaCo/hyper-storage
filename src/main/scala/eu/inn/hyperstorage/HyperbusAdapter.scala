@@ -1,4 +1,4 @@
-package eu.inn.revault
+package eu.inn.hyperstorage
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.ask
@@ -8,13 +8,13 @@ import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.model.utils.{Sort, SortBy}
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.metrics.MetricsTracker
-import eu.inn.revault.api._
-import eu.inn.revault.db.Db
-import eu.inn.revault.metrics.Metrics
+import eu.inn.hyperstorage.api._
+import eu.inn.hyperstorage.db.Db
+import eu.inn.hyperstorage.metrics.Metrics
 
 import scala.concurrent.duration._
 
-class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, tracker: MetricsTracker, requestTimeout: FiniteDuration) extends Actor with ActorLogging {
+class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsTracker, requestTimeout: FiniteDuration) extends Actor with ActorLogging {
   import context._
 
   val COLLECTION_TOKEN_FIELD_NAME = "ct"
@@ -22,7 +22,7 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, tracker: MetricsTracke
 
   def receive = AkkaHyperService.dispatch(this)
 
-  def ~> (implicit request: RevaultContentGet) = {
+  def ~> (implicit request: HyperStorageContentGet) = {
     tracker.timeOfFuture(Metrics.RETRIEVE_TIME) {
       val (documentUri, itemSegment) = ContentLogic.splitPath(request.path)
       val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
@@ -86,28 +86,28 @@ class HyperbusAdapter(revaultProcessor: ActorRef, db: Db, tracker: MetricsTracke
     }
   }
 
-  def ~> (request: RevaultContentPut) = executeRequest(request, request.path)
-  def ~> (request: RevaultContentPost) = executeRequest(request, request.path)
-  def ~> (request: RevaultContentPatch) = executeRequest(request, request.path)
-  def ~> (request: RevaultContentDelete) = executeRequest(request, request.path)
+  def ~> (request: HyperStorageContentPut) = executeRequest(request, request.path)
+  def ~> (request: HyperStorageContentPost) = executeRequest(request, request.path)
+  def ~> (request: HyperStorageContentPatch) = executeRequest(request, request.path)
+  def ~> (request: HyperStorageContentDelete) = executeRequest(request, request.path)
 
   private def executeRequest(implicit request: Request[Body], uri: String) = {
     val str = StringSerializer.serializeToString(request)
     val ttl = Math.min(requestTimeout.toMillis - 100, 100)
     val (documentUri, _) = ContentLogic.splitPath(uri)
-    val task = RevaultTask(documentUri, System.currentTimeMillis() + ttl, str)
+    val task = HyperStorageTask(documentUri, System.currentTimeMillis() + ttl, str)
     implicit val timeout: akka.util.Timeout = requestTimeout
 
-    revaultProcessor ? task map {
-      case RevaultTaskResult(content) ⇒
+    hyperStorageProcessor ? task map {
+      case HyperStorageTaskResult(content) ⇒
         StringDeserializer.dynamicResponse(content)
     }
   }
 }
 
 object HyperbusAdapter {
-  def props(revaultProcessor: ActorRef, db: Db, tracker: MetricsTracker, requestTimeout: FiniteDuration) = Props(
+  def props(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsTracker, requestTimeout: FiniteDuration) = Props(
     classOf[HyperbusAdapter],
-    revaultProcessor, db, tracker, requestTimeout
+    hyperStorageProcessor, db, tracker, requestTimeout
   )
 }

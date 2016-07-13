@@ -1,19 +1,19 @@
 #%RAML 1.0
-title: Revault API
-baseUri: https://meta.inn.eu/revault
+title: HyperStorage API
+baseUri: https://meta.inn.eu/hyperstorage
 types:
-  RevaultTransaction:
+  HyperStorageTransaction:
     type: object
     properties:
       transactionId: string
-  RevaultTransactionCreated:
+  HyperStorageTransactionCreated:
       type: object
       properties:
         transactionId: string
         path: string
 annotationTypes:
   feed:
-/revault/content/{path:*}:
+/hyper-storage/content/{path:*}:
   uriParameters:
     path:*: string
   get:
@@ -25,32 +25,32 @@ annotationTypes:
       200:
         body:
           application/json:
-            type: RevaultTransaction
+            type: HyperStorageTransaction
       201:
         body:
             application/json:
-              type: RevaultTransactionCreated
+              type: HyperStorageTransactionCreated
   patch:
     (feed):
     responses:
       200:
         body:
           application/json:
-            type: RevaultTransaction
+            type: HyperStorageTransaction
   delete:
     (feed):
     responses:
       200:
         body:
           application/json:
-            type: RevaultTransaction
+            type: HyperStorageTransaction
   post:
     responses:
       201:
         body:
             application/json:
-              type: RevaultTransactionCreated
-/revault/transactions/{transactionId}:
+              type: HyperStorageTransactionCreated
+/hyper-storage/transactions/{transactionId}:
   uriParameters:
     transactionId: string
   get:
@@ -58,4 +58,4 @@ annotationTypes:
       200:
         body:
           application/json:
-            type: RevaultTransaction
+            type: HyperStorageTransaction

@@ -1,10 +1,10 @@
-package eu.inn.revault
+package eu.inn.hyperstorage
 
 import java.util.TimeZone
 import java.util.zip.CRC32
 
 import com.datastax.driver.core.utils.UUIDs
-import eu.inn.revault.db.Transaction
+import eu.inn.hyperstorage.db.Transaction
 
 object TransactionLogic {
   val MaxPartitions: Int = 1024

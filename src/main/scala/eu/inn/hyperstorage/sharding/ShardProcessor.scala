@@ -1,4 +1,4 @@
-package eu.inn.revault.sharding
+package eu.inn.hyperstorage.sharding
 
 import akka.actor._
 import akka.cluster.ClusterEvent._
@@ -6,7 +6,7 @@ import akka.cluster.Member.addressOrdering
 import akka.cluster.{Cluster, ClusterEvent, Member, MemberStatus}
 import akka.routing.{ConsistentHash, MurmurHash}
 import eu.inn.metrics.MetricsTracker
-import eu.inn.revault.metrics.Metrics
+import eu.inn.hyperstorage.metrics.Metrics
 
 import scala.collection.mutable
 import scala.concurrent.duration._

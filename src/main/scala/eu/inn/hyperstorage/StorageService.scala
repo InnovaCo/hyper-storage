@@ -1,4 +1,4 @@
-package eu.inn.revault
+package eu.inn.hyperstorage
 
 import akka.cluster.Cluster
 import com.typesafe.config.Config
@@ -7,10 +7,10 @@ import eu.inn.hyperbus.akkaservice._
 import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
 import eu.inn.metrics.MetricsTracker
-import eu.inn.revault.db.Db
-import eu.inn.revault.metrics.MetricsReporter
-import eu.inn.revault.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
-import eu.inn.revault.sharding.{ShardProcessor, ShutdownProcessor, SubscribeToShardStatus}
+import eu.inn.hyperstorage.db.Db
+import eu.inn.hyperstorage.metrics.MetricsReporter
+import eu.inn.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
+import eu.inn.hyperstorage.sharding.{ShardProcessor, ShutdownProcessor, SubscribeToShardStatus}
 import eu.inn.servicecontrol.api.{Console, Service}
 import org.slf4j.LoggerFactory
 import scaldi.{Injectable, Injector}
@@ -19,7 +19,7 @@ import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{Await, ExecutionContext}
 import scala.util.control.NonFatal
 
-case class RevaultConfig(
+case class HyperStorageConfig(
                           shutdownTimeout: FiniteDuration,
                           shardSyncTimeout: FiniteDuration,
                           maxWorkers: Int,
@@ -33,25 +33,25 @@ case class RevaultConfig(
                           staleRecoveryRetry: FiniteDuration
                         )
 
-class RevaultService(console: Console,
-                     config: Config,
-                     connector: CassandraConnector,
-                     implicit val ec: ExecutionContext,
-                     implicit val injector: Injector) extends Service with Injectable {
+class HyperStorageService(console: Console,
+                          config: Config,
+                          connector: CassandraConnector,
+                          implicit val ec: ExecutionContext,
+                          implicit val injector: Injector) extends Service with Injectable {
   var log = LoggerFactory.getLogger(getClass)
-  log.info(s"Starting Revault service v${BuildInfo.version}...")
+  log.info(s"Starting HyperStorage service v${BuildInfo.version}...")
 
   // configuration
   import eu.inn.binders.tconfig._
-  val revaultConfig = config.getValue("revault").read[RevaultConfig]
+  val serviceConfig = config.getValue("hyper-storage").read[HyperStorageConfig]
 
-  log.info(s"Revault configuration: $revaultConfig")
+  log.info(s"HyperStorage configuration: $config")
 
   // metrics tracker
   val tracker = inject[MetricsTracker]
   MetricsReporter.startReporter(tracker)
 
-  import revaultConfig._
+  import serviceConfig._
 
   // initialize
   log.info(s"Initializing hyperbus...")
@@ -75,16 +75,16 @@ class RevaultService(console: Console,
   }
 
   // worker actor todo: recovery job
-  val workerProps = RevaultWorker.props(hyperbus, db, tracker, completerTimeout)
-  val completerProps = RevaultCompleter.props(hyperbus, db, tracker)
+  val workerProps = HyperStorageWorker.props(hyperbus, db, tracker, completerTimeout)
+  val completerProps = Completer.props(hyperbus, db, tracker)
   val workerSettings = Map(
-    "revault" → (workerProps, maxWorkers),
-    "revault-completer" → (completerProps, maxCompleters)
+    "hyper-storage" → (workerProps, maxWorkers),
+    "hyper-storage-completer" → (completerProps, maxCompleters)
   )
 
   // shard processor actor
   val shardProcessorRef = actorSystem.actorOf(
-    ShardProcessor.props(workerSettings, "revault", tracker, shardSyncTimeout), "revault"
+    ShardProcessor.props(workerSettings, "hyper-storage", tracker, shardSyncTimeout), "hyper-storage"
   )
 
   val distributorRef = actorSystem.actorOf(HyperbusAdapter.props(shardProcessorRef, db, tracker, requestTimeout))
@@ -104,11 +104,11 @@ class RevaultService(console: Console,
   val staleRecoveryRef = actorSystem.actorOf(StaleRecoveryWorker.props(stalePeriod, db, shardProcessorRef, tracker, staleRecoveryRetry, completerTimeout))
   shardProcessorRef ! SubscribeToShardStatus(staleRecoveryRef)
 
-  log.info("Revault started!")
+  log.info("HyperStorage started!")
 
   // shutdown
   override def stopService(controlBreak: Boolean): Unit = {
-    log.info("Stopping Revault service...")
+    log.info("Stopping HyperStorage service...")
 
     staleRecoveryRef ! ShutdownRecoveryWorker
     hotRecoveryRef ! ShutdownRecoveryWorker
@@ -129,6 +129,6 @@ class RevaultService(console: Console,
         log.error("Hyperbus didn't shutdown gracefully", t)
     }
     db.close()
-    log.info("Revault stopped.")
+    log.info("HyperStorage stopped.")
   }
 }

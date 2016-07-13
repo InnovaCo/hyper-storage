@@ -1,4 +1,4 @@
-package eu.inn.revault.recovery
+package eu.inn.hyperstorage.recovery
 
 import java.util.Date
 
@@ -6,12 +6,12 @@ import akka.actor._
 import akka.pattern.ask
 import com.codahale.metrics.Meter
 import eu.inn.metrics.MetricsTracker
-import eu.inn.revault._
-import eu.inn.revault.db.Db
-import eu.inn.revault.metrics.Metrics
-import eu.inn.revault.sharding.ShardMemberStatus.{Active, Deactivating}
-import eu.inn.revault.sharding.{ShardTask, ShardedClusterData, UpdateShardStatus}
-import eu.inn.revault.utils.FutureUtils
+import eu.inn.hyperstorage._
+import eu.inn.hyperstorage.db.Db
+import eu.inn.hyperstorage.metrics.Metrics
+import eu.inn.hyperstorage.sharding.ShardMemberStatus.{Active, Deactivating}
+import eu.inn.hyperstorage.sharding.{ShardTask, ShardedClusterData, UpdateShardStatus}
+import eu.inn.hyperstorage.utils.FutureUtils
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
@@ -137,13 +137,13 @@ abstract class RecoveryWorker[T <: WorkerState](
         val incompleteTransactions = partitionTransactions.toList.filter(_.completedAt.isEmpty).groupBy(_.documentUri)
         FutureUtils.serial(incompleteTransactions.toSeq) { case (documentUri, transactions) ⇒
           trackIncompleteMeter.mark(transactions.length)
-          val task = RevaultCompleterTask(
+          val task = CompleterTask(
             System.currentTimeMillis() + completerTimeout.toMillis + 1000,
             documentUri
           )
           log.debug(s"Incomplete resource at $documentUri. Sending recovery task")
           shardProcessor.ask(task)(completerTimeout) flatMap {
-            case RevaultCompleterTaskResult(completePath, completedTransactions) ⇒
+            case CompleterTaskResult(completePath, completedTransactions) ⇒
               log.debug(s"Recovery of '$completePath' completed successfully: $completedTransactions")
               if (documentUri == completePath) {
                 val set = completedTransactions.toSet

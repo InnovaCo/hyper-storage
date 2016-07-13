@@ -1,6 +1,6 @@
 import sbt.Keys._
 
-name := "revault2"
+name := "hyper-storage"
 
 organization := "eu.inn"
 
@@ -19,11 +19,11 @@ resolvers ++= Seq(
   "Innova releases" at "http://repproxy.srv.inn.ru/artifactory/libs-release-local"
 )
 
-ramlHyperbusSource := file("revault.raml")
+ramlHyperbusSource := file("hyperstorage.raml")
 
-ramlHyperbusPackageName := "eu.inn.revault.api"
+ramlHyperbusPackageName := "eu.inn.hyperstorage.api"
 
-buildInfoPackage := "eu.inn.revault"
+buildInfoPackage := "eu.inn.hyperstorage"
 
 buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion, sbtVersion)
 
