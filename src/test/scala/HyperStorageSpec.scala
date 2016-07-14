@@ -761,7 +761,7 @@ class HyperStorageSpec extends FreeSpec
         }
 
         val f4 = hyperbus <~ HyperStorageContentGet("collection-1~",
-          body = new QueryBuilder() add("ct", Null) result())
+          body = new QueryBuilder() add("from", Null) result())
 
         whenReady(f4) { response ⇒
           response.statusCode should equal(Status.OK)
@@ -773,7 +773,7 @@ class HyperStorageSpec extends FreeSpec
         import Sort._
 
         val f5 = hyperbus <~ HyperStorageContentGet("collection-1~",
-          body = new QueryBuilder() add("ct", Null) sortBy(Seq(SortBy("id", true))) result())
+          body = new QueryBuilder() add("from", Null) sortBy(Seq(SortBy("id", true))) result())
 
         whenReady(f5) { response ⇒
           response.statusCode should equal(Status.OK)
@@ -851,7 +851,7 @@ class HyperStorageSpec extends FreeSpec
         val c2x = Obj(c2.asMap + "id" → id2)
 
         val f4 = hyperbus <~ HyperStorageContentGet("collection-2~",
-          body = new QueryBuilder() add("ct", Null) result())
+          body = new QueryBuilder() add("from", Null) result())
 
         whenReady(f4) { response ⇒
           response.statusCode should equal(Status.OK)
@@ -863,7 +863,7 @@ class HyperStorageSpec extends FreeSpec
         import Sort._
 
         val f5 = hyperbus <~ HyperStorageContentGet("collection-2~",
-          body = new QueryBuilder() add("ct", Null) sortBy(Seq(SortBy("id", true))) result())
+          body = new QueryBuilder() add("from", Null) sortBy(Seq(SortBy("id", true))) result())
         whenReady(f5) { response ⇒
           response.statusCode should equal(Status.OK)
           response.body.content should equal(

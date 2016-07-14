@@ -5,7 +5,6 @@ import eu.inn.metrics.{MetricsTracker, ProcessMetrics}
 import org.slf4j.LoggerFactory
 import scaldi.{Injectable, Injector, TypeTagIdentifier}
 
-
 object MetricsReporter extends Injectable {
   val log = LoggerFactory.getLogger(getClass)
   def startReporter(tracker: MetricsTracker)(implicit injector: Injector): Unit = {

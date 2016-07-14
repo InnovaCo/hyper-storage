@@ -17,8 +17,8 @@ import scala.concurrent.duration._
 class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsTracker, requestTimeout: FiniteDuration) extends Actor with ActorLogging {
   import context._
 
-  val COLLECTION_TOKEN_FIELD_NAME = "ct"
-  val COLLECTION_SIZE_FIELD_NAME = "sz"
+  val COLLECTION_TOKEN_FIELD_NAME = "from"
+  val COLLECTION_SIZE_FIELD_NAME = "size"
 
   def receive = AkkaHyperService.dispatch(this)
 
