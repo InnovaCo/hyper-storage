@@ -6,14 +6,18 @@ types:
     type: object
     properties:
       transactionId: string
+
   HyperStorageTransactionCreated:
       type: object
       properties:
         transactionId: string
         path: string
+
 annotationTypes:
   feed:
+
 /hyper-storage/content/{path:*}:
+  (private):
   uriParameters:
     path:*: string
   get:
@@ -50,6 +54,7 @@ annotationTypes:
         body:
             application/json:
               type: HyperStorageTransactionCreated
+
 /hyper-storage/transactions/{transactionId}:
   uriParameters:
     transactionId: string
