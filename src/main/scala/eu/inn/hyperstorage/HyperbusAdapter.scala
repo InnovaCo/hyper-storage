@@ -26,25 +26,25 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     tracker.timeOfFuture(Metrics.RETRIEVE_TIME) {
       val ResourcePath(documentUri, itemSegment) = ContentLogic.splitPath(request.path)
       val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
-      if (itemSegment.isEmpty && request.body.content.asMap.contains(COLLECTION_TOKEN_FIELD_NAME)) { // collection
+      if (itemSegment.isEmpty && request.body.content.asMap.contains(COLLECTION_SIZE_FIELD_NAME)) { // collection
         import Sort._
 
         val sortByDesc = request.body.sortBy.exists(_.contains(SortBy("id", descending = true)))
-        val pageFrom = request.body.content.asMap(COLLECTION_TOKEN_FIELD_NAME).asString
-        val pageSize = request.body.content.asMap.getOrElse(COLLECTION_SIZE_FIELD_NAME, Number(50)).asInt
+        val pageFrom = request.body.content.asMap.get(COLLECTION_TOKEN_FIELD_NAME).map(_.asString)
+        val pageSize = request.body.content.asMap(COLLECTION_SIZE_FIELD_NAME).asInt
         // (if (pageFrom.isEmpty && !sortByDesc) 1 else 0) + request.body.pageSize.map(_.asInt).getOrElse(50)
 
         val selectResult = if (sortByDesc) {
           if (pageFrom.isEmpty)
             db.selectContentCollectionDesc(documentUri, pageSize)
           else
-            db.selectContentCollectionDescFrom(documentUri, pageFrom, pageSize)
+            db.selectContentCollectionDescFrom(documentUri, pageFrom.get, pageSize)
         }
         else {
           if (pageFrom.isEmpty)
             db.selectContentCollection(documentUri, pageSize)
           else
-            db.selectContentCollectionFrom(documentUri, pageFrom, pageSize)
+            db.selectContentCollectionFrom(documentUri, pageFrom.get, pageSize)
         }
 
         for {
