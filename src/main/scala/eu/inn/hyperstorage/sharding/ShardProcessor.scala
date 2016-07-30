@@ -394,7 +394,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
               }
             case None ⇒
               log.error(s"No such worker group: ${task.group}. Task is dismissed: $task")
-              sender() ! new NoSuchGroupWorkerException(task.group)
+              sender() ! NoSuchGroupWorkerException(task.group)
           }
         }
       }
