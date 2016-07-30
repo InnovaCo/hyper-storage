@@ -65,11 +65,11 @@ trait WorkerState {
 }
 
 abstract class RecoveryWorker[T <: WorkerState](
-                                  db: Db,
-                                  shardProcessor: ActorRef,
-                                  tracker: MetricsTracker,
-                                  retryPeriod: FiniteDuration,
-                                  completerTimeout: FiniteDuration
+                                                 db: Db,
+                                                 shardProcessor: ActorRef,
+                                                 tracker: MetricsTracker,
+                                                 retryPeriod: FiniteDuration,
+                                                 backgroundTaskTimeout: FiniteDuration
                                 ) extends Actor with ActorLogging {
   import context._
   var currentProcessId: Long = 0
@@ -137,13 +137,13 @@ abstract class RecoveryWorker[T <: WorkerState](
         val incompleteTransactions = partitionTransactions.toList.filter(_.completedAt.isEmpty).groupBy(_.documentUri)
         FutureUtils.serial(incompleteTransactions.toSeq) { case (documentUri, transactions) ⇒
           trackIncompleteMeter.mark(transactions.length)
-          val task = CompleterTask(
-            System.currentTimeMillis() + completerTimeout.toMillis + 1000,
+          val task = BackgroundTask(
+            System.currentTimeMillis() + backgroundTaskTimeout.toMillis + 1000,
             documentUri
           )
           log.debug(s"Incomplete resource at $documentUri. Sending recovery task")
-          shardProcessor.ask(task)(completerTimeout) flatMap {
-            case CompleterTaskResult(completePath, completedTransactions) ⇒
+          shardProcessor.ask(task)(backgroundTaskTimeout) flatMap {
+            case BackgroundTaskResult(completePath, completedTransactions) ⇒
               log.debug(s"Recovery of '$completePath' completed successfully: $completedTransactions")
               if (documentUri == completePath) {
                 val set = completedTransactions.toSet
@@ -249,9 +249,9 @@ class StaleRecoveryWorker(
                            shardProcessor: ActorRef,
                            tracker: MetricsTracker,
                            retryPeriod: FiniteDuration,
-                           completerTimeout: FiniteDuration
+                           backgroundTaskTimeout: FiniteDuration
                          ) extends RecoveryWorker[StaleWorkerState] (
-  db, shardProcessor, tracker, retryPeriod, completerTimeout
+  db, shardProcessor, tracker, retryPeriod, backgroundTaskTimeout
   ) {
 
   import context._
@@ -352,7 +352,7 @@ object StaleRecoveryWorker {
              shardProcessor: ActorRef,
              tracker: MetricsTracker,
              retryPeriod: FiniteDuration,
-             completerTimeout: FiniteDuration
+             backgroundTaskTimeout: FiniteDuration
            ) = Props(
     classOf[StaleRecoveryWorker],
     stalePeriod,
@@ -360,6 +360,6 @@ object StaleRecoveryWorker {
     shardProcessor,
     tracker,
     retryPeriod,
-    completerTimeout
+    backgroundTaskTimeout
   )
 }

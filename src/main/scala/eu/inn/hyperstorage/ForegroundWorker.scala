@@ -22,34 +22,33 @@ import scala.concurrent.duration.FiniteDuration
 import scala.util.Try
 import scala.util.control.NonFatal
 
-@SerialVersionUID(1L) case class HyperStorageTask(key: String, ttl: Long, content: String) extends ShardTask {
+@SerialVersionUID(1L) case class ForegroundTask(key: String, ttl: Long, content: String) extends ShardTask {
   def isExpired = ttl < System.currentTimeMillis()
-  def group = "hyper-storage"
+  def group = "hyper-storage-foreground-worker"
 }
 
-@SerialVersionUID(1L) case class HyperStorageTaskResult(content: String)
+@SerialVersionUID(1L) case class ForegroundWorkerTaskResult(content: String)
 
-case class WorkerTaskFailed(task: ShardTask, inner: Throwable)
-case class WorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
+case class ForegroundWorkerTaskFailed(task: ShardTask, inner: Throwable)
+case class ForegroundWorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
 
-// todo: rename this
-class HyperStorageWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, completerTimeout: FiniteDuration) extends Actor with ActorLogging {
+class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration) extends Actor with ActorLogging {
   import ContentLogic._
   import context._
 
   def receive = {
-    case task: HyperStorageTask ⇒
+    case task: ForegroundTask ⇒
       executeTask(sender(), task)
   }
 
-  def executeTask(owner: ActorRef, task: HyperStorageTask): Unit = {
-    val trackProcessTime = tracker.timer(Metrics.WORKER_PROCESS_TIME).time()
+  def executeTask(owner: ActorRef, task: ForegroundTask): Unit = {
+    val trackProcessTime = tracker.timer(Metrics.FOREGROUND_PROCESS_TIME).time()
 
     Try{
       val request = DynamicRequest(task.content)
       val ResourcePath(documentUri, itemSegment) = splitPath(request.path)
       if (documentUri != task.key) {
-        throw new IllegalArgumentException(s"HyperStorage task key ${task.key} doesn't correspond to $documentUri")
+        throw new IllegalArgumentException(s"Task key ${task.key} doesn't correspond to $documentUri")
       }
       val (updatedItemSegment, updatedRequest) = request.method match {
         case Method.POST ⇒
@@ -63,7 +62,7 @@ class HyperStorageWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, co
             ))
           }
           else {
-            throw new IllegalArgumentException(s"HyperStorage POST on collection item is not supported")
+            throw new IllegalArgumentException(s"POST on collection item is not supported")
           }
 
         case Method.PUT ⇒
@@ -88,7 +87,7 @@ class HyperStorageWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, co
     }
   }
 
-  def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemSegment: String, task: HyperStorageTask, request: DynamicRequest) = {
+  def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemSegment: String, task: ForegroundTask, request: DynamicRequest) = {
     db.selectContent(documentUri, itemSegment) flatMap { existingContent ⇒
       val f: Future[Option[ContentBase]] = existingContent match {
         case Some(content) ⇒ Future.successful(Some(content))
@@ -97,12 +96,12 @@ class HyperStorageWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, co
 
       f flatMap { existingContentStatic ⇒
         updateResource(documentUri, itemSegment, request, existingContent, existingContentStatic) map { newTransaction ⇒
-          WorkerTaskCompleted(task, newTransaction, existingContent.isEmpty)
+          ForegroundWorkerTaskCompleted(task, newTransaction, existingContent.isEmpty)
         }
       }
     } recover {
       case NonFatal(e) ⇒
-        WorkerTaskFailed(task, e)
+        ForegroundWorkerTaskFailed(task, e)
     } pipeTo context.self
   }
 
@@ -118,13 +117,13 @@ class HyperStorageWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, co
     ).serializeToString())
   }
 
-  private def taskWaitResult(owner: ActorRef, originalTask: HyperStorageTask, request: DynamicRequest, trackProcessTime: Timer.Context)
+  private def taskWaitResult(owner: ActorRef, originalTask: ForegroundTask, request: DynamicRequest, trackProcessTime: Timer.Context)
                             (implicit mcf: MessagingContextFactory): Receive = {
-    case WorkerTaskCompleted(task, transaction, created) if task == originalTask ⇒
+    case ForegroundWorkerTaskCompleted(task, transaction, created) if task == originalTask ⇒
       if (log.isDebugEnabled) {
-        log.debug(s"HyperStorage task $originalTask is completed")
+        log.debug(s"ForegroundWorker task $originalTask is completed")
       }
-      owner ! CompleterTask(System.currentTimeMillis() + completerTimeout.toMillis, transaction.documentUri)
+      owner ! BackgroundTask(System.currentTimeMillis() + backgroundTaskTimeout.toMillis, transaction.documentUri)
       val transactionId = transaction.documentUri + ":" + transaction.uuid + ":" + transaction.revision
       val result: Response[Body] = if (created) {
         Created(HyperStorageTransactionCreated(transactionId,
@@ -138,17 +137,17 @@ class HyperStorageWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, co
       else {
         Ok(api.HyperStorageTransaction(transactionId))
       }
-      owner ! ShardTaskComplete(task, HyperStorageTaskResult(result.serializeToString()))
+      owner ! ShardTaskComplete(task, ForegroundWorkerTaskResult(result.serializeToString()))
       trackProcessTime.stop()
       unbecome()
 
-    case WorkerTaskFailed(task, e) if task == originalTask ⇒
+    case ForegroundWorkerTaskFailed(task, e) if task == originalTask ⇒
       owner ! ShardTaskComplete(task, hyperbusException(e, task))
       trackProcessTime.stop()
       unbecome()
   }
 
-  private def hyperbusException(e: Throwable, task: ShardTask): HyperStorageTaskResult = {
+  private def hyperbusException(e: Throwable, task: ShardTask): ForegroundWorkerTaskResult = {
     val (response:HyperbusException[ErrorBody], logException) = e match {
       case h: NotFound[ErrorBody] ⇒ (h, false)
       case h: HyperbusException[ErrorBody] ⇒ (h, true)
@@ -156,10 +155,10 @@ class HyperStorageWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, co
     }
 
     if (logException) {
-      log.error(e, s"Task $task is failed")
+      log.error(e, s"ForegroundWorker task $task is failed")
     }
 
-    HyperStorageTaskResult(response.serializeToString())
+    ForegroundWorkerTaskResult(response.serializeToString())
   }
 
   private def updateContent(documentUri: String,
@@ -298,7 +297,7 @@ class HyperStorageWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, co
   }
 }
 
-object HyperStorageWorker {
-  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, completerTimeout: FiniteDuration) =
-    Props(classOf[HyperStorageWorker], hyperbus, db, tracker, completerTimeout)
+object ForegroundWorker {
+  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration) =
+    Props(classOf[ForegroundWorker], hyperbus, db, tracker, backgroundTaskTimeout)
 }

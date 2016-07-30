@@ -95,11 +95,11 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     val str = StringSerializer.serializeToString(request)
     val ttl = Math.min(requestTimeout.toMillis - 100, 100)
     val documentUri = ContentLogic.splitPath(uri).documentUri
-    val task = HyperStorageTask(documentUri, System.currentTimeMillis() + ttl, str)
+    val task = ForegroundTask(documentUri, System.currentTimeMillis() + ttl, str)
     implicit val timeout: akka.util.Timeout = requestTimeout
 
     hyperStorageProcessor ? task map {
-      case HyperStorageTaskResult(content) ⇒
+      case ForegroundWorkerTaskResult(content) ⇒
         StringDeserializer.dynamicResponse(content)
     }
   }

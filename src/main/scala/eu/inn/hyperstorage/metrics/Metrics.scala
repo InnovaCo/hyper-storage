@@ -1,8 +1,8 @@
 package eu.inn.hyperstorage.metrics
 
 object Metrics {
-  val WORKER_PROCESS_TIME = "hyper-storage.worker.process-time" // time of processing message by hyper-storage worker
-  val COMPLETER_PROCESS_TIME = "hyper-storage.completer.process-time" // time of processing message by hyper-storage completer
+  val FOREGROUND_PROCESS_TIME = "hyper-storage.foreground.process-time" // time of processing message by foreground worker
+  val BACKGROUND_PROCESS_TIME = "hyper-storage.background.process-time" // time of processing message by background worker
   val RETRIEVE_TIME = "hyper-storage.retrieve-time" // time of retrieving data (get request)
 
   val SHARD_PROCESSOR_STASH_METER = "hyper-storage.shard-stash-meter"

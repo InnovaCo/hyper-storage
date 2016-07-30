@@ -18,47 +18,46 @@ import scala.concurrent.Future
 import scala.util.Success
 import scala.util.control.NonFatal
 
-@SerialVersionUID(1L) case class CompleterTask(ttl: Long, documentUri: String) extends ShardTask {
+@SerialVersionUID(1L) case class BackgroundTask(ttl: Long, documentUri: String) extends ShardTask {
   def key = documentUri
   def isExpired = ttl < System.currentTimeMillis()
-  def group = "hyper-storage-completer"
+  def group = "hyper-storage-background-worker"
 }
 
-@SerialVersionUID(1L) case class CompleterTaskResult(documentUri: String, transactions: Seq[UUID])
+@SerialVersionUID(1L) case class BackgroundTaskResult(documentUri: String, transactions: Seq[UUID])
 @SerialVersionUID(1L) case class NoSuchResourceException(documentUri: String) extends RuntimeException(s"No such resource: $documentUri")
 @SerialVersionUID(1L) case class IncorrectDataException(documentUri: String, reason: String) extends RuntimeException(s"Data for $documentUri is incorrect: $reason")
-@SerialVersionUID(1L) case class CompletionFailedException(documentUri: String, reason: String) extends RuntimeException(s"Complete for $documentUri is failed: $reason")
+@SerialVersionUID(1L) case class BackgroundTaskFailedException(documentUri: String, reason: String) extends RuntimeException(s"Background task for $documentUri is failed: $reason")
 
-// todo: rename this
-class Completer(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) extends Actor with ActorLogging {
+class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) extends Actor with ActorLogging {
   import ContentLogic._
   import context._
 
   override def receive: Receive = {
-    case task: CompleterTask ⇒
+    case task: BackgroundTask ⇒
       executeTask(sender(), task)
   }
 
-  def executeTask(owner: ActorRef, task: CompleterTask): Unit = {
+  def executeTask(owner: ActorRef, task: BackgroundTask): Unit = {
     val ResourcePath(documentUri, itemSegment) = ContentLogic.splitPath(task.documentUri)
     if (!itemSegment.isEmpty) {
       owner ! Status.Success { // todo: is this have to be a success
-        val e = new IllegalArgumentException(s"Completer task key ${task.key} doesn't correspond to $documentUri")
+        val e = new IllegalArgumentException(s"Background task key ${task.key} doesn't correspond to $documentUri")
         ShardTaskComplete(task, e)
       }
     }
     else {
-      tracker.timeOfFuture(Metrics.COMPLETER_PROCESS_TIME) {
+      tracker.timeOfFuture(Metrics.BACKGROUND_PROCESS_TIME) {
         db.selectContentStatic(task.documentUri) flatMap {
           case None ⇒
-            log.error(s"Didn't found resource to complete, dismissing task: $task")
-            Future(ShardTaskComplete(task, new NoSuchResourceException(task.documentUri)))
+            log.error(s"Didn't found resource to background complete, dismissing task: $task")
+            Future(ShardTaskComplete(task, NoSuchResourceException(task.documentUri)))
           case Some(content) ⇒
             try {
               completeTransactions(task, content)
             } catch {
               case NonFatal(e) ⇒
-                log.error(e, s"Task $task didn't complete")
+                log.error(e, s"Background task $task didn't complete")
                 Future(ShardTaskComplete(task, e))
             }
         }
@@ -66,9 +65,9 @@ class Completer(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) extends Act
     }
   }
 
-  def completeTransactions(task: CompleterTask, content: ContentStatic): Future[ShardTaskComplete] = {
+  def completeTransactions(task: BackgroundTask, content: ContentStatic): Future[ShardTaskComplete] = {
     if (content.transactionList.isEmpty) {
-      Future.successful(ShardTaskComplete(task, CompleterTaskResult(task.documentUri, Seq.empty)))
+      Future.successful(ShardTaskComplete(task, BackgroundTaskResult(task.documentUri, Seq.empty)))
     }
     else {
       selectIncompleteTransactions(content) flatMap { incompleteTransactions ⇒
@@ -86,12 +85,12 @@ class Completer(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) extends Act
             }
           }
         } map { updatedTransactions ⇒
-          ShardTaskComplete(task, CompleterTaskResult(task.documentUri, updatedTransactions.map(_.uuid)))
+          ShardTaskComplete(task, BackgroundTaskResult(task.documentUri, updatedTransactions.map(_.uuid)))
         } recover {
           case NonFatal(e) ⇒
-            ShardTaskComplete(task, CompletionFailedException(task.documentUri, e.toString))
+            ShardTaskComplete(task, BackgroundTaskFailedException(task.documentUri, e.toString))
         } andThen {
-          case Success(ShardTaskComplete(_, CompleterTaskResult(documentUri, updatedTransactions))) ⇒
+          case Success(ShardTaskComplete(_, BackgroundTaskResult(documentUri, updatedTransactions))) ⇒
             log.debug(s"Removing completed transactions $updatedTransactions from $documentUri")
             db.removeCompleteTransactionsFromList(documentUri, updatedTransactions.toList) recover {
               case NonFatal(e) ⇒
@@ -113,8 +112,8 @@ class Completer(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) extends Act
   }
 }
 
-object Completer {
-  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) = Props(classOf[Completer],
+object BackgroundWorker {
+  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) = Props(classOf[BackgroundWorker],
     hyperbus, db, tracker
   )
 }

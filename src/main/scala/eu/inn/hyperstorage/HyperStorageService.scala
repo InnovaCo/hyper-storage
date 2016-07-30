@@ -20,17 +20,17 @@ import scala.concurrent.{Await, ExecutionContext}
 import scala.util.control.NonFatal
 
 case class HyperStorageConfig(
-                          shutdownTimeout: FiniteDuration,
-                          shardSyncTimeout: FiniteDuration,
-                          maxWorkers: Int,
-                          maxCompleters: Int,
-                          completerTimeout: FiniteDuration,
-                          requestTimeout: FiniteDuration,
-                          failTimeout: FiniteDuration,
-                          hotRecovery: FiniteDuration,
-                          hotRecoveryRetry: FiniteDuration,
-                          staleRecovery: FiniteDuration,
-                          staleRecoveryRetry: FiniteDuration
+                               shutdownTimeout: FiniteDuration,
+                               shardSyncTimeout: FiniteDuration,
+                               maxForegroundWorkers: Int,
+                               maxBackgroundWorkers: Int,
+                               backgroundTaskTimeout: FiniteDuration,
+                               requestTimeout: FiniteDuration,
+                               failTimeout: FiniteDuration,
+                               hotRecovery: FiniteDuration,
+                               hotRecoveryRetry: FiniteDuration,
+                               staleRecovery: FiniteDuration,
+                               staleRecoveryRetry: FiniteDuration
                         )
 
 class HyperStorageService(console: Console,
@@ -75,11 +75,11 @@ class HyperStorageService(console: Console,
   }
 
   // worker actor todo: recovery job
-  val workerProps = HyperStorageWorker.props(hyperbus, db, tracker, completerTimeout)
-  val completerProps = Completer.props(hyperbus, db, tracker)
+  val foregroundWorkerProps = ForegroundWorker.props(hyperbus, db, tracker, backgroundTaskTimeout)
+  val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker)
   val workerSettings = Map(
-    "hyper-storage" → (workerProps, maxWorkers),
-    "hyper-storage-completer" → (completerProps, maxCompleters)
+    "hyper-storage-foreground-worker" → (foregroundWorkerProps, maxForegroundWorkers),
+    "hyper-storage-background-worker" → (backgroundWorkerProps, maxBackgroundWorkers)
   )
 
   // shard processor actor
@@ -96,12 +96,12 @@ class HyperStorageService(console: Console,
 
   val hotPeriod = (hotRecovery.toMillis, failTimeout.toMillis)
   log.info(s"Launching hot recovery $hotRecovery-$failTimeout")
-  val hotRecoveryRef = actorSystem.actorOf(HotRecoveryWorker.props(hotPeriod, db, shardProcessorRef, tracker, hotRecoveryRetry, completerTimeout))
+  val hotRecoveryRef = actorSystem.actorOf(HotRecoveryWorker.props(hotPeriod, db, shardProcessorRef, tracker, hotRecoveryRetry, backgroundTaskTimeout))
   shardProcessorRef ! SubscribeToShardStatus(hotRecoveryRef)
 
   val stalePeriod = (staleRecovery.toMillis, hotRecovery.toMillis)
   log.info(s"Launching stale recovery $staleRecovery-$hotRecovery")
-  val staleRecoveryRef = actorSystem.actorOf(StaleRecoveryWorker.props(stalePeriod, db, shardProcessorRef, tracker, staleRecoveryRetry, completerTimeout))
+  val staleRecoveryRef = actorSystem.actorOf(StaleRecoveryWorker.props(stalePeriod, db, shardProcessorRef, tracker, staleRecoveryRetry, backgroundTaskTimeout))
   shardProcessorRef ! SubscribeToShardStatus(staleRecoveryRef)
 
   log.info("HyperStorage started!")
