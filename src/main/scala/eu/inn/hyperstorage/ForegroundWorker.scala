@@ -151,7 +151,7 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
     val (response:HyperbusException[ErrorBody], logException) = e match {
       case h: NotFound[ErrorBody] ⇒ (h, false)
       case h: HyperbusException[ErrorBody] ⇒ (h, true)
-      case other ⇒ (InternalServerError(ErrorBody("update_failed",Some(e.toString))), true)
+      case other ⇒ (InternalServerError(ErrorBody("update-failed",Some(e.toString))), true)
     }
 
     if (logException) {
