@@ -168,4 +168,10 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       where partition=$partition
       limit $limit
     """.all[PendingIndex]
+
+  def selectPendingIndex(partition: Int, documentId: String, indexId: String): Future[Option[PendingIndex]] = cql"""
+      select partition, document_uri, index_id, last_item_segment, meta_transaction_id
+      from pending_indexes
+      where partition=$partition and document_id=$documentId and index_id=$indexId
+    """.oneOption[PendingIndex]
 }
