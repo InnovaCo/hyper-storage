@@ -44,11 +44,19 @@ case class Transaction(
                     completedAt: Option[Date]
                   )
 
+case class PendingIndex(
+                       partition: Int,
+                       documentUri: String,
+                       indexId: String,
+                       lastItemSegment: String,
+                       metaTransactionId: UUID
+                       )
+
 private [db] case class CheckPoint(lastQuantum: Long)
 
 class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
-  private [this] lazy val session: com.datastax.driver.core.Session = connector.connect()
-  private [this] lazy implicit val sessionQueryCache = new SessionQueryCache[CamelCaseToSnakeCaseConverter](session)
+  private[this] lazy val session: com.datastax.driver.core.Session = connector.connect()
+  private[this] lazy implicit val sessionQueryCache = new SessionQueryCache[CamelCaseToSnakeCaseConverter](session)
   val log = LoggerFactory.getLogger(getClass)
 
   def preStart(): Unit = {
@@ -153,4 +161,11 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   def updateCheckpoint(partition: Int, lastQuantum: Long): Future[Unit] = cql"""
       insert into checkpoint(partition, last_quantum) values($partition, $lastQuantum)
     """.execute()
+
+  def selectPendingIndexes(partition: Int, limit: Int): Future[Iterator[PendingIndex]] = cql"""
+      select partition, document_uri, index_id, last_item_segment, meta_transaction_id
+      from pending_indexes
+      where partition=$partition
+      limit $limit
+    """.all[PendingIndex]
 }

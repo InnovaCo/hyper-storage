@@ -10,10 +10,14 @@ import eu.inn.hyperstorage.utils.BiMap
 import eu.inn.metrics.MetricsTracker
 
 import scala.collection.mutable
+import scala.concurrent.ExecutionContext
+import scala.util.control.NonFatal
 
 case object ShutdownIndexManager
 case class ProcessNextPartitions(processId: Long)
 case class IndexWorkersKey(partition: Int, documentUri: String, indexId: String)
+case class PartitionPendingIndexes(partition: Int, rev: Long, indexes: Seq[IndexWorkersKey])
+case class PartitionPendingFailed(rev: Long)
 
 class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndexWorkers: Int)
   extends Actor with ActorLogging {
@@ -54,6 +58,28 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
     case ProcessNextPartitions(processId) if processId == currentProcessId ⇒
       currentProcessId = currentProcessId + 1
       processPendingIndexes()
+
+    case PartitionPendingIndexes(partition, msgRev, indexes) if rev == msgRev ⇒
+      if (indexes.isEmpty) {
+        pendingPartitions.remove(partition)
+      }
+      else {
+        val alreadyPending = pendingPartitions.getOrElseUpdate(partition, mutable.ListBuffer.empty)
+        val alreadyPendingSet = alreadyPending.toSet
+        var updated = false
+        indexes.foreach { index ⇒
+          if (!alreadyPendingSet.contains(index)) {
+            updated = true
+            alreadyPending += index
+          }
+        }
+        if (updated) {
+          processPendingIndexes()
+        }
+      }
+
+    case PartitionPendingFailed(msgRev) if rev == msgRev ⇒
+      processPendingIndexes()
   }
 
   def clusterActivated(stateData: ShardedClusterData,
@@ -67,13 +93,13 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
     val detachedPartitions = previousPartitionSet diff newPartitionSet
 
     // stop workers for detached partitions
-    val toRemove = indexWorkers.map {
-      case v @ (IndexWorkersKey(partition, _, _), actorRef) if detachedPartitions.contains(partition) ⇒
+    val toRemove = indexWorkers.flatMap {
+      case (v @ IndexWorkersKey(partition, _, _), actorRef) if detachedPartitions.contains(partition) ⇒
         context.stop(actorRef)
-        v
+        Some(v)
       case _ ⇒
         None
-    }.flatten
+    }
     // remove fromIndexWorkers before actor is stopped
     toRemove.foreach(indexWorkers -= _)
 
@@ -93,8 +119,6 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
   }
 
   def createWorkerActors(availableWorkers: Int): Unit = {
-    // move consequently (but not strictly) over pending partitions
-    // because currentProcessId is always incremented
     nextPendingPartitions.flatMap(_._2).take(availableWorkers).foreach { key ⇒
       // createWorkingActor here
       pendingPartitions(key.partition) -= key
@@ -105,12 +129,16 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
     nextPendingPartitions.flatMap {
       case(k,v) if v.isEmpty ⇒  Some(k)
       case _ ⇒ None
-    }.headOption.map { nextPartitionToFetch ⇒
+    }.headOption.foreach { nextPartitionToFetch ⇒
       // async fetch and send as a message next portion of indexes along with `rev`
+      import context.dispatcher
+      IndexManager.fetchPendingIndexesFromDb(self, nextPartitionToFetch, rev, maxIndexWorkers, db)
     }
   }
 
   def nextPendingPartitions: Vector[(Int, Seq[IndexWorkersKey])] = {
+    // move consequently (but not strictly) over pending partitions
+    // because currentProcessId is always incremented
     val v = pendingPartitions.toVector
     val startFrom = currentProcessId % v.size
     val vn = if (startFrom == 0) { v } else {
@@ -128,4 +156,17 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
      */
 }
 
+object IndexManager {
+  def fetchPendingIndexesFromDb(notifyActor: ActorRef, partition: Int, rev: Long, maxIndexWorkers: Int, db: Db)
+                               (implicit ec: ExecutionContext): Unit = {
+    db.selectPendingIndexes(partition, maxIndexWorkers) map { indexesIterator ⇒
+      notifyActor ! PartitionPendingIndexes(partition, rev,
+        indexesIterator.map(ii ⇒ IndexWorkersKey(ii.partition, ii.documentUri, ii.indexId)).toSeq
+      )
+    } recover {
+      case NonFatal(e) ⇒
+        notifyActor ! PartitionPendingFailed(rev)
+    }
+  }
+}
 
