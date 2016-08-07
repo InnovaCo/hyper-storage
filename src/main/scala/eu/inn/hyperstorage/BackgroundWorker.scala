@@ -157,7 +157,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) exte
       2.2. check if exists same index with other id
     3. insert pending index
     4. insert meta index
-    5. notify index worker
+    5. notify index manager
      */
     ???
   }

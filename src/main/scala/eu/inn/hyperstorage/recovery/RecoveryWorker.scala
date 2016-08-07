@@ -5,13 +5,13 @@ import java.util.Date
 import akka.actor._
 import akka.pattern.ask
 import com.codahale.metrics.Meter
-import eu.inn.metrics.MetricsTracker
 import eu.inn.hyperstorage._
 import eu.inn.hyperstorage.db.Db
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.hyperstorage.sharding.ShardMemberStatus.{Active, Deactivating}
-import eu.inn.hyperstorage.sharding.{ShardTask, ShardedClusterData, UpdateShardStatus}
+import eu.inn.hyperstorage.sharding.{ShardedClusterData, UpdateShardStatus}
 import eu.inn.hyperstorage.utils.FutureUtils
+import eu.inn.metrics.MetricsTracker
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
@@ -79,7 +79,7 @@ abstract class RecoveryWorker[T <: WorkerState](
 
   def receive = {
     case UpdateShardStatus(_, Active, stateData) ⇒
-      clusterActivated(stateData, getMyPartitions(stateData))
+      clusterActivated(stateData, TransactionLogic.getPartitions(stateData))
 
     case ShutdownRecoveryWorker ⇒
       context.stop(self)
@@ -89,7 +89,7 @@ abstract class RecoveryWorker[T <: WorkerState](
     case UpdateShardStatus(_, Active, newStateData) ⇒
       if (newStateData != stateData) {
         // restart with new partition list
-        clusterActivated(newStateData, getMyPartitions(newStateData))
+        clusterActivated(newStateData, TransactionLogic.getPartitions(newStateData))
       }
 
     case UpdateShardStatus(_, Deactivating, _) ⇒
@@ -172,16 +172,6 @@ abstract class RecoveryWorker[T <: WorkerState](
         }
       }
     } map(_ ⇒ {})
-  }
-
-  def getMyPartitions(data: ShardedClusterData): Seq[Int] = {
-    0 until TransactionLogic.MaxPartitions flatMap { partition ⇒
-      val task = new ShardTask { def key = partition.toString; def group = ""; def isExpired = false }
-      if (data.taskIsFor(task) == data.selfAddress)
-        Some(partition)
-      else
-        None
-    }
   }
 
   def qts(qt: Long) = s"$qt [${new Date(TransactionLogic.getUnixTimeFromQuantum(qt))}]"
