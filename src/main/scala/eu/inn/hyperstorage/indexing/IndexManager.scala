@@ -1,5 +1,7 @@
 package eu.inn.hyperstorage.indexing
 
+import java.util.UUID
+
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import eu.inn.hyperbus.Hyperbus
 import eu.inn.hyperstorage.TransactionLogic
@@ -16,7 +18,7 @@ case object ShutdownIndexManager
 case class ProcessNextPartitions(processId: Long)
 
 // todo: rename
-case class IndexWorkersKey(partition: Int, documentUri: String, indexId: String)
+case class IndexWorkersKey(partition: Int, documentUri: String, indexId: String, metaTransactionId: UUID)
 
 // todo: rename those two
 case class PartitionPendingIndexes(partition: Int, rev: Long, indexes: Seq[IndexWorkersKey])
@@ -26,7 +28,7 @@ case class IndexingComplete(key: IndexWorkersKey)
 
 // todo: handle child termination without IndexingComplete
 
-class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndexWorkers: Int, bucketSize: Int)
+class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndexWorkers: Int)
   extends Actor with ActorLogging {
 
   val indexWorkers = mutable.Map[IndexWorkersKey, ActorRef]()
@@ -47,7 +49,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
       context.stop(self)
   }
 
-  def running(stateData: ShardedClusterData): Receive = {
+  def running(clusterActor: ActorRef, stateData: ShardedClusterData): Receive = {
     case UpdateShardStatus(_, Active, newStateData) ⇒
       if (newStateData != stateData) {
         // restart with new partition list
@@ -60,11 +62,11 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
 
     case IndexingComplete(key) ⇒
       indexWorkers -= key
-      processPendingIndexes()
+      processPendingIndexes(clusterActor)
 
     case ProcessNextPartitions(processId) if processId == currentProcessId ⇒
       currentProcessId = currentProcessId + 1
-      processPendingIndexes()
+      processPendingIndexes(clusterActor)
 
     case PartitionPendingIndexes(partition, msgRev, indexes) if rev == msgRev ⇒
       if (indexes.isEmpty) {
@@ -75,18 +77,18 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
           addPendingIndex(index) || updated
         }
         if (updated) {
-          processPendingIndexes()
+          processPendingIndexes(clusterActor)
         }
       }
 
     case PartitionPendingFailed(msgRev) if rev == msgRev ⇒
-      processPendingIndexes()
+      processPendingIndexes(clusterActor)
 
     case IndexCreatedOrDeleted(key) ⇒
       val partitionSet = TransactionLogic.getPartitions(stateData).toSet
       if (partitionSet.contains(key.partition)) {
         if (addPendingIndex(key)) {
-          processPendingIndexes()
+          processPendingIndexes(clusterActor)
         }
       }
       else {
@@ -117,7 +119,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
 
     // stop workers for detached partitions
     val toRemove = indexWorkers.flatMap {
-      case (v @ IndexWorkersKey(partition, _, _), actorRef) if detachedPartitions.contains(partition) ⇒
+      case (v @ IndexWorkersKey(partition, _, _, _), actorRef) if detachedPartitions.contains(partition) ⇒
         context.stop(actorRef)
         Some(v)
       case _ ⇒
@@ -129,23 +131,23 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
     val attachedPartitions = newPartitionSet diff previousPartitionSet
     pendingPartitions ++= attachedPartitions.map(_ → mutable.ListBuffer.empty[IndexWorkersKey])
 
-    context.become(running(stateData))
-    processPendingIndexes()
+    context.become(running(sender(), stateData))
+    processPendingIndexes(sender())
   }
 
-  def processPendingIndexes(): Unit = {
+  def processPendingIndexes(clusterActor: ActorRef): Unit = {
     val availableWorkers = maxIndexWorkers - indexWorkers.size
     if (availableWorkers > 0 && pendingPartitions.nonEmpty) {
-      createWorkerActors(availableWorkers)
+      createWorkerActors(clusterActor, availableWorkers)
       fetchPendingIndexes()
     }
   }
 
-  def createWorkerActors(availableWorkers: Int): Unit = {
+  def createWorkerActors(clusterActor: ActorRef, availableWorkers: Int): Unit = {
     nextPendingPartitions.flatMap(_._2).take(availableWorkers).foreach { key ⇒
       // createWorkingActor here
       val actorRef = context.actorOf(IndexWorker.props(
-        key, hyperbus, db, tracker, bucketSize
+        clusterActor, key, hyperbus, db, tracker
       ))
       indexWorkers += key → actorRef
       pendingPartitions(key.partition) -= key
@@ -187,7 +189,7 @@ private [indexing] object IndexManagerImpl {
                                (implicit ec: ExecutionContext): Unit = {
     db.selectPendingIndexes(partition, maxIndexWorkers) map { indexesIterator ⇒
       notifyActor ! PartitionPendingIndexes(partition, rev,
-        indexesIterator.map(ii ⇒ IndexWorkersKey(ii.partition, ii.documentUri, ii.indexId)).toSeq
+        indexesIterator.map(ii ⇒ IndexWorkersKey(ii.partition, ii.documentUri, ii.indexId, ii.metaTransactionId)).toSeq
       )
     } recover {
       case NonFatal(e) ⇒

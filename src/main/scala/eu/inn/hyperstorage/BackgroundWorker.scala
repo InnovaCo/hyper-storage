@@ -9,35 +9,46 @@ import eu.inn.hyperbus.Hyperbus
 import eu.inn.hyperbus.model._
 import eu.inn.hyperstorage.api.{HyperStorageIndexDelete, HyperStorageIndexPost}
 import eu.inn.metrics.MetricsTracker
-import eu.inn.hyperstorage.db.{ContentStatic, Db, Transaction}
+import eu.inn.hyperstorage.db.{ContentStatic, Db, PendingIndex, Transaction}
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
 import eu.inn.hyperstorage.utils.FutureUtils
+import org.slf4j.LoggerFactory
 
 import scala.collection.Seq
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Success, Try}
 import scala.util.control.NonFatal
 
-@SerialVersionUID(1L) case class BackgroundTask(ttl: Long, documentUri: String) extends ShardTask {
-  def key = documentUri
+// todo: do we really need a ShardTaskComplete ?
+// todo: use strictly Hyperbus OR akka serialization for the internal akka-cluster
+
+trait BackgroundTaskTrait extends ShardTask {
+  def ttl: Long
   def isExpired = ttl < System.currentTimeMillis()
   def group = "hyper-storage-background-worker"
 }
 
-@SerialVersionUID(1L) case class IndexMetaTask(ttl: Long, request: Request[Body]) extends ShardTask {
-  def key = request match {
+@SerialVersionUID(1L) case class BackgroundTask(ttl: Long, documentUri: String) extends BackgroundTaskTrait {
+  def key = documentUri
+}
+@SerialVersionUID(1L) case class BackgroundTaskResult(documentUri: String, transactions: Seq[UUID])
+
+@SerialVersionUID(1L) case class IndexMetaTask(ttl: Long, request: Request[Body]) extends BackgroundTaskTrait {
+  def key: String = request match {
     case post: HyperStorageIndexPost ⇒ post.path
     case delete: HyperStorageIndexDelete ⇒ delete.path
   }
-
-  def isExpired = ttl < System.currentTimeMillis()
-  def group = "hyper-storage-background-worker"
 }
 
 @SerialVersionUID(1L) case class IndexMetaTaskResult(response: Response[Body])
 
-@SerialVersionUID(1L) case class BackgroundTaskResult(documentUri: String, transactions: Seq[UUID])
+@SerialVersionUID(1L) case class IndexTask(ttl: Long, indexMeta: db.IndexMeta, lastItemSegment: Option[String], processId: Long) extends BackgroundTaskTrait {
+  def key = indexMeta.documentUri
+}
+
+@SerialVersionUID(1L) case class IndexTaskResult(lastItemSegment: Option[String], processId: Long)
+
 @SerialVersionUID(1L) case class NoSuchResourceException(documentUri: String) extends RuntimeException(s"No such resource: $documentUri")
 @SerialVersionUID(1L) case class IncorrectDataException(documentUri: String, reason: String) extends RuntimeException(s"Data for $documentUri is incorrect: $reason")
 @SerialVersionUID(1L) case class BackgroundTaskFailedException(documentUri: String, reason: String) extends RuntimeException(s"Background task for $documentUri is failed: $reason")
@@ -51,6 +62,9 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) exte
       executeBackgroundTask(sender(), task)
 
     case task: IndexMetaTask ⇒
+      executeIndexMetaTask(sender(), task)
+
+    case task: IndexTask ⇒
       executeIndexTask(sender(), task)
   }
 
@@ -127,29 +141,74 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) exte
     } map (_.reverse)
   }
 
-  def executeIndexTask(owner: ActorRef, task: IndexMetaTask): Unit = {
+  def executeIndexMetaTask(owner: ActorRef, task: IndexMetaTask): Unit = {
     Try {
-      val ResourcePath(documentUri, itemSegment) = splitPath(task.key)
-      if (!task.key.endsWith("~") || !itemSegment.isEmpty) {
-        throw new IllegalArgumentException(s"Task key '${task.key}' isn't a collection URI.")
-      }
-      if (documentUri != task.key) {
-        throw new IllegalArgumentException(s"Task key '${task.key}' doesn't correspond to $documentUri")
-      }
+      validateCollectionUri(task.key)
       task
     } map { task ⇒
+      import context.dispatcher
       task.request match {
-        case post: HyperStorageIndexPost ⇒ createNewIndex(owner: ActorRef, post)
-        case delete: HyperStorageIndexDelete ⇒ deleteIndex(owner: ActorRef, delete)
+        case post: HyperStorageIndexPost ⇒ BackgroundWorkerImpl.createNewIndex(context.self, owner, post, db)
+        case delete: HyperStorageIndexDelete ⇒ BackgroundWorkerImpl.deleteIndex(context.self, owner, delete, db)
       }
     } recover {
       case NonFatal(e) ⇒
         log.error(e, s"Can't execute index task: $task")
-        owner ! ShardTaskComplete(task, hyperbusException(e, task))
+        owner ! ShardTaskComplete(task, BackgroundWorkerImpl.hyperbusException(e))
     }
   }
 
-  def createNewIndex(owner: ActorRef, post: HyperStorageIndexPost): Unit = {
+
+  def validateCollectionUri(uri: String) = {
+    val ResourcePath(documentUri, itemSegment) = splitPath(uri)
+    if (!uri.endsWith("~") || !itemSegment.isEmpty) {
+      throw new IllegalArgumentException(s"Task key '$uri' isn't a collection URI.")
+    }
+    if (documentUri != uri) {
+      throw new IllegalArgumentException(s"Task key '$uri' doesn't correspond to $documentUri")
+    }
+  }
+
+  def executeIndexTask(owner: ActorRef, task: IndexTask): Unit = {
+    Try {
+      validateCollectionUri(task.key)
+      task
+    } map { task ⇒
+
+    } recover {
+      case NonFatal(e) ⇒
+        log.error(e, s"Can't execute index task: $task")
+        owner ! ShardTaskComplete(task, BackgroundWorkerImpl.hyperbusException(e))
+    }
+  }
+}
+
+object BackgroundWorker {
+  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) = Props(classOf[BackgroundWorker],
+    hyperbus, db, tracker
+  )
+}
+
+object BackgroundWorkerImpl {
+  val log = LoggerFactory.getLogger(getClass)
+
+  def createNewIndex(notifyActor: ActorRef, owner: ActorRef, post: HyperStorageIndexPost, db: Db)
+                    (implicit ec: ExecutionContext): Unit = {
+/*
+    db.selectIndexMetas(post.path) map { indexMetas ⇒
+      indexMetas.map { existingIndex ⇒
+        if (existingIndex.indexId == post.body.indexId) {
+          throw
+        }
+      }
+
+
+    } recover {
+      case NonFatal(e) ⇒
+        log.error(s"Can't delete pending index $pendingIndex", e)
+        hyperbusException(e)
+  */
+
     /*
     1. validate: id, sort, expression, etc
     2. fetch indexes and:
@@ -162,7 +221,8 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) exte
     ???
   }
 
-  def deleteIndex(owner: ActorRef, delete: HyperStorageIndexDelete): Unit = {
+  def deleteIndex(notifyActor: ActorRef, owner: ActorRef, delete: HyperStorageIndexDelete, db: Db)
+                 (implicit ec: ExecutionContext): Unit = {
     /*
       1. fetch indexes (404)
       2. insert pending index
@@ -173,23 +233,11 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) exte
     ???
   }
 
-  private def hyperbusException(e: Throwable, task: ShardTask): IndexMetaTaskResult = {
-    val (response:HyperbusException[ErrorBody], logException) = e match {
-      case h: NotFound[ErrorBody] ⇒ (h, false)
-      case h: HyperbusException[ErrorBody] ⇒ (h, true)
-      case other ⇒ (InternalServerError(ErrorBody("failed",Some(e.toString))), true)
+  def hyperbusException(e: Throwable): IndexMetaTaskResult = {
+    val response:HyperbusException[ErrorBody] = e match {
+      case h: HyperbusException[ErrorBody] ⇒ h
+      case other ⇒ InternalServerError(ErrorBody("failed",Some(e.toString)))
     }
-
-    if (logException) {
-      log.error(e, s"BackgroundWorker task $task is failed")
-    }
-
     IndexMetaTaskResult(response)
   }
-}
-
-object BackgroundWorker {
-  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) = Props(classOf[BackgroundWorker],
-    hyperbus, db, tracker
-  )
 }

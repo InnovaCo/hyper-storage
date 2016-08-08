@@ -43,7 +43,7 @@ create table pending_indexes(
     index_id text,
     last_item_segment text,
     meta_transaction_id timeuuid,
-    primary key (partition, document_uri, index_id)
+    primary key (partition, document_uri, index_id, meta_transaction_id)
 );
 
 create table index_content(

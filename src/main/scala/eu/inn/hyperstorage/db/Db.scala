@@ -48,9 +48,25 @@ case class PendingIndex(
                        partition: Int,
                        documentUri: String,
                        indexId: String,
-                       lastItemSegment: String,
+                       lastItemSegment: Option[String], // todo: rename
                        metaTransactionId: UUID
                        )
+
+case class IndexMeta(
+                      documentUri: String,
+                      indexId: String,
+                      status: Int,
+                      sortBy: String,
+                      filterBy: String,
+                      tableName: String,
+                      metaTransactionId: UUID
+                    )
+
+object IndexMeta {
+  val STATUS_INDEXING = 0
+  val STATUS_DELETING = 1
+  val STATUS_NORMAL = 2
+}
 
 private [db] case class CheckPoint(lastQuantum: Long)
 
@@ -169,9 +185,25 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       limit $limit
     """.all[PendingIndex]
 
-  def selectPendingIndex(partition: Int, documentId: String, indexId: String): Future[Option[PendingIndex]] = cql"""
+  def selectPendingIndex(partition: Int, documentId: String, indexId: String, metaTransactionId: UUID): Future[Option[PendingIndex]] = cql"""
       select partition, document_uri, index_id, last_item_segment, meta_transaction_id
       from pending_indexes
-      where partition=$partition and document_id=$documentId and index_id=$indexId
+      where partition=$partition and document_id=$documentId and index_id=$indexId and meta_transaction_id=$metaTransactionId
     """.oneOption[PendingIndex]
+
+  def deletePendingIndex(partition: Int, documentId: String, indexId: String, metaTransactionId: UUID) = cql"""
+      delete
+      from pending_indexes
+      where partition=$partition and document_id=$documentId and index_id=$indexId and meta_transaction_id=$metaTransactionId
+    """.execute()
+
+  def selectIndexMeta(documentUri: String, indexId: String): Future[Option[IndexMeta]] = cql"""
+      select document_uri, index_id, status, sort_by, filter_by, table_name, meta_transaction_id from index_meta
+      where document_uri = $documentUri and index_id=$indexId
+    """.oneOption[IndexMeta]
+
+  def selectIndexMetas(documentUri: String): Future[Iterator[IndexMeta]] = cql"""
+      select document_uri, index_id, status, sort_by, filter_by, table_name, meta_transaction_id from index_meta
+      where document_uri = $documentUri
+    """.all[IndexMeta]
 }
