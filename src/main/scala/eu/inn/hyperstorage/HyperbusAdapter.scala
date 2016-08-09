@@ -91,9 +91,20 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
   def ~> (request: HyperStorageContentPatch) = executeRequest(request, request.path)
   def ~> (request: HyperStorageContentDelete) = executeRequest(request, request.path)
 
+  def ~> (request: HyperStorageIndexPost) = {
+    val ttl = Math.max(requestTimeout.toMillis - 100, 100)
+    val indexMetaTask = IndexMetaTask(System.currentTimeMillis() + ttl, request)
+    implicit val timeout: akka.util.Timeout = requestTimeout
+
+    hyperStorageProcessor ? indexMetaTask map {
+      case r: Response[Body] ⇒
+        r
+    }
+  }
+
   private def executeRequest(implicit request: Request[Body], uri: String) = {
     val str = StringSerializer.serializeToString(request)
-    val ttl = Math.min(requestTimeout.toMillis - 100, 100)
+    val ttl = Math.max(requestTimeout.toMillis - 100, 100)
     val documentUri = ContentLogic.splitPath(uri).documentUri
     val task = ForegroundTask(documentUri, System.currentTimeMillis() + ttl, str)
     implicit val timeout: akka.util.Timeout = requestTimeout

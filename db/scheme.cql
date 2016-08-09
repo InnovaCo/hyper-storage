@@ -37,7 +37,7 @@ create table index_meta(
     primary key (document_uri, index_id)
 );
 
-create table pending_indexes(
+create table pending_index(
     partition int,
     document_uri text,
     index_id text,

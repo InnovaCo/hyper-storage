@@ -33,14 +33,13 @@ trait BackgroundTaskTrait extends ShardTask {
 }
 @SerialVersionUID(1L) case class BackgroundTaskResult(documentUri: String, transactions: Seq[UUID])
 
+// todo: request -> string as for the Foreground
 @SerialVersionUID(1L) case class IndexMetaTask(ttl: Long, request: Request[Body]) extends BackgroundTaskTrait {
   def key: String = request match {
     case post: HyperStorageIndexPost ⇒ post.path
     case delete: HyperStorageIndexDelete ⇒ delete.path
   }
 }
-
-@SerialVersionUID(1L) case class IndexMetaTaskResult(response: Response[Body])
 
 @SerialVersionUID(1L) case class IndexTask(ttl: Long, indexMeta: db.IndexMeta, lastItemSegment: Option[String], processId: Long) extends BackgroundTaskTrait {
   def key = indexMeta.documentUri
@@ -201,12 +200,12 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     db.selectIndexMetas(post.path) flatMap { indexMetas ⇒
       indexMetas.foreach { existingIndex ⇒
         if (existingIndex.indexId == indexId) {
-          throw Conflict(ErrorBody("already-exists", Some(s"Index '${indexId}' already exists")))
+          throw Conflict(ErrorBody("already-exists", Some(s"Index '$indexId' already exists")))
         }
       }
 
       val indexMeta = IndexMeta(post.path, indexId, IndexMeta.STATUS_INDEXING,
-        sortBy = None, filterBy = None, tableName = "index_content", metaTransactionId = UUID.randomUUID()
+        sortBy = None, filterBy = None, tableName = "index_content", metaTransactionId = UUIDs.timeBased()
       )
       // validate: id, sort, expression, etc
       db.insertIndexMeta(indexMeta) flatMap { _ ⇒
@@ -236,7 +235,6 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     4. insert meta index
     5. notify index manager
      */
-    ???
   }
 
   def deleteIndex(task: BackgroundTaskTrait, owner: ActorRef, delete: HyperStorageIndexDelete): Unit = {
@@ -250,12 +248,11 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     ???
   }
 
-  def hyperbusException(e: Throwable): IndexMetaTaskResult = {
-    val response:HyperbusException[ErrorBody] = e match {
+  def hyperbusException(e: Throwable): HyperbusException[ErrorBody] = {
+    e match {
       case h: HyperbusException[ErrorBody] ⇒ h
       case other ⇒ InternalServerError(ErrorBody("failed",Some(e.toString)))
     }
-    IndexMetaTaskResult(response)
   }
 }
 

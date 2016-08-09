@@ -180,20 +180,20 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
 
   def selectPendingIndexes(partition: Int, limit: Int): Future[Iterator[PendingIndex]] = cql"""
       select partition, document_uri, index_id, last_item_segment, meta_transaction_id
-      from pending_indexes
+      from pending_index
       where partition=$partition
       limit $limit
     """.all[PendingIndex]
 
   def selectPendingIndex(partition: Int, documentId: String, indexId: String, metaTransactionId: UUID): Future[Option[PendingIndex]] = cql"""
       select partition, document_uri, index_id, last_item_segment, meta_transaction_id
-      from pending_indexes
+      from pending_index
       where partition=$partition and document_id=$documentId and index_id=$indexId and meta_transaction_id=$metaTransactionId
     """.oneOption[PendingIndex]
 
   def deletePendingIndex(partition: Int, documentId: String, indexId: String, metaTransactionId: UUID) = cql"""
       delete
-      from pending_indexes
+      from pending_index
       where partition=$partition and document_id=$documentId and index_id=$indexId and meta_transaction_id=$metaTransactionId
     """.execute()
 

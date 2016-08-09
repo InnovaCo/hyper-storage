@@ -11,6 +11,7 @@ import eu.inn.hyperbus.model.utils.{Sort, SortBy}
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.hyperstorage._
 import eu.inn.hyperstorage.api._
+import eu.inn.hyperstorage.indexing.IndexManager
 import eu.inn.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
 import eu.inn.hyperstorage.sharding.ShardMemberStatus.Active
 import eu.inn.hyperstorage.sharding._
@@ -982,6 +983,38 @@ class HyperStorageSpec extends FreeSpec
         hotWorker ! processorProbe.reply(BackgroundTaskResult(backgroundWorkerTask4.documentUri, List()))
 
         gracefulStop(hotWorker, 30 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(30.seconds))
+      }
+    }
+
+    "Indexing" - {
+      "Create index" in {
+        val hyperbus = testHyperbus()
+        val tk = testKit()
+        import tk._
+
+        cleanUpCassandra()
+
+        val indexManager = TestActorRef(IndexManager.props(hyperbus, db, tracker, 1))
+        val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
+        val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, indexManager)
+        val workerSettings = Map(
+          "hyper-storage-foreground-worker" →(workerProps, 1),
+          "hyper-storage-background-worker" →(backgroundWorkerProps, 1)
+        )
+
+        val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
+        val adapter = TestActorRef(HyperbusAdapter.props(processor, db, tracker, 20.seconds))
+        import eu.inn.hyperbus.akkaservice._
+        implicit val timeout = Timeout(20.seconds)
+        hyperbus.routeTo[HyperbusAdapter](adapter).futureValue // wait while subscription is completes
+
+        Thread.sleep(2000)
+
+        val path = "collection-1~"
+        val f1 = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"),Seq.empty, None))
+        whenReady(f1) { response ⇒
+          response.statusCode should equal(Status.CREATED)
+        }
       }
     }
   }
