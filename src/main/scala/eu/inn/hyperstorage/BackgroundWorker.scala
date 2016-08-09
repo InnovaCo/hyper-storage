@@ -5,11 +5,11 @@ import java.util.UUID
 import akka.actor.{Actor, ActorLogging, ActorRef, Props, Status}
 import akka.pattern.pipe
 import com.datastax.driver.core.utils.UUIDs
-import eu.inn.hyperbus.Hyperbus
+import eu.inn.hyperbus.{Hyperbus, IdGenerator}
 import eu.inn.hyperbus.model._
-import eu.inn.hyperstorage.api.{HyperStorageIndexDelete, HyperStorageIndexPost}
+import eu.inn.hyperstorage.api.{HyperStorageIndexDelete, HyperStorageIndexPost, HyperStorageIndexCreated}
 import eu.inn.metrics.MetricsTracker
-import eu.inn.hyperstorage.db.{ContentStatic, Db, PendingIndex, Transaction}
+import eu.inn.hyperstorage.db._
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
 import eu.inn.hyperstorage.utils.FutureUtils
@@ -146,15 +146,14 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) exte
       validateCollectionUri(task.key)
       task
     } map { task ⇒
-      import context.dispatcher
       task.request match {
-        case post: HyperStorageIndexPost ⇒ BackgroundWorkerImpl.createNewIndex(context.self, owner, post, db)
-        case delete: HyperStorageIndexDelete ⇒ BackgroundWorkerImpl.deleteIndex(context.self, owner, delete, db)
+        case post: HyperStorageIndexPost ⇒ createNewIndex(task, owner, post)
+        case delete: HyperStorageIndexDelete ⇒ deleteIndex(task, owner, delete)
       }
     } recover {
       case NonFatal(e) ⇒
         log.error(e, s"Can't execute index task: $task")
-        owner ! ShardTaskComplete(task, BackgroundWorkerImpl.hyperbusException(e))
+        owner ! ShardTaskComplete(task, hyperbusException(e))
     }
   }
 
@@ -178,36 +177,44 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) exte
     } recover {
       case NonFatal(e) ⇒
         log.error(e, s"Can't execute index task: $task")
-        owner ! ShardTaskComplete(task, BackgroundWorkerImpl.hyperbusException(e))
+        owner ! ShardTaskComplete(task, hyperbusException(e))
     }
   }
-}
 
-object BackgroundWorker {
-  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) = Props(classOf[BackgroundWorker],
-    hyperbus, db, tracker
-  )
-}
+  def createNewIndex(task: BackgroundTaskTrait, owner: ActorRef, post: HyperStorageIndexPost): Unit = {
+    implicit val mcx = post
+    val indexId = post.body.indexId.getOrElse(
+      IdGenerator.create()
+    )
 
-object BackgroundWorkerImpl {
-  val log = LoggerFactory.getLogger(getClass)
-
-  def createNewIndex(notifyActor: ActorRef, owner: ActorRef, post: HyperStorageIndexPost, db: Db)
-                    (implicit ec: ExecutionContext): Unit = {
-/*
-    db.selectIndexMetas(post.path) map { indexMetas ⇒
-      indexMetas.map { existingIndex ⇒
-        if (existingIndex.indexId == post.body.indexId) {
-          throw
+    db.selectIndexMetas(post.path) flatMap { indexMetas ⇒
+      indexMetas.foreach { existingIndex ⇒
+        if (existingIndex.indexId == indexId) {
+          throw Conflict(ErrorBody("already-exists", Some(s"Index '${indexId}' already exists")))
         }
       }
 
-
+      val indexMeta = IndexMeta(post.path, indexId, IndexMeta.STATUS_INDEXING,
+        sortBy = None, filterBy = None, tableName = "index_content", metaTransactionId = UUID.randomUUID()
+      )
+      // validate: id, sort, expression, etc
+      db.insertIndexMeta(indexMeta) flatMap { _ ⇒
+        val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(post.path), post.path, indexId, None, indexMeta.metaTransactionId)
+        db.insertPendingIndex(pendingIndex) map { _ ⇒
+          // todo: indexManager !
+          Created(HyperStorageIndexCreated(indexId = indexId, path = post.path, = new LinksBuilder()
+              .location(HyperStorageIndex.uriPattern)
+              .result()
+          ))
+        }
+      }
     } recover {
       case NonFatal(e) ⇒
-        log.error(s"Can't delete pending index $pendingIndex", e)
+        log.error(s"Can't create index $post", e)
         hyperbusException(e)
-  */
+    } map { result ⇒
+      owner ! ShardTaskComplete(task, result)
+    }
 
     /*
     1. validate: id, sort, expression, etc
@@ -221,8 +228,7 @@ object BackgroundWorkerImpl {
     ???
   }
 
-  def deleteIndex(notifyActor: ActorRef, owner: ActorRef, delete: HyperStorageIndexDelete, db: Db)
-                 (implicit ec: ExecutionContext): Unit = {
+  def deleteIndex(task: BackgroundTaskTrait, owner: ActorRef, delete: HyperStorageIndexDelete): Unit = {
     /*
       1. fetch indexes (404)
       2. insert pending index
@@ -240,4 +246,10 @@ object BackgroundWorkerImpl {
     }
     IndexMetaTaskResult(response)
   }
+}
+
+object BackgroundWorker {
+  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) = Props(classOf[BackgroundWorker],
+    hyperbus, db, tracker
+  )
 }

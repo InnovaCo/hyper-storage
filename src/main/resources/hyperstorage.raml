@@ -26,12 +26,25 @@ types:
       fieldType: HyperStorageIndexSortFieldType
       order: HyperStorageIndexSortOrder
 
+  HyperStorageIndex:
+    type: object
+    properties:
+      indexId: string
+      sort: HyperStorageIndexSortItem[]
+      filter: string
+
   HyperStorageIndexNew:
     type: object
     properties:
-      id?: string
+      indexId?: string
       sort: HyperStorageIndexSortItem[]
       filter: string
+
+  HyperStorageIndexCreated:
+    type: object
+    properties:
+      indexId: string
+      path: string
 
 annotationTypes:
   feed:
@@ -87,10 +100,19 @@ annotationTypes:
 /hyper-storage/indexes/{path:*}:
   uriParameters:
     path:*: string
+  get:
+    responses:
+      200:
+        body:
+          application/json:
+            type: HyperStorageIndex
   post:
     body:
       application/json:
         type: HyperStorageIndexNew
     responses:
       201:
+        body:
+          application/json:
+            type: HyperStorageIndexCreated
   delete:

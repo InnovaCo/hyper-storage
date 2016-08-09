@@ -56,8 +56,8 @@ case class IndexMeta(
                       documentUri: String,
                       indexId: String,
                       status: Int,
-                      sortBy: String,
-                      filterBy: String,
+                      sortBy: Option[String],
+                      filterBy: Option[String],
                       tableName: String,
                       metaTransactionId: UUID
                     )
@@ -197,13 +197,25 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       where partition=$partition and document_id=$documentId and index_id=$indexId and meta_transaction_id=$metaTransactionId
     """.execute()
 
+  def insertPendingIndex(pendingIndex: PendingIndex): Future[Unit] = cql"""
+      insert into pending_index(partition, document_uri, index_id, last_item_segment, meta_transaction_id)
+      values (?,?,?,?,?)
+    """.bind(pendingIndex).execute()
+
   def selectIndexMeta(documentUri: String, indexId: String): Future[Option[IndexMeta]] = cql"""
-      select document_uri, index_id, status, sort_by, filter_by, table_name, meta_transaction_id from index_meta
+      select document_uri, index_id, status, sort_by, filter_by, table_name, meta_transaction_id
+      from index_meta
       where document_uri = $documentUri and index_id=$indexId
     """.oneOption[IndexMeta]
 
   def selectIndexMetas(documentUri: String): Future[Iterator[IndexMeta]] = cql"""
-      select document_uri, index_id, status, sort_by, filter_by, table_name, meta_transaction_id from index_meta
+      select document_uri, index_id, status, sort_by, filter_by, table_name, meta_transaction_id
+      from index_meta
       where document_uri = $documentUri
     """.all[IndexMeta]
+
+  def insertIndexMeta(indexMeta: IndexMeta): Future[Unit] = cql"""
+      insert into index_meta(document_uri, index_id, status, sort_by, filter_by, table_name, meta_transaction_id)
+      values (?,?,?,?,?,?,?)
+    """.bind(indexMeta).execute()
 }
