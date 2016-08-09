@@ -143,7 +143,7 @@ class HyperStorageSpec extends FreeSpec
           result.get.transactionList.head
         }
 
-        val backgroundWorker = TestActorRef(BackgroundWorker.props(hyperbus, db, tracker))
+        val backgroundWorker = TestActorRef(BackgroundWorker.props(hyperbus, db, tracker, self))
         backgroundWorker ! backgroundTask
         val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
         val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundTaskResult]
@@ -339,7 +339,7 @@ class HyperStorageSpec extends FreeSpec
           transaction.completedAt should be(None)
         }
 
-        val backgroundWorker = TestActorRef(BackgroundWorker.props(hyperbus, db, tracker))
+        val backgroundWorker = TestActorRef(BackgroundWorker.props(hyperbus, db, tracker, self))
         backgroundWorker ! backgroundWorkerTask
         val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
         val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundTaskResult]
@@ -382,7 +382,7 @@ class HyperStorageSpec extends FreeSpec
           _.completedAt shouldBe None
         }
 
-        val backgroundWorker = TestActorRef(BackgroundWorker.props(hyperbus, db, tracker))
+        val backgroundWorker = TestActorRef(BackgroundWorker.props(hyperbus, db, tracker, self))
 
         FaultClientTransport.checkers += {
           case request: DynamicRequest ⇒
@@ -486,7 +486,7 @@ class HyperStorageSpec extends FreeSpec
         transactions.head.revision should equal(2)
         transactions.tail.head.revision should equal(1)
 
-        val backgroundWorker = TestActorRef(BackgroundWorker.props(hyperbus, db, tracker))
+        val backgroundWorker = TestActorRef(BackgroundWorker.props(hyperbus, db, tracker, self))
         backgroundWorker ! backgroundWorkerTask
         val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
         val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundTaskResult]
@@ -603,7 +603,7 @@ class HyperStorageSpec extends FreeSpec
         cleanUpCassandra()
 
         val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
-        val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker)
+        val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, self)
         val workerSettings = Map(
           "hyper-storage-foreground-worker" →(workerProps, 1),
           "hyper-storage-background-worker" →(backgroundWorkerProps, 1)
@@ -652,7 +652,7 @@ class HyperStorageSpec extends FreeSpec
         cleanUpCassandra()
 
         val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
-        val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker)
+        val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, self)
         val workerSettings = Map(
           "hyper-storage-foreground-worker" →(workerProps, 1),
           "hyper-storage-background-worker" →(backgroundWorkerProps, 1)
@@ -707,7 +707,7 @@ class HyperStorageSpec extends FreeSpec
         cleanUpCassandra()
 
         val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
-        val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker)
+        val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, self)
         val workerSettings = Map(
           "hyper-storage-foreground-worker" →(workerProps, 1),
           "hyper-storage-background-worker" →(backgroundWorkerProps, 1)
@@ -792,7 +792,7 @@ class HyperStorageSpec extends FreeSpec
         cleanUpCassandra()
 
         val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
-        val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker)
+        val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, self)
         val workerSettings = Map(
           "hyper-storage-foreground-worker" →(workerProps, 1),
           "hyper-storage-background-worker" →(backgroundWorkerProps, 1)

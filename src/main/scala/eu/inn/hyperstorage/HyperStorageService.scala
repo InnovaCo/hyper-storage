@@ -8,6 +8,7 @@ import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
 import eu.inn.metrics.MetricsTracker
 import eu.inn.hyperstorage.db.Db
+import eu.inn.hyperstorage.indexing.IndexManager
 import eu.inn.hyperstorage.metrics.MetricsReporter
 import eu.inn.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
 import eu.inn.hyperstorage.sharding.{ShardProcessor, ShutdownProcessor, SubscribeToShardStatus}
@@ -74,9 +75,14 @@ class HyperStorageService(console: Console,
       log.error(s"Can't create C* session", e)
   }
 
+  val indexManagerProps = IndexManager.props(hyperbus, db, tracker, maxBackgroundWorkers)
+  val indexManagerRef = actorSystem.actorOf(
+    indexManagerProps, "index-manager"
+  )
+
   // worker actor todo: recovery job
   val foregroundWorkerProps = ForegroundWorker.props(hyperbus, db, tracker, backgroundTaskTimeout)
-  val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker)
+  val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, indexManagerRef)
   val workerSettings = Map(
     "hyper-storage-foreground-worker" → (foregroundWorkerProps, maxForegroundWorkers),
     "hyper-storage-background-worker" → (backgroundWorkerProps, maxBackgroundWorkers)
@@ -103,6 +109,9 @@ class HyperStorageService(console: Console,
   log.info(s"Launching stale recovery $staleRecovery-$hotRecovery")
   val staleRecoveryRef = actorSystem.actorOf(StaleRecoveryWorker.props(stalePeriod, db, shardProcessorRef, tracker, staleRecoveryRetry, backgroundTaskTimeout))
   shardProcessorRef ! SubscribeToShardStatus(staleRecoveryRef)
+
+  log.info(s"Launching index manager")
+  shardProcessorRef ! SubscribeToShardStatus(indexManagerRef)
 
   log.info("HyperStorage started!")
 

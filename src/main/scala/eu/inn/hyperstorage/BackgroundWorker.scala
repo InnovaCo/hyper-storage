@@ -7,13 +7,12 @@ import akka.pattern.pipe
 import com.datastax.driver.core.utils.UUIDs
 import eu.inn.hyperbus.{Hyperbus, IdGenerator}
 import eu.inn.hyperbus.model._
-import eu.inn.hyperstorage.api.{HyperStorageIndexDelete, HyperStorageIndexPost, HyperStorageIndexCreated}
+import eu.inn.hyperstorage.api._
 import eu.inn.metrics.MetricsTracker
 import eu.inn.hyperstorage.db._
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
 import eu.inn.hyperstorage.utils.FutureUtils
-import org.slf4j.LoggerFactory
 
 import scala.collection.Seq
 import scala.concurrent.{ExecutionContext, Future}
@@ -53,7 +52,7 @@ trait BackgroundTaskTrait extends ShardTask {
 @SerialVersionUID(1L) case class IncorrectDataException(documentUri: String, reason: String) extends RuntimeException(s"Data for $documentUri is incorrect: $reason")
 @SerialVersionUID(1L) case class BackgroundTaskFailedException(documentUri: String, reason: String) extends RuntimeException(s"Background task for $documentUri is failed: $reason")
 
-class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) extends Actor with ActorLogging {
+class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, indexManager: ActorRef) extends Actor with ActorLogging {
   import ContentLogic._
   import context._
 
@@ -173,7 +172,19 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) exte
       validateCollectionUri(task.key)
       task
     } map { task ⇒
-
+      /*
+      index task:
+        - select meta
+          - if deleting, delete and return result
+          - if indexing:
+            - select bucket from last segment
+            - iterate
+              - index row
+              - write row to index table
+            - if there is no more rows, complete index
+            - reply with last segment and flag if there is more rows
+          - if indexed, reply completed
+       */
     } recover {
       case NonFatal(e) ⇒
         log.error(e, s"Can't execute index task: $task")
@@ -202,8 +213,8 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) exte
         val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(post.path), post.path, indexId, None, indexMeta.metaTransactionId)
         db.insertPendingIndex(pendingIndex) map { _ ⇒
           // todo: indexManager !
-          Created(HyperStorageIndexCreated(indexId = indexId, path = post.path, = new LinksBuilder()
-              .location(HyperStorageIndex.uriPattern)
+          Created(HyperStorageIndexCreated(indexId = indexId, path = post.path, links = new LinksBuilder()
+              .location(HyperStorageIndex.selfPattern, templated = true)
               .result()
           ))
         }
@@ -249,7 +260,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) exte
 }
 
 object BackgroundWorker {
-  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) = Props(classOf[BackgroundWorker],
-    hyperbus, db, tracker
+  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, indexManager: ActorRef) = Props(classOf[BackgroundWorker],
+    hyperbus, db, tracker, indexManager
   )
 }

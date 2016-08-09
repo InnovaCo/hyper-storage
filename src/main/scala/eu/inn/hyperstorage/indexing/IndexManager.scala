@@ -179,8 +179,8 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
 }
 
 object IndexManager {
-  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndexWorkers: Int, bucketSize: Int) = Props(classOf[IndexManager],
-    hyperbus, db, tracker, maxIndexWorkers, bucketSize
+  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndexWorkers: Int) = Props(classOf[IndexManager],
+    hyperbus, db, tracker, maxIndexWorkers
   )
 }
 
