@@ -10,6 +10,7 @@ import eu.inn.hyperbus.model._
 import eu.inn.hyperstorage.api._
 import eu.inn.metrics.MetricsTracker
 import eu.inn.hyperstorage.db._
+import eu.inn.hyperstorage.indexing.{IndexCreatedOrDeleted, IndexWorkersKey}
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
 import eu.inn.hyperstorage.utils.FutureUtils
@@ -21,6 +22,7 @@ import scala.util.control.NonFatal
 
 // todo: do we really need a ShardTaskComplete ?
 // todo: use strictly Hyperbus OR akka serialization for the internal akka-cluster
+// todo: collection removal + index removal
 
 trait BackgroundTaskTrait extends ShardTask {
   def ttl: Long
@@ -93,6 +95,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
   }
 
+  // todo: index new updates
   def completeTransactions(task: BackgroundTask, content: ContentStatic): Future[ShardTaskComplete] = {
     if (content.transactionList.isEmpty) {
       Future.successful(ShardTaskComplete(task, BackgroundTaskResult(task.documentUri, Seq.empty)))
@@ -171,6 +174,59 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
       validateCollectionUri(task.key)
       task
     } map { task ⇒
+
+      // todo: need guarantee, that status isn't changed here, select from db?
+
+      {
+        task.indexMeta.status match {
+          case IndexMeta.STATUS_INDEXING ⇒
+            val bucketSize = 1 // todo: move to config, or make adaptive, or per index
+            task.lastItemSegment.map { s ⇒
+              db.selectContentCollectionFrom(task.indexMeta.documentUri, s, bucketSize)
+            } getOrElse {
+              db.selectContentCollection(task.indexMeta.documentUri, bucketSize)
+            } flatMap { collectionItems ⇒
+              FutureUtils.serial(collectionItems.toSeq) { item ⇒
+                db.insertIndexContent(task.indexMeta.tableName, item) map { _ ⇒
+                  item.itemSegment
+                }
+              } flatMap { insertedItemSegments ⇒
+
+                if (insertedItemSegments.isEmpty) {
+                  // indexing is finished
+                  // todo: fix code format
+                  db.updateIndexMetaStatus( task.indexMeta.documentUri, task.indexMeta.indexId, IndexMeta.STATUS_NORMAL ) flatMap { _ ⇒
+                    db.deletePendingIndex (TransactionLogic.partitionFromUri(task.indexMeta.documentUri), task.indexMeta.documentUri, task.indexMeta.indexId, task.indexMeta.metaTransactionId ) map { _ ⇒
+                      IndexTaskResult(None, task.processId)
+                    }
+                  }
+                } else {
+                  val last = insertedItemSegments.last
+                  db.updatePendingIndexLastItemSegment (TransactionLogic.partitionFromUri(task.indexMeta.documentUri), task.indexMeta.documentUri, task.indexMeta.indexId, task.indexMeta.metaTransactionId, last) map { _ ⇒
+                    IndexTaskResult(Some(last), task.processId)
+                  }
+                }
+              }
+            }
+
+
+          case IndexMeta.STATUS_NORMAL ⇒
+            Future.successful(IndexTaskResult(None, task.processId))
+
+          case IndexMeta.STATUS_DELETING ⇒
+            ??? // todo: implement deleting
+        }
+      } map { r: IndexTaskResult ⇒
+        owner ! ShardTaskComplete(task, r)
+
+
+        // todo: remove ugly code duplication
+      } recover {
+        case NonFatal(e) ⇒
+          log.error(e, s"Can't execute index task: $task")
+          owner ! ShardTaskComplete(task, hyperbusException(e))
+      }
+
       /*
       index task:
         - select meta
@@ -211,7 +267,14 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
       db.insertIndexMeta(indexMeta) flatMap { _ ⇒
         val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(post.path), post.path, indexId, None, indexMeta.metaTransactionId)
         db.insertPendingIndex(pendingIndex) map { _ ⇒
-          // todo: indexManager !
+          // todo: need guaranty that if the message is lost, we process this index!
+          indexManager ! IndexCreatedOrDeleted(IndexWorkersKey(
+            TransactionLogic.partitionFromUri(post.path),
+            post.path,
+            indexId,
+            pendingIndex.metaTransactionId
+          ))
+
           Created(HyperStorageIndexCreated(indexId = indexId, path = post.path, links = new LinksBuilder()
               .location(HyperStorageIndex.selfPattern, templated = true)
               .result()

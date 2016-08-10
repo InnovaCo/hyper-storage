@@ -18,6 +18,7 @@ case object ShutdownIndexManager
 case class ProcessNextPartitions(processId: Long)
 
 // todo: rename
+// todo: partition can be always generated!
 case class IndexWorkersKey(partition: Int, documentUri: String, indexId: String, metaTransactionId: UUID)
 
 // todo: rename those two

@@ -11,6 +11,7 @@ import eu.inn.hyperbus.model.utils.{Sort, SortBy}
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.hyperstorage._
 import eu.inn.hyperstorage.api._
+import eu.inn.hyperstorage.db.IndexMeta
 import eu.inn.hyperstorage.indexing.IndexManager
 import eu.inn.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
 import eu.inn.hyperstorage.sharding.ShardMemberStatus.Active
@@ -1003,6 +1004,8 @@ class HyperStorageSpec extends FreeSpec
         )
 
         val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
+        processor ! SubscribeToShardStatus(indexManager)
+
         val adapter = TestActorRef(HyperbusAdapter.props(processor, db, tracker, 20.seconds))
         import eu.inn.hyperbus.akkaservice._
         implicit val timeout = Timeout(20.seconds)
@@ -1012,8 +1015,17 @@ class HyperStorageSpec extends FreeSpec
 
         val path = "collection-1~"
         val f1 = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"),Seq.empty, None))
-        whenReady(f1) { response ⇒
-          response.statusCode should equal(Status.CREATED)
+        f1.futureValue.statusCode should equal(Status.CREATED)
+
+        val indexMeta = db.selectIndexMeta("collection-1~", "index1").futureValue
+        indexMeta shouldBe defined
+        indexMeta.get.documentUri shouldBe "collection-1~"
+        indexMeta.get.indexId shouldBe "index1"
+
+        eventually {
+          val indexMetaUp = db.selectIndexMeta("collection-1~", "index1").futureValue
+          indexMetaUp shouldBe defined
+          indexMetaUp.get.status shouldBe IndexMeta.STATUS_NORMAL
         }
       }
     }

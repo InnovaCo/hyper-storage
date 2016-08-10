@@ -62,6 +62,15 @@ case class IndexMeta(
                       metaTransactionId: UUID
                     )
 
+case class IndexContent(
+                    documentUri: String,
+                    itemSegment: String,
+                    revision: Long,
+                    body: Option[String],
+                    createdAt: Date,
+                    modifiedAt: Option[Date]
+                  )
+
 object IndexMeta {
   val STATUS_INDEXING = 0
   val STATUS_DELETING = 1
@@ -188,13 +197,19 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   def selectPendingIndex(partition: Int, documentId: String, indexId: String, metaTransactionId: UUID): Future[Option[PendingIndex]] = cql"""
       select partition, document_uri, index_id, last_item_segment, meta_transaction_id
       from pending_index
-      where partition=$partition and document_id=$documentId and index_id=$indexId and meta_transaction_id=$metaTransactionId
+      where partition=$partition and document_uri=$documentId and index_id=$indexId and meta_transaction_id=$metaTransactionId
     """.oneOption[PendingIndex]
 
   def deletePendingIndex(partition: Int, documentId: String, indexId: String, metaTransactionId: UUID) = cql"""
       delete
       from pending_index
-      where partition=$partition and document_id=$documentId and index_id=$indexId and meta_transaction_id=$metaTransactionId
+      where partition=$partition and document_uri=$documentId and index_id=$indexId and meta_transaction_id=$metaTransactionId
+    """.execute()
+
+  def updatePendingIndexLastItemSegment(partition: Int, documentId: String, indexId: String, metaTransactionId: UUID, lastItemSegment: String) = cql"""
+      update pending_index
+      set last_item_segment = $lastItemSegment
+      where partition=$partition and document_uri=$documentId and index_id=$indexId and meta_transaction_id=$metaTransactionId
     """.execute()
 
   def insertPendingIndex(pendingIndex: PendingIndex): Future[Unit] = cql"""
@@ -218,4 +233,24 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       insert into index_meta(document_uri, index_id, status, sort_by, filter_by, table_name, meta_transaction_id)
       values (?,?,?,?,?,?,?)
     """.bind(indexMeta).execute()
+
+  def updateIndexMetaStatus(documentUri: String, indexId: String, newStatus: Int): Future[Unit] = cql"""
+      update index_meta
+      set status = $newStatus
+      where document_uri = $documentUri and index_id = $indexId
+    """.execute()
+
+  def insertIndexContent(indexTable: String, content: Content): Future[Unit] = {
+    val tableName = Dynamic(indexTable)
+    cql"""
+      insert into $tableName(document_uri,item_segment,revision,body,created_at,modified_at)
+      values(?,?,?,?,?,?)
+    """.bind(content).execute()
+  }
+
+//  def selectIndexCollection(indexTable: String, documentUri: String, limit: Int): Future[Iterator[IndexContent]] = cql"""
+//      select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
+//      where document_uri=$documentUri and item_segment > ''
+//      limit $limit
+//    """.all[IndexContent]
 }
