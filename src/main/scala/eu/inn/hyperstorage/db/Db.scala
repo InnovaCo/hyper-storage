@@ -248,9 +248,12 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     """.bind(content).execute()
   }
 
-//  def selectIndexCollection(indexTable: String, documentUri: String, limit: Int): Future[Iterator[IndexContent]] = cql"""
-//      select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
-//      where document_uri=$documentUri and item_segment > ''
-//      limit $limit
-//    """.all[IndexContent]
+  def selectIndexCollection(indexTable: String, documentUri: String, limit: Int): Future[Iterator[IndexContent]] = {
+    val tableName = Dynamic(indexTable)
+    cql"""
+      select document_uri,item_segment,revision,body,created_at,modified_at from $tableName
+      where document_uri=$documentUri and item_segment > ''
+      limit $limit
+    """.all[IndexContent]
+  }
 }

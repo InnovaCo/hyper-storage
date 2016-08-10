@@ -1013,6 +1013,10 @@ class HyperStorageSpec extends FreeSpec
 
         Thread.sleep(2000)
 
+        val c1 = ObjV("a" → "hello", "b" → 100500)
+        val f2 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c1))
+        f2.futureValue.statusCode should equal(Status.CREATED)
+
         val path = "collection-1~"
         val f1 = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"),Seq.empty, None))
         f1.futureValue.statusCode should equal(Status.CREATED)
@@ -1026,6 +1030,13 @@ class HyperStorageSpec extends FreeSpec
           val indexMetaUp = db.selectIndexMeta("collection-1~", "index1").futureValue
           indexMetaUp shouldBe defined
           indexMetaUp.get.status shouldBe IndexMeta.STATUS_NORMAL
+        }
+
+        eventually {
+          val indexContent = db.selectIndexCollection("index_content", "collection-1~", 10).futureValue.toSeq
+          indexContent.size shouldBe 1
+          indexContent.head.documentUri shouldBe "collection-1~"
+          indexContent.head.itemSegment shouldBe "item1"
         }
       }
     }
