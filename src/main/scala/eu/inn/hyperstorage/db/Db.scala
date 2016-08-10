@@ -245,7 +245,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     cql"""
       insert into $tableName(document_uri,item_segment,revision,body,created_at,modified_at)
       values(?,?,?,?,?,?)
-    """.bind(content).execute()
+    """.bindPartial(content).execute()
   }
 
   def selectIndexCollection(indexTable: String, documentUri: String, limit: Int): Future[Iterator[IndexContent]] = {
