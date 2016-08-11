@@ -38,6 +38,7 @@ case class Transaction(
                     dtQuantum: Long,
                     partition: Int,
                     documentUri: String,
+                    itemSegment: String,
                     uuid: UUID,
                     revision: Long,
                     body: String,
@@ -143,18 +144,18 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     """.bind(content).execute()
 
   def selectTransaction(dtQuantum: Long, partition: Int, documentUri: String, uuid: UUID): Future[Option[Transaction]] = cql"""
-      select dt_quantum,partition,document_uri,uuid,revision,body,completed_at from transaction
+      select dt_quantum,partition,document_uri,item_segment,uuid,revision,body,completed_at from transaction
       where dt_quantum=$dtQuantum and partition=$partition and document_uri=$documentUri and uuid=$uuid
     """.oneOption[Transaction]
 
   def selectPartitionTransactions(dtQuantum: Long, partition: Int): Future[Iterator[Transaction]] = cql"""
-      select dt_quantum,partition,document_uri,uuid,revision,body,completed_at from transaction
+      select dt_quantum,partition,document_uri,item_segment,uuid,revision,body,completed_at from transaction
       where dt_quantum=$dtQuantum and partition=$partition
     """.all[Transaction]
 
   def insertTransaction(transaction: Transaction): Future[Unit] = cql"""
-      insert into transaction(dt_quantum,partition,document_uri,uuid,revision,body,completed_at)
-      values(?,?,?,?,?,?,?)
+      insert into transaction(dt_quantum,partition,document_uri,item_segment,uuid,revision,body,completed_at)
+      values(?,?,?,?,?,?,?,?)
     """.bind(transaction).execute()
 
   def completeTransaction(transaction: Transaction): Future[Unit] = cql"""
@@ -255,5 +256,13 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       where document_uri=$documentUri and item_segment > ''
       limit $limit
     """.all[IndexContent]
+  }
+
+  def deleteIndexContent(indexTable: String, documentUri: String, itemSegment: String): Future[Unit] = {
+    val tableName = Dynamic(indexTable)
+    cql"""
+      delete from $tableName
+      where document_uri=$documentUri and item_segment = $itemSegment
+    """.execute()
   }
 }

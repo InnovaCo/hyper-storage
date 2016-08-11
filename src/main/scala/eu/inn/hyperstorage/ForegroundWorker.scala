@@ -105,12 +105,12 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
     } pipeTo context.self
   }
 
-  private def createNewTransaction(documentUri: String, request: DynamicRequest, existingContent: Option[ContentBase]): Transaction = {
+  private def createNewTransaction(documentUri: String, itemSegment: String, request: DynamicRequest, existingContent: Option[ContentBase]): Transaction = {
     val revision = existingContent match {
       case None ⇒ 1
       case Some(content) ⇒ content.revision + 1
     }
-    TransactionLogic.newTransaction(documentUri, revision, request.copy(
+    TransactionLogic.newTransaction(documentUri, itemSegment, revision, request.copy(
       headers = Headers.plain(request.headers +
         (Header.REVISION → Seq(revision.toString)) +
         (Header.METHOD → Seq("feed:" + request.method)))
@@ -242,7 +242,7 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
                              request: DynamicRequest,
                              existingContent: Option[Content],
                              existingContentStatic: Option[ContentBase]): Future[Transaction] = {
-    val newTransaction = createNewTransaction(documentUri, request, existingContentStatic)
+    val newTransaction = createNewTransaction(documentUri, itemSegment, request, existingContentStatic)
     val newContent = updateContent(documentUri, itemSegment, newTransaction, request, existingContent, existingContentStatic)
     db.insertTransaction(newTransaction) flatMap { _ ⇒
       db.insertContent(newContent) map { _ ⇒

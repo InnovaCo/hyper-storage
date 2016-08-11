@@ -1038,6 +1038,17 @@ class HyperStorageSpec extends FreeSpec
           indexContent.head.documentUri shouldBe "collection-1~"
           indexContent.head.itemSegment shouldBe "item1"
         }
+
+        val c2 = ObjV("a" → "goodbye", "b" → 123456)
+        val f3 = hyperbus <~ HyperStorageContentPut("collection-1~/item2", DynamicBody(c1))
+        f3.futureValue.statusCode should equal(Status.CREATED)
+
+        eventually {
+          val indexContent = db.selectIndexCollection("index_content", "collection-1~", 10).futureValue.toSeq
+          indexContent.size shouldBe 2
+          indexContent(1).documentUri shouldBe "collection-1~"
+          indexContent(1).itemSegment shouldBe "item2"
+        }
       }
     }
   }

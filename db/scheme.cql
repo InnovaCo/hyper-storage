@@ -14,6 +14,7 @@ create table transaction (
 	dt_quantum bigint,
 	partition int,
 	document_uri text,
+	item_segment text,
 	uuid timeuuid,
 	revision bigint,
 	body text,

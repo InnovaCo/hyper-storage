@@ -102,17 +102,43 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
     else {
       selectIncompleteTransactions(content) flatMap { incompleteTransactions ⇒
-        FutureUtils.serial(incompleteTransactions) { transaction ⇒
-          val event = DynamicRequest(transaction.body)
-          hyperbus <| event flatMap { publishResult ⇒
-            if (log.isDebugEnabled) {
-              log.debug(s"Event $event is published with result $publishResult")
+
+        val itemSegments = incompleteTransactions.collect {
+          case it if it.itemSegment.nonEmpty ⇒ it.itemSegment
+        }.toSet
+
+        // todo: cache index meta
+        val updateIndexFuture: Future[Seq[Int]] = db.selectIndexMetas(task.documentUri).flatMap { indexMetas ⇒
+          FutureUtils.serial(itemSegments.toSeq) { itemSegment ⇒
+            // todo: cache content
+            db.selectContent(task.documentUri, itemSegment) flatMap { contentOption ⇒
+              FutureUtils.serial(indexMetas.toSeq) { indexMeta ⇒
+                contentOption match {
+                  case Some(item) ⇒
+                    indexItem(indexMeta, item)
+                  case None ⇒
+                    db.deleteIndexContent(indexMeta.tableName, task.documentUri, itemSegment)
+                }
+              } map (_.size)
             }
-            db.completeTransaction(transaction) map { _ ⇒
+          }
+
+
+        }
+
+        updateIndexFuture.flatMap { indexSeq ⇒
+          FutureUtils.serial(incompleteTransactions) { transaction ⇒
+            val event = DynamicRequest(transaction.body)
+            hyperbus <| event flatMap { publishResult ⇒
               if (log.isDebugEnabled) {
-                log.debug(s"$transaction is complete")
+                log.debug(s"Event $event is published with result $publishResult")
               }
-              transaction
+              db.completeTransaction(transaction) map { _ ⇒
+                if (log.isDebugEnabled) {
+                  log.debug(s"$transaction is complete")
+                }
+                transaction
+              }
             }
           }
         } map { updatedTransactions ⇒
@@ -169,6 +195,12 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
   }
 
+  def indexItem(indexMeta: IndexMeta, item: Content): Future[String] = {
+    db.insertIndexContent(indexMeta.tableName, item) map { _ ⇒
+      item.itemSegment
+    }
+  }
+
   def executeIndexTask(owner: ActorRef, task: IndexTask): Unit = {
     Try {
       validateCollectionUri(task.key)
@@ -181,15 +213,16 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
         task.indexMeta.status match {
           case IndexMeta.STATUS_INDEXING ⇒
             val bucketSize = 1 // todo: move to config, or make adaptive, or per index
+
+
+
             task.lastItemSegment.map { s ⇒
               db.selectContentCollectionFrom(task.indexMeta.documentUri, s, bucketSize)
             } getOrElse {
               db.selectContentCollection(task.indexMeta.documentUri, bucketSize)
             } flatMap { collectionItems ⇒
               FutureUtils.serial(collectionItems.toSeq) { item ⇒
-                db.insertIndexContent(task.indexMeta.tableName, item) map { _ ⇒
-                  item.itemSegment
-                }
+                indexItem(task.indexMeta, item)
               } flatMap { insertedItemSegments ⇒
 
                 if (insertedItemSegments.isEmpty) {
