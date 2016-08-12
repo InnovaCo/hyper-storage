@@ -5,6 +5,7 @@ import java.util.UUID
 import akka.actor.{Actor, ActorLogging, ActorRef, Props, Status}
 import akka.pattern.pipe
 import com.datastax.driver.core.utils.UUIDs
+import eu.inn.binders.value.{Null, Value}
 import eu.inn.hyperbus.{Hyperbus, IdGenerator}
 import eu.inn.hyperbus.model._
 import eu.inn.hyperstorage.api._
@@ -116,7 +117,9 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
                 contentOption match {
                   case Some(item) ⇒
                     indexItem(indexMeta, item)
+
                   case None ⇒
+                    // todo: delete only if filter is true!
                     db.deleteIndexContent(indexMeta.tableName, task.documentUri, itemSegment)
                 }
               } map (_.size)
@@ -196,8 +199,39 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
   }
 
   def indexItem(indexMeta: IndexMeta, item: Content): Future[String] = {
-    db.insertIndexContent(indexMeta.tableName, item) map { _ ⇒
-      item.itemSegment
+    import eu.inn.binders.json._
+
+    // todo: cache this
+    val contentValue = item.body.map { str ⇒
+      str.parseJson[Value]
+    } getOrElse {
+      Null
+    }
+
+    // todo: cache this
+    indexMeta.sortBy.map { sortString ⇒
+      val sortBy = sortString.parseJson[Seq[HyperStorageIndexSortItem]]
+      IndexLogic.extractSortFields(sortBy, contentValue)
+    }
+
+    val write: Boolean = indexMeta.filterBy.map { filterBy ⇒
+      IndexLogic.evaluateFilterExpression(filterBy, contentValue) recover {
+        case NonFatal(e) ⇒
+          // todo: log this?
+        false
+      } get
+    } getOrElse {
+      true
+    }
+
+    // todo: insert depending on sort fields
+    if (write) {
+      db.insertIndexContent(indexMeta.tableName, item) map { _ ⇒
+        item.itemSegment
+      }
+    }
+    else {
+      Future.successful(item.itemSegment)
     }
   }
 
