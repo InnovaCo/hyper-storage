@@ -10,7 +10,7 @@ import eu.inn.hyperbus.model._
 import eu.inn.hyperstorage.api._
 import eu.inn.metrics.MetricsTracker
 import eu.inn.hyperstorage.db._
-import eu.inn.hyperstorage.indexing.{IndexCreatedOrDeleted, IndexWorkersKey}
+import eu.inn.hyperstorage.indexing.{IndexCreatedOrDeleted, IndexLogic, IndexWorkersKey}
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
 import eu.inn.hyperstorage.utils.FutureUtils
@@ -286,6 +286,9 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
       IdGenerator.create()
     )
 
+    val tableName = IndexLogic.tableName(post.body.sortBy)
+    post.body.filterBy.foreach(IndexLogic.validateFilterExpression(_).get)
+
     db.selectIndexMetas(post.path) flatMap { indexMetas ⇒
       indexMetas.foreach { existingIndex ⇒
         if (existingIndex.indexId == indexId) {
@@ -293,8 +296,9 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
         }
       }
 
+      import eu.inn.binders.json._
       val indexMeta = IndexMeta(post.path, indexId, IndexMeta.STATUS_INDEXING,
-        sortBy = None, filterBy = None, tableName = "index_content", metaTransactionId = UUIDs.timeBased()
+        if (post.body.sortBy.nonEmpty) Some(post.body.sortBy.toJson) else None, post.body.filterBy, tableName, metaTransactionId = UUIDs.timeBased()
       )
       // validate: id, sort, expression, etc
       db.insertIndexMeta(indexMeta) flatMap { _ ⇒

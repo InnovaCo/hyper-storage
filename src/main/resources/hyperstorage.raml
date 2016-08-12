@@ -17,28 +17,28 @@ types:
     enum: [asc, desc]
 
   HyperStorageIndexSortFieldType:
-    enum: [string, decimal]
+    enum: [text, decimal]
 
   HyperStorageIndexSortItem:
     type: object
     properties:
       fieldName: string
-      fieldType: HyperStorageIndexSortFieldType
-      order: HyperStorageIndexSortOrder
+      fieldType?: HyperStorageIndexSortFieldType
+      order?: HyperStorageIndexSortOrder
 
   HyperStorageIndex:
     type: object
     properties:
       indexId: string
-      sort: HyperStorageIndexSortItem[]
-      filter?: string
+      sortBy: HyperStorageIndexSortItem[]
+      filterBy?: string
 
   HyperStorageIndexNew:
     type: object
     properties:
       indexId?: string
-      sort: HyperStorageIndexSortItem[]
-      filter?: string
+      sortBy: HyperStorageIndexSortItem[]
+      filterBy?: string
 
   HyperStorageIndexCreated:
     type: object
