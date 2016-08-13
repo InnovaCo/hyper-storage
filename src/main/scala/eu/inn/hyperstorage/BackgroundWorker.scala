@@ -218,6 +218,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
       IndexLogic.evaluateFilterExpression(filterBy, contentValue) recover {
         case NonFatal(e) ⇒
           // todo: log this?
+          log.error(e, s"Can't evaluate expression: `$filterBy`")
         false
       } get
     } getOrElse {

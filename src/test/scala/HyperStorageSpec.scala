@@ -1014,12 +1014,12 @@ class HyperStorageSpec extends FreeSpec
         Thread.sleep(2000)
 
         val c1 = ObjV("a" → "hello", "b" → 100500)
-        val f2 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c1))
-        f2.futureValue.statusCode should equal(Status.CREATED)
+        val f1 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c1))
+        f1.futureValue.statusCode should equal(Status.CREATED)
 
         val path = "collection-1~"
-        val f1 = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"),Seq.empty, None))
-        f1.futureValue.statusCode should equal(Status.CREATED)
+        val f2 = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"),Seq.empty, None))
+        f2.futureValue.statusCode should equal(Status.CREATED)
 
         val indexMeta = db.selectIndexMeta("collection-1~", "index1").futureValue
         indexMeta shouldBe defined
@@ -1039,8 +1039,8 @@ class HyperStorageSpec extends FreeSpec
           indexContent.head.itemSegment shouldBe "item1"
         }
 
-        val c2 = ObjV("a" → "goodbye", "b" → 123456)
-        val f3 = hyperbus <~ HyperStorageContentPut("collection-1~/item2", DynamicBody(c1))
+        val c3 = ObjV("a" → "goodbye", "b" → 123456)
+        val f3 = hyperbus <~ HyperStorageContentPut("collection-1~/item2", DynamicBody(c3))
         f3.futureValue.statusCode should equal(Status.CREATED)
 
         eventually {
@@ -1051,7 +1051,7 @@ class HyperStorageSpec extends FreeSpec
         }
       }
 
-      "Create index with filter" in {
+        /*"Create index with filter" in {
         val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
@@ -1116,7 +1116,7 @@ class HyperStorageSpec extends FreeSpec
           indexContent(1).documentUri shouldBe "collection-1~"
           indexContent(1).itemSegment shouldBe "item3"
         }
-      }
+      }*/
     }
   }
   def response(content: String): Response[Body] = StringDeserializer.dynamicResponse(content)
