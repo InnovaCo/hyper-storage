@@ -13,7 +13,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 object Cassandra extends CassandraCQLUnit(
     new ClassPathCQLDataSet("schema.cql","hyper_storage_test")
   ) {
-  this.startupTimeoutMillis = 30000l
+  this.startupTimeoutMillis = 60000l
   lazy val start = {
     before()
   }
