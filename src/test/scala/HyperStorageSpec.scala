@@ -1011,15 +1011,35 @@ class HyperStorageSpec extends FreeSpec
         implicit val timeout = Timeout(20.seconds)
         hyperbus.routeTo[HyperbusAdapter](adapter).futureValue // wait while subscription is completes
 
+        println("---- S1")
+        processor ! SubscribeToShardStatus(self)
+        expectMsgType[UpdateShardStatus]
+
+        val putEventPromise = Promise[HyperStorageContentFeedPut]()
+        hyperbus |> { put: HyperStorageContentFeedPut ⇒
+          Future {
+            if (!putEventPromise.isCompleted) {
+              putEventPromise.success(put)
+            }
+          }
+        }
+
         Thread.sleep(2000)
+        println("---- S2")
 
         val c1 = ObjV("a" → "hello", "b" → 100500)
         val f1 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c1))
         f1.futureValue.statusCode should equal(Status.CREATED)
+        putEventPromise.future.futureValue.method should equal(Method.FEED_PUT)
 
+        Thread.sleep(2000)
+
+        println("---- S3")
         val path = "collection-1~"
         val f2 = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"),Seq.empty, None))
         f2.futureValue.statusCode should equal(Status.CREATED)
+
+        println("---- S4")
 
         val indexMeta = db.selectIndexMeta("collection-1~", "index1").futureValue
         indexMeta shouldBe defined
@@ -1049,6 +1069,8 @@ class HyperStorageSpec extends FreeSpec
           indexContent(1).documentUri shouldBe "collection-1~"
           indexContent(1).itemSegment shouldBe "item2"
         }
+
+        println("----THIS IS THE END----")
       }
 
         /*"Create index with filter" in {
