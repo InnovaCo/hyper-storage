@@ -5,6 +5,7 @@ import java.util.{Date, UUID}
 import eu.inn.binders._
 import eu.inn.binders.cassandra._
 import eu.inn.binders.naming.CamelCaseToSnakeCaseConverter
+import eu.inn.binders.value.{Number, Text, Value}
 import eu.inn.hyperstorage.CassandraConnector
 import org.slf4j.LoggerFactory
 
@@ -241,19 +242,46 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       where document_uri = $documentUri and index_id = $indexId
     """.execute()
 
-  def insertIndexContent(indexTable: String, content: Content): Future[Unit] = {
+  def insertIndexContent(indexTable: String, sortFields: Seq[(String, Value)], content: Content): Future[Unit] = {
     val tableName = Dynamic(indexTable)
-    cql"""
-      insert into $tableName(document_uri,item_segment,revision,body,created_at,modified_at)
-      values(?,?,?,?,?,?)
-    """.bindPartial(content).execute()
+    val sortFieldNames = Dynamic(sortFields.map(_._1).mkString(",",",",""))
+    val sortFieldPlaces = Dynamic(sortFields.map(_ ⇒ "?").mkString(",",",",""))
+    val cql = cql"""
+      insert into $tableName(document_uri,item_segment,revision,body,created_at,modified_at$sortFieldNames)
+      values(?,?,?,?,?,?$sortFieldPlaces)
+    """.bindPartial(content)
+
+    sortFields.foreach {
+      case (name, Text(s)) ⇒ cql.boundStatement.setString(name, s)
+      case (name, Number(n)) ⇒ cql.boundStatement.setDecimal(name, n.bigDecimal)
+      case (name, v) ⇒ throw new IllegalArgumentException(s"Can't bind $name value $v") // todo: do something
+    }
+    cql.execute()
   }
 
-  def selectIndexCollection(indexTable: String, documentUri: String, limit: Int): Future[Iterator[IndexContent]] = {
+  // todo: think about sort from field name!!! for get / rest // aawwwhhh
+  def selectIndexCollection(indexTable: String, documentUri: String,
+                            startSortFields: Seq[(String,Value)],
+                            startItemSegment: Option[String], limit: Int): Future[Iterator[IndexContent]] = {
+
     val tableName = Dynamic(indexTable)
+    val startSortFieldsFilter = if(startSortFields.isEmpty) Dynamic("") else Dynamic(
+      startSortFields.map {
+        case (name, Text(s)) ⇒ s"$name > '$s'" // todo: safety escaping! IMPORTANT!!!! also '
+        case (name, Number(n)) ⇒ s"$name > $n"
+        case (name, v) ⇒ throw new IllegalArgumentException(s"Can't bind $name value $v") // todo: do something
+      } mkString("and ", " and ", "")
+    )
+
+    val itemSegmentFilter = Dynamic(startItemSegment.map { s ⇒
+      s"and item_segment > $startItemSegment" // todo: safety escaping!
+    } getOrElse {
+      ""
+    })
+
     cql"""
       select document_uri,item_segment,revision,body,created_at,modified_at from $tableName
-      where document_uri=$documentUri and item_segment > ''
+      where document_uri=$documentUri $startSortFieldsFilter $itemSegmentFilter
       limit $limit
     """.all[IndexContent]
   }

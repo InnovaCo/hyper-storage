@@ -2,7 +2,8 @@ import java.util.UUID
 
 import akka.actor._
 import akka.cluster.Cluster
-import akka.testkit._
+import akka.testkit.{TestActorRef, _}
+import akka.util.Timeout
 import com.codahale.metrics.ScheduledReporter
 import com.datastax.driver.core.utils.UUIDs
 import com.typesafe.config.ConfigFactory
@@ -11,8 +12,9 @@ import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
 import eu.inn.metrics.MetricsTracker
 import eu.inn.metrics.modules.ConsoleReporterModule
-import eu.inn.hyperstorage.TransactionLogic
+import eu.inn.hyperstorage.{BackgroundWorker, ForegroundWorker, HyperbusAdapter, TransactionLogic}
 import eu.inn.hyperstorage.db.{Db, Transaction}
+import eu.inn.hyperstorage.indexing.IndexManager
 import eu.inn.hyperstorage.sharding._
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{BeforeAndAfterEach, Matchers}
@@ -95,6 +97,41 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     fsm
   }
 
+  def integratedHyperbus(db: Db, waitWhileActivates: Boolean = true) : Hyperbus = {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
+
+    val indexManager = TestActorRef(IndexManager.props(hyperbus, db, tracker, 1))
+    val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
+    val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, indexManager)
+    val workerSettings = Map(
+      "hyper-storage-foreground-worker" → (workerProps, 1),
+      "hyper-storage-background-worker" → (backgroundWorkerProps, 1)
+    )
+
+    val processor = new TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor](system,
+      ShardProcessor.props(workerSettings, "hyper-storage", tracker).withDispatcher("deque-dispatcher"),
+      GuardianExtractor.guardian(system),
+      "hyper-storage"
+    )
+
+    processor.stateName should equal(ShardMemberStatus.Activating)
+    if (waitWhileActivates) {
+      awaitCond(processor.stateName == ShardMemberStatus.Active)
+    }
+
+    processor ! SubscribeToShardStatus(indexManager)
+
+    val adapter = TestActorRef(HyperbusAdapter.props(processor, db, tracker, 20.seconds))
+    import eu.inn.hyperbus.akkaservice._
+    implicit val timeout = Timeout(20.seconds)
+    hyperbus.routeTo[HyperbusAdapter](adapter).futureValue // wait while subscription is completes
+
+    Thread.sleep(2000)
+    hyperbus
+  }
+
   //val _actorSystems = TrieMap[Int, ActorSystem]()
   val _hyperbuses = TrieMap[Int, Hyperbus]()
 
@@ -115,6 +152,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     )
     hb
   }
+
 
   def shutdownCluster(index: Int = 0): Unit = {
     _hyperbuses.get(index).foreach { hb ⇒

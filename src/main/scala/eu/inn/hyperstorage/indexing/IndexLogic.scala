@@ -50,7 +50,6 @@ object IndexLogic {
   }
 
   def validateFilterExpression(expression: String): Try[Boolean] = {
-    println(s"!!!validation:${expression}")
     Try {
       HEval(expression) // we evaluate with empty context, to check everything except EvalIdentifierNotFound
       true

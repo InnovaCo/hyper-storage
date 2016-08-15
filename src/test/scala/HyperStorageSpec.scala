@@ -994,31 +994,7 @@ class HyperStorageSpec extends FreeSpec
 
     "Indexing" - {
       "Create index without sorting or filtering" in {
-        val hyperbus = testHyperbus()
-        val tk = testKit()
-        import tk._
-
-        cleanUpCassandra()
-
-        val indexManager = TestActorRef(IndexManager.props(hyperbus, db, tracker, 1))
-        val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
-        val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, indexManager)
-        val workerSettings = Map(
-          "hyper-storage-foreground-worker" → (workerProps, 1),
-          "hyper-storage-background-worker" → (backgroundWorkerProps, 1)
-        )
-
-        val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker).withDispatcher("deque-dispatcher"))
-        processor ! SubscribeToShardStatus(indexManager)
-
-        val adapter = TestActorRef(HyperbusAdapter.props(processor, db, tracker, 20.seconds))
-        import eu.inn.hyperbus.akkaservice._
-        implicit val timeout = Timeout(20.seconds)
-        hyperbus.routeTo[HyperbusAdapter](adapter).futureValue // wait while subscription is completes
-
-        processor ! SubscribeToShardStatus(self)
-        expectMsgType[UpdateShardStatus]
-        Thread.sleep(2000)
+        val hyperbus = integratedHyperbus(db)
 
         val c1 = ObjV("a" → "hello", "b" → 100500)
         val f1 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c1))
@@ -1040,7 +1016,7 @@ class HyperStorageSpec extends FreeSpec
         }
 
         eventually {
-          val indexContent = db.selectIndexCollection("index_content", "collection-1~", 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content", "collection-1~", Seq.empty, None, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
           indexContent.head.itemSegment shouldBe "item1"
@@ -1052,7 +1028,7 @@ class HyperStorageSpec extends FreeSpec
         f3.futureValue.statusCode should equal(Status.CREATED)
 
         eventually {
-          val indexContent = db.selectIndexCollection("index_content", "collection-1~", 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content", "collection-1~", Seq.empty, None, 10).futureValue.toSeq
           indexContent.size shouldBe 2
           indexContent(1).documentUri shouldBe "collection-1~"
           indexContent(1).itemSegment shouldBe "item2"
@@ -1062,31 +1038,7 @@ class HyperStorageSpec extends FreeSpec
       }
 
       "Create index with filter" in {
-        val hyperbus = testHyperbus()
-        val tk = testKit()
-        import tk._
-
-        cleanUpCassandra()
-
-        val indexManager = TestActorRef(IndexManager.props(hyperbus, db, tracker, 1))
-        val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
-        val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, indexManager)
-        val workerSettings = Map(
-          "hyper-storage-foreground-worker" → (workerProps, 1),
-          "hyper-storage-background-worker" → (backgroundWorkerProps, 1)
-        )
-
-        val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker).withDispatcher("deque-dispatcher"))
-        processor ! SubscribeToShardStatus(indexManager)
-
-        val adapter = TestActorRef(HyperbusAdapter.props(processor, db, tracker, 20.seconds))
-        import eu.inn.hyperbus.akkaservice._
-        implicit val timeout = Timeout(20.seconds)
-        hyperbus.routeTo[HyperbusAdapter](adapter).futureValue // wait while subscription is completes
-
-        processor ! SubscribeToShardStatus(self)
-        expectMsgType[UpdateShardStatus]
-        Thread.sleep(2000)
+        val hyperbus = integratedHyperbus(db)
 
         val c1 = ObjV("a" → "hello", "b" → 100500)
         val f1 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c1))
@@ -1108,7 +1060,7 @@ class HyperStorageSpec extends FreeSpec
         }
 
         eventually {
-          val indexContent = db.selectIndexCollection("index_content", "collection-1~", 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content", "collection-1~", Seq.empty, None, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
           indexContent.head.itemSegment shouldBe "item1"
@@ -1124,11 +1076,63 @@ class HyperStorageSpec extends FreeSpec
         f3.futureValue.statusCode should equal(Status.CREATED)
 
         eventually {
-          val indexContent = db.selectIndexCollection("index_content", "collection-1~", 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content", "collection-1~", Seq.empty, None, 10).futureValue.toSeq
           indexContent.size shouldBe 2
           indexContent(1).documentUri shouldBe "collection-1~"
           indexContent(1).itemSegment shouldBe "item3"
           indexContent(1).body.get should include("\"item3\"")
+        }
+      }
+
+      "Create index with filter and sorting" in {
+        val hyperbus = integratedHyperbus(db)
+
+        val c1 = ObjV("a" → "hello", "b" → 100500)
+        val f1 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c1))
+        f1.futureValue.statusCode should equal(Status.CREATED)
+
+        val path = "collection-1~"
+        val fi = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"),
+          Seq(HyperStorageIndexSortItem("b",order=Some("asc"),fieldType=Some("decimal"))), Some("b > 10")))
+        fi.futureValue.statusCode should equal(Status.CREATED)
+
+        val indexMeta = db.selectIndexMeta("collection-1~", "index1").futureValue
+        indexMeta shouldBe defined
+        indexMeta.get.documentUri shouldBe "collection-1~"
+        indexMeta.get.indexId shouldBe "index1"
+
+        eventually {
+          val indexMetaUp = db.selectIndexMeta("collection-1~", "index1").futureValue
+          indexMetaUp shouldBe defined
+          indexMetaUp.get.status shouldBe IndexMeta.STATUS_NORMAL
+        }
+
+        eventually {
+          val indexContent = db.selectIndexCollection("index_content_da0", "collection-1~", Seq.empty, None, 10).futureValue.toSeq
+          indexContent.size shouldBe 1
+          indexContent.head.documentUri shouldBe "collection-1~"
+          indexContent.head.itemSegment shouldBe "item1"
+          indexContent.head.body.get should include("\"item1\"")
+        }
+
+        val c2 = ObjV("a" → "goodbye", "b" → 1)
+        val f2 = hyperbus <~ HyperStorageContentPut("collection-1~/item2", DynamicBody(c2))
+        f2.futureValue.statusCode should equal(Status.CREATED)
+
+        val c3 = ObjV("a" → "way way", "b" → 12)
+        val f3 = hyperbus <~ HyperStorageContentPut("collection-1~/item3", DynamicBody(c3))
+        f3.futureValue.statusCode should equal(Status.CREATED)
+
+        eventually {
+          val indexContent = db.selectIndexCollection("index_content_da0", "collection-1~", Seq.empty, None, 10).futureValue.toSeq
+          indexContent.size shouldBe 2
+          indexContent(0).documentUri shouldBe "collection-1~"
+          indexContent(0).itemSegment shouldBe "item3"
+          indexContent(0).body.get should include("\"item3\"")
+
+          indexContent(1).documentUri shouldBe "collection-1~"
+          indexContent(1).itemSegment shouldBe "item1"
+          indexContent(1).body.get should include("\"item1\"")
         }
       }
     }

@@ -220,9 +220,11 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
 
     // todo: cache this
-    indexMeta.sortBy.map { sortString ⇒
+    val sortBy = indexMeta.sortBy.map { sortString ⇒
       val sortBy = sortString.parseJson[Seq[HyperStorageIndexSortItem]]
       IndexLogic.extractSortFields(sortBy, contentValue)
+    } getOrElse {
+      Seq.empty
     }
 
     val write: Boolean = indexMeta.filterBy.map { filterBy ⇒
@@ -241,7 +243,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
     // todo: insert depending on sort fields
     if (write) {
-      db.insertIndexContent(indexMeta.tableName, item) map { _ ⇒
+      db.insertIndexContent(indexMeta.tableName, sortBy, item) map { _ ⇒
         item.itemSegment
       }
     }
