@@ -85,6 +85,9 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
             Future(ShardTaskComplete(task, NoSuchResourceException(task.documentUri)))
           case Some(content) ⇒
             try {
+              if (log.isDebugEnabled) {
+                log.debug(s"Background task for $content")
+              }
               completeTransactions(task, content)
             } catch {
               case NonFatal(e) ⇒
@@ -109,10 +112,14 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
         }.toSet
 
         // todo: cache index meta
-        val updateIndexFuture: Future[Seq[Int]] = db.selectIndexMetas(task.documentUri).flatMap { indexMetas ⇒
+        val updateIndexFuture: Future[Seq[Int]] = db.selectIndexMetas(task.documentUri).flatMap { indexMetasIterator ⇒
+          val indexMetas = indexMetasIterator.toSeq
           FutureUtils.serial(itemSegments.toSeq) { itemSegment ⇒
             // todo: cache content
             db.selectContent(task.documentUri, itemSegment) flatMap { contentOption ⇒
+              if (log.isDebugEnabled) {
+                log.debug(s"Indexing content $contentOption for $indexMetas")
+              }
               FutureUtils.serial(indexMetas.toSeq) { indexMeta ⇒
                 contentOption match {
                   case Some(item) ⇒
@@ -199,6 +206,10 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
   }
 
   def indexItem(indexMeta: IndexMeta, item: Content): Future[String] = {
+    if (log.isDebugEnabled) {
+      log.debug(s"Indexing item $item with $indexMeta")
+    }
+
     import eu.inn.binders.json._
 
     // todo: cache this
@@ -225,6 +236,9 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
       true
     }
 
+    if (log.isDebugEnabled) {
+      log.debug(s"Evaluating: ${indexMeta.filterBy}=$write on $item")
+    }
     // todo: insert depending on sort fields
     if (write) {
       db.insertIndexContent(indexMeta.tableName, item) map { _ ⇒

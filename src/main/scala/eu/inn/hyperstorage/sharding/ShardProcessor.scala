@@ -432,6 +432,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
   }
 
   def safeUnstashAll() = try {
+    log.debug("Unstashing tasks")
     unstashAll()
   } catch {
     case NonFatal(e) ⇒

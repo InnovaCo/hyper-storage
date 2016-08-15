@@ -78,7 +78,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     scala.concurrent.ExecutionContext.Implicits.global
   }
 
-  def createHyperStorageActor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
+  def createShardProcessor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
     val workerSettings = Map(groupName → (Props[TestWorker], workerCount))
     val fsm = new TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor](actorSystem,
       ShardProcessor.props(workerSettings, "hyper-storage", tracker).withDispatcher("deque-dispatcher"),
@@ -133,7 +133,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     }
   }
 
-  def shutdownHyperStorageActor(fsm: TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor])(implicit actorSystem: ActorSystem) = {
+  def shutdownShardProcessor(fsm: TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor])(implicit actorSystem: ActorSystem) = {
     val probe = TestProbe()
     probe watch fsm
     fsm ! ShutdownProcessor

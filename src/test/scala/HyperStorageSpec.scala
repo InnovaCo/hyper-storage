@@ -34,59 +34,60 @@ class HyperStorageSpec extends FreeSpec
   with Eventually {
 
   import ContentLogic._
+
   override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(10000, Millis)))
 
   "HyperStorage" - {
     "Processor in a single-node cluster" - {
       "ShardProcessor should become Active" in {
         implicit val as = testActorSystem()
-        createHyperStorageActor("test-group")
+        createShardProcessor("test-group")
       }
 
       "ShardProcessor should shutdown gracefully" in {
         implicit val as = testActorSystem()
-        val fsm = createHyperStorageActor("test-group")
-        shutdownHyperStorageActor(fsm)
+        val fsm = createShardProcessor("test-group")
+        shutdownShardProcessor(fsm)
       }
 
       "ShardProcessor should process task" in {
         implicit val as = testActorSystem()
-        val fsm = createHyperStorageActor("test-group")
+        val fsm = createShardProcessor("test-group")
         val task = TestShardTask("abc", "t1")
         fsm ! task
         testKit().awaitCond(task.isProcessed)
-        shutdownHyperStorageActor(fsm)
+        shutdownShardProcessor(fsm)
       }
 
       "ShardProcessor should stash task while Activating and process it later" in {
         implicit val as = testActorSystem()
-        val fsm = createHyperStorageActor("test-group", waitWhileActivates = false)
+        val fsm = createShardProcessor("test-group", waitWhileActivates = false)
         val task = TestShardTask("abc", "t1")
         fsm ! task
         fsm.stateName should equal(ShardMemberStatus.Activating)
         task.isProcessed should equal(false)
         testKit().awaitCond(task.isProcessed)
         fsm.stateName should equal(ShardMemberStatus.Active)
-        shutdownHyperStorageActor(fsm)
+        shutdownShardProcessor(fsm)
       }
 
       "ShardProcessor should stash task when workers are busy and process later" in {
         implicit val as = testActorSystem()
         val tk = testKit()
-        val fsm = createHyperStorageActor("test-group")
+        val fsm = createShardProcessor("test-group")
         val task1 = TestShardTask("abc1", "t1")
         val task2 = TestShardTask("abc2", "t2")
         fsm ! task1
         fsm ! task2
         tk.awaitCond(task1.isProcessed)
         tk.awaitCond(task2.isProcessed)
-        shutdownHyperStorageActor(fsm)
+        shutdownShardProcessor(fsm)
       }
 
       "ShardProcessor should stash task when URL is 'locked' and it process later" in {
         implicit val as = testActorSystem()
         val tk = testKit()
-        val fsm = createHyperStorageActor("test-group", 2)
+        val fsm = createShardProcessor("test-group", 2)
         val task1 = TestShardTask("abc1", "t1", 500)
         val task1x = TestShardTask("abc1", "t1x", 500)
         val task2 = TestShardTask("abc2", "t2", 500)
@@ -102,7 +103,7 @@ class HyperStorageSpec extends FreeSpec
         tk.awaitCond({
           task1x.isProcessed && task2x.isProcessed
         }, 2.second)
-        shutdownHyperStorageActor(fsm)
+        shutdownShardProcessor(fsm)
       }
     }
 
@@ -484,7 +485,9 @@ class HyperStorageSpec extends FreeSpec
 
         val transactions = selectTransactions(content2.get.transactionList, "collection-1~", db)
         transactions.size should equal(2)
-        transactions.foreach {_.completedAt shouldBe None}
+        transactions.foreach {
+          _.completedAt shouldBe None
+        }
         transactions.head.revision should equal(2)
         transactions.tail.head.revision should equal(1)
 
@@ -498,7 +501,9 @@ class HyperStorageSpec extends FreeSpec
         eventually {
           db.selectContentStatic("collection-1~").futureValue.get.transactionList shouldBe empty
         }
-        selectTransactions(content2.get.transactionList, "collection-1~", db).foreach {_.completedAt shouldNot be(None)}
+        selectTransactions(content2.get.transactionList, "collection-1~", db).foreach {
+          _.completedAt shouldNot be(None)
+        }
       }
 
       "Patch item" in {
@@ -509,7 +514,7 @@ class HyperStorageSpec extends FreeSpec
         val worker = TestActorRef(ForegroundWorker.props(hyperbus, db, tracker, 10.seconds))
 
         val path = "collection-1~/test-resource-" + UUID.randomUUID().toString
-        val ResourcePath(documentUri,itemSegment) = ContentLogic.splitPath(path)
+        val ResourcePath(documentUri, itemSegment) = ContentLogic.splitPath(path)
 
         val taskPutStr = StringSerializer.serializeToString(HyperStorageContentPut(path,
           DynamicBody(ObjV("text1" → "abc", "text2" → "klmn"))
@@ -566,7 +571,7 @@ class HyperStorageSpec extends FreeSpec
         val worker = TestActorRef(ForegroundWorker.props(hyperbus, db, tracker, 10.seconds))
 
         val path = "collection-1~/test-resource-" + UUID.randomUUID().toString
-        val ResourcePath(documentUri,itemSegment) = ContentLogic.splitPath(path)
+        val ResourcePath(documentUri, itemSegment) = ContentLogic.splitPath(path)
 
         val taskPutStr = StringSerializer.serializeToString(HyperStorageContentPut(path,
           DynamicBody(ObjV("text1" → "abc", "text2" → "klmn"))
@@ -607,8 +612,8 @@ class HyperStorageSpec extends FreeSpec
         val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
         val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, self)
         val workerSettings = Map(
-          "hyper-storage-foreground-worker" →(workerProps, 1),
-          "hyper-storage-background-worker" →(backgroundWorkerProps, 1)
+          "hyper-storage-foreground-worker" → (workerProps, 1),
+          "hyper-storage-background-worker" → (backgroundWorkerProps, 1)
         )
 
         val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
@@ -656,8 +661,8 @@ class HyperStorageSpec extends FreeSpec
         val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
         val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, self)
         val workerSettings = Map(
-          "hyper-storage-foreground-worker" →(workerProps, 1),
-          "hyper-storage-background-worker" →(backgroundWorkerProps, 1)
+          "hyper-storage-foreground-worker" → (workerProps, 1),
+          "hyper-storage-background-worker" → (backgroundWorkerProps, 1)
         )
 
         val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
@@ -711,8 +716,8 @@ class HyperStorageSpec extends FreeSpec
         val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
         val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, self)
         val workerSettings = Map(
-          "hyper-storage-foreground-worker" →(workerProps, 1),
-          "hyper-storage-background-worker" →(backgroundWorkerProps, 1)
+          "hyper-storage-foreground-worker" → (workerProps, 1),
+          "hyper-storage-background-worker" → (backgroundWorkerProps, 1)
         )
 
         val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
@@ -775,7 +780,7 @@ class HyperStorageSpec extends FreeSpec
         import Sort._
 
         val f5 = hyperbus <~ HyperStorageContentGet("collection-1~",
-          body = new QueryBuilder() add("size", 50) sortBy(Seq(SortBy("id", true))) result())
+          body = new QueryBuilder() add("size", 50) sortBy (Seq(SortBy("id", true))) result())
 
         whenReady(f5) { response ⇒
           response.statusCode should equal(Status.OK)
@@ -796,8 +801,8 @@ class HyperStorageSpec extends FreeSpec
         val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
         val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, self)
         val workerSettings = Map(
-          "hyper-storage-foreground-worker" →(workerProps, 1),
-          "hyper-storage-background-worker" →(backgroundWorkerProps, 1)
+          "hyper-storage-foreground-worker" → (workerProps, 1),
+          "hyper-storage-background-worker" → (backgroundWorkerProps, 1)
         )
 
         val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
@@ -858,18 +863,18 @@ class HyperStorageSpec extends FreeSpec
         whenReady(f4) { response ⇒
           response.statusCode should equal(Status.OK)
           response.body.content should equal(
-            ObjV("_embedded" -> ObjV("els" → LstV(c1x,c2x)))
+            ObjV("_embedded" -> ObjV("els" → LstV(c1x, c2x)))
           )
         }
 
         import Sort._
 
         val f5 = hyperbus <~ HyperStorageContentGet("collection-2~",
-          body = new QueryBuilder() add("size", 50) sortBy(Seq(SortBy("id", true))) result())
+          body = new QueryBuilder() add("size", 50) sortBy (Seq(SortBy("id", true))) result())
         whenReady(f5) { response ⇒
           response.statusCode should equal(Status.OK)
           response.body.content should equal(
-            ObjV("_embedded" -> ObjV("els" → LstV(c2x,c1x)))
+            ObjV("_embedded" -> ObjV("els" → LstV(c2x, c1x)))
           )
         }
       }
@@ -999,11 +1004,11 @@ class HyperStorageSpec extends FreeSpec
         val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
         val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, indexManager)
         val workerSettings = Map(
-          "hyper-storage-foreground-worker" →(workerProps, 1),
-          "hyper-storage-background-worker" →(backgroundWorkerProps, 1)
+          "hyper-storage-foreground-worker" → (workerProps, 1),
+          "hyper-storage-background-worker" → (backgroundWorkerProps, 1)
         )
 
-        val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
+        val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker).withDispatcher("deque-dispatcher"))
         processor ! SubscribeToShardStatus(indexManager)
 
         val adapter = TestActorRef(HyperbusAdapter.props(processor, db, tracker, 20.seconds))
@@ -1011,35 +1016,17 @@ class HyperStorageSpec extends FreeSpec
         implicit val timeout = Timeout(20.seconds)
         hyperbus.routeTo[HyperbusAdapter](adapter).futureValue // wait while subscription is completes
 
-        println("---- S1")
         processor ! SubscribeToShardStatus(self)
         expectMsgType[UpdateShardStatus]
-
-        val putEventPromise = Promise[HyperStorageContentFeedPut]()
-        hyperbus |> { put: HyperStorageContentFeedPut ⇒
-          Future {
-            if (!putEventPromise.isCompleted) {
-              putEventPromise.success(put)
-            }
-          }
-        }
-
         Thread.sleep(2000)
-        println("---- S2")
 
         val c1 = ObjV("a" → "hello", "b" → 100500)
         val f1 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c1))
         f1.futureValue.statusCode should equal(Status.CREATED)
-        putEventPromise.future.futureValue.method should equal(Method.FEED_PUT)
 
-        Thread.sleep(2000)
-
-        println("---- S3")
         val path = "collection-1~"
-        val f2 = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"),Seq.empty, None))
+        val f2 = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"), Seq.empty, None))
         f2.futureValue.statusCode should equal(Status.CREATED)
-
-        println("---- S4")
 
         val indexMeta = db.selectIndexMeta("collection-1~", "index1").futureValue
         indexMeta shouldBe defined
@@ -1057,6 +1044,7 @@ class HyperStorageSpec extends FreeSpec
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
           indexContent.head.itemSegment shouldBe "item1"
+          indexContent.head.body.get should include("\"item1\"")
         }
 
         val c3 = ObjV("a" → "goodbye", "b" → 123456)
@@ -1068,12 +1056,12 @@ class HyperStorageSpec extends FreeSpec
           indexContent.size shouldBe 2
           indexContent(1).documentUri shouldBe "collection-1~"
           indexContent(1).itemSegment shouldBe "item2"
+          indexContent(1).body.get should include("\"item2\"")
+          println(indexContent(1).body.get)
         }
-
-        println("----THIS IS THE END----")
       }
 
-        /*"Create index with filter" in {
+      "Create index with filter" in {
         val hyperbus = testHyperbus()
         val tk = testKit()
         import tk._
@@ -1084,11 +1072,11 @@ class HyperStorageSpec extends FreeSpec
         val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
         val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, indexManager)
         val workerSettings = Map(
-          "hyper-storage-foreground-worker" →(workerProps, 1),
-          "hyper-storage-background-worker" →(backgroundWorkerProps, 1)
+          "hyper-storage-foreground-worker" → (workerProps, 1),
+          "hyper-storage-background-worker" → (backgroundWorkerProps, 1)
         )
 
-        val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
+        val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker).withDispatcher("deque-dispatcher"))
         processor ! SubscribeToShardStatus(indexManager)
 
         val adapter = TestActorRef(HyperbusAdapter.props(processor, db, tracker, 20.seconds))
@@ -1096,15 +1084,17 @@ class HyperStorageSpec extends FreeSpec
         implicit val timeout = Timeout(20.seconds)
         hyperbus.routeTo[HyperbusAdapter](adapter).futureValue // wait while subscription is completes
 
+        processor ! SubscribeToShardStatus(self)
+        expectMsgType[UpdateShardStatus]
         Thread.sleep(2000)
 
         val c1 = ObjV("a" → "hello", "b" → 100500)
-        val f2 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c1))
-        f2.futureValue.statusCode should equal(Status.CREATED)
+        val f1 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c1))
+        f1.futureValue.statusCode should equal(Status.CREATED)
 
         val path = "collection-1~"
-        val f1 = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"), Seq.empty, Some("b > 10")))
-        f1.futureValue.statusCode should equal(Status.CREATED)
+        val fi = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"), Seq.empty, Some("b > 10")))
+        fi.futureValue.statusCode should equal(Status.CREATED)
 
         val indexMeta = db.selectIndexMeta("collection-1~", "index1").futureValue
         indexMeta shouldBe defined
@@ -1122,24 +1112,27 @@ class HyperStorageSpec extends FreeSpec
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
           indexContent.head.itemSegment shouldBe "item1"
+          indexContent.head.body.get should include("\"item1\"")
         }
 
-        val c3 = ObjV("a" → "goodbye", "b" → 1)
-        val f3 = hyperbus <~ HyperStorageContentPut("collection-1~/item2", DynamicBody(c1))
-        f3.futureValue.statusCode should equal(Status.CREATED)
+        val c2 = ObjV("a" → "goodbye", "b" → 1)
+        val f2 = hyperbus <~ HyperStorageContentPut("collection-1~/item2", DynamicBody(c2))
+        f2.futureValue.statusCode should equal(Status.CREATED)
 
-        val c4 = ObjV("a" → "way way", "b" → 12)
-        val f4 = hyperbus <~ HyperStorageContentPut("collection-1~/item3", DynamicBody(c1))
-        f4.futureValue.statusCode should equal(Status.CREATED)
+        val c3 = ObjV("a" → "way way", "b" → 12)
+        val f3 = hyperbus <~ HyperStorageContentPut("collection-1~/item3", DynamicBody(c3))
+        f3.futureValue.statusCode should equal(Status.CREATED)
 
         eventually {
           val indexContent = db.selectIndexCollection("index_content", "collection-1~", 10).futureValue.toSeq
           indexContent.size shouldBe 2
           indexContent(1).documentUri shouldBe "collection-1~"
           indexContent(1).itemSegment shouldBe "item3"
+          indexContent(1).body.get should include("\"item3\"")
         }
-      }*/
+      }
     }
   }
+
   def response(content: String): Response[Body] = StringDeserializer.dynamicResponse(content)
 }
