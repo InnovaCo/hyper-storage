@@ -100,12 +100,6 @@ annotationTypes:
 /hyper-storage/indexes/{path:*}:
   uriParameters:
     path:*: string
-  get:
-    responses:
-      200:
-        body:
-          application/json:
-            type: HyperStorageIndex
   post:
     body:
       application/json:
@@ -115,4 +109,15 @@ annotationTypes:
         body:
           application/json:
             type: HyperStorageIndexCreated
+
+/hyper-storage/indexes/{path:*}/{indexId}:
+  uriParameters:
+    path:*: string
+    indexId: string
+  get:
+    responses:
+      200:
+        body:
+          application/json:
+            type: HyperStorageIndex
   delete:

@@ -242,7 +242,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     if (log.isDebugEnabled) {
       log.debug(s"Evaluating: ${indexDef.filterBy}=$write on $item")
     }
-    // todo: insert depending on sort fields
+
     if (write) {
       val indexContent = IndexContent(
         item.documentUri, indexDef.indexId, item.itemSegment, item.revision, item.body, item.createdAt, item.modifiedAt
@@ -262,14 +262,13 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
       task
     } map { task ⇒
 
-      // todo: need guarantee, that status isn't changed here, select from db?
       {
+        // todo: cache indexDef
         db.selectIndexDef(task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId) flatMap {
           case Some(indexDef) if indexDef.defTransactionId == task.indexDefTransaction.defTransactionId ⇒ indexDef.status match
           {
             case IndexDef.STATUS_INDEXING ⇒
               val bucketSize = 1 // todo: move to config, or make adaptive, or per index
-
 
               task.lastItemSegment.map { s ⇒
                 db.selectContentCollectionFrom(task.indexDefTransaction.documentUri, s, bucketSize)
@@ -318,28 +317,12 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
         }
       } map { r: IndexContentTaskResult ⇒
         owner ! ShardTaskComplete(task, r)
-
-
         // todo: remove ugly code duplication
       } recover {
         case NonFatal(e) ⇒
           log.error(e, s"Can't execute index task: $task")
           owner ! ShardTaskComplete(task, e)
       }
-
-      /*
-      index task:
-        - select meta
-          - if deleting, delete and return result
-          - if indexing:
-            - select bucket from last segment
-            - iterate
-              - index row
-              - write row to index table
-            - if there is no more rows, complete index
-            - reply with last segment and flag if there is more rows
-          - if indexed, reply completed
-       */
     } recover {
       case NonFatal(e) ⇒
         log.error(e, s"Can't execute index task: $task")
@@ -378,7 +361,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
             pendingIndex.defTransactionId
           ))
 
-          Created(HyperStorageIndexCreated(indexId = indexId, path = post.path, links = new LinksBuilder()
+          Created(HyperStorageIndexCreated(indexId, path = post.path, links = new LinksBuilder()
               .location(HyperStorageIndex.selfPattern, templated = true)
               .result()
           ))
@@ -391,16 +374,6 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     } map { result ⇒
       owner ! ShardTaskComplete(task, result)
     }
-
-    /*
-    1. validate: id, sort, expression, etc
-    2. fetch indexes and:
-      2.1. check if id is unique
-      2.2. check if exists same index with other id
-    3. insert pending index
-    4. insert meta index
-    5. notify index manager
-     */
   }
 
   def deleteIndex(task: BackgroundTaskTrait, owner: ActorRef, delete: HyperStorageIndexDelete): Unit = {
@@ -411,6 +384,21 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
       4. notify index worker
     */
 
+/*    implicit val mcx = delete
+    val indexId = delete.body.indexId.getOrElse(
+      IdGenerator.create()
+    )
+
+    val tableName = IndexLogic.tableName(post.body.sortBy)
+    post.body.filterBy.foreach(IndexLogic.validateFilterExpression(_).get)
+
+    db.selectIndexDefs(post.path) flatMap { indexDefs ⇒
+      indexDefs.foreach { existingIndex ⇒
+        if (existingIndex.indexId == indexId) {
+          throw Conflict(ErrorBody("already-exists", Some(s"Index '$indexId' already exists")))
+        }
+      }
+    }*/
     ???
   }
 
