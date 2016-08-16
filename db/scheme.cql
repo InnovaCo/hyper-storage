@@ -55,7 +55,7 @@ create table index_content(
     body text,
     created_at timestamp,
     modified_at timestamp,
-    primary key ((document_uri, index_id) item_segment)
+    primary key ((document_uri, index_id), item_segment)
 );
 
 create table index_content_ta0(

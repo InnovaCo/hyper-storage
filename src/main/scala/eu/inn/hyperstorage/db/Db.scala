@@ -288,7 +288,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
 
     cql"""
       select document_uri,index_id,item_segment,revision,body,created_at,modified_at from $tableName
-      where document_uri=$documentUri and index_id=$indexId, $startSortFieldsFilter $itemSegmentFilter
+      where document_uri=$documentUri and index_id=$indexId $startSortFieldsFilter $itemSegmentFilter
       limit $limit
     """.all[IndexContent]
   }
