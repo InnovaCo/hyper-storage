@@ -86,6 +86,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
       processPendingIndexes(clusterActor)
 
     case IndexCreatedOrDeleted(key) ⇒
+      log.debug(s"key = $key") // todo: logging
       val partitionSet = TransactionLogic.getPartitions(stateData).toSet
       if (partitionSet.contains(key.partition)) {
         if (addPendingIndex(key)) {

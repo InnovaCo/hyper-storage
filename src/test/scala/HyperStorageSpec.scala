@@ -1297,6 +1297,45 @@ class HyperStorageSpec extends FreeSpec
           indexContent(1).body.get should include("\"item1\"")
         }
       }
+
+      "Create and delete index" in {
+        cleanUpCassandra()
+        val hyperbus = integratedHyperbus(db)
+
+        val path = "collection-1~"
+        val f2 = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"), Seq.empty, None))
+        f2.futureValue.statusCode should equal(Status.CREATED)
+
+        val c1 = ObjV("a" → "hello", "b" → 100500)
+        val f1 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c1))
+        f1.futureValue.statusCode should equal(Status.CREATED)
+
+        val indexDef = db.selectIndexDef("collection-1~", "index1").futureValue
+        indexDef shouldBe defined
+        indexDef.get.documentUri shouldBe "collection-1~"
+        indexDef.get.indexId shouldBe "index1"
+
+        eventually {
+          val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+          indexDefUp shouldBe defined
+          indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
+          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          indexContent.size shouldBe 1
+          indexContent.head.documentUri shouldBe "collection-1~"
+          indexContent.head.itemSegment shouldBe "item1"
+          indexContent.head.body.get should include("\"item1\"")
+        }
+
+        val f3 = hyperbus <~ HyperStorageIndexDelete(path, "index1")
+        f3.futureValue.statusCode should equal(Status.ACCEPTED)
+
+        eventually {
+          val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+          indexDefUp shouldBe None
+          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          indexContent shouldBe empty
+        }
+      }
     }
   }
 

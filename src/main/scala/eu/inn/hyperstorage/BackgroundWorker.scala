@@ -350,10 +350,11 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
       val indexDef = IndexDef(post.path, indexId, IndexDef.STATUS_INDEXING,
         if (post.body.sortBy.nonEmpty) Some(post.body.sortBy.toJson) else None, post.body.filterBy, tableName, defTransactionId = UUIDs.timeBased()
       )
+      val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(post.path), post.path, indexId, None, indexDef.defTransactionId)
+
       // validate: id, sort, expression, etc
-      db.insertIndexDef(indexDef) flatMap { _ ⇒
-        val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(post.path), post.path, indexId, None, indexDef.defTransactionId)
-        db.insertPendingIndex(pendingIndex) map { _ ⇒
+      db.insertPendingIndex(pendingIndex) flatMap { _ ⇒
+        db.insertIndexDef(indexDef) map { _ ⇒
           // todo: need guaranty that if the message is lost, we process this index!
           indexManager ! IndexCreatedOrDeleted(IndexDefTransaction(
             post.path,
@@ -362,8 +363,8 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
           ))
 
           Created(HyperStorageIndexCreated(indexId, path = post.path, links = new LinksBuilder()
-              .location(HyperStorageIndex.selfPattern, templated = true)
-              .result()
+            .location(HyperStorageIndex.selfPattern, templated = true)
+            .result()
           ))
         }
       }
@@ -384,22 +385,32 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
       4. notify index worker
     */
 
-/*    implicit val mcx = delete
-    val indexId = delete.body.indexId.getOrElse(
-      IdGenerator.create()
-    )
+    implicit val mcx = delete
 
-    val tableName = IndexLogic.tableName(post.body.sortBy)
-    post.body.filterBy.foreach(IndexLogic.validateFilterExpression(_).get)
-
-    db.selectIndexDefs(post.path) flatMap { indexDefs ⇒
-      indexDefs.foreach { existingIndex ⇒
-        if (existingIndex.indexId == indexId) {
-          throw Conflict(ErrorBody("already-exists", Some(s"Index '$indexId' already exists")))
+    db.selectIndexDef(delete.path, delete.indexId) flatMap {
+      case Some(indexDef) if indexDef.status != IndexDef.STATUS_DELETING ⇒
+        val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(delete.path), delete.path, delete.indexId, None, UUIDs.timeBased())
+        db.insertPendingIndex(pendingIndex) flatMap { _ ⇒
+          db.updateIndexDefStatus(pendingIndex.documentUri, pendingIndex.indexId, IndexDef.STATUS_DELETING) map { _ ⇒
+            // todo: need guaranty that if the message is lost, we process this index!
+            indexManager ! IndexCreatedOrDeleted(IndexDefTransaction(
+              delete.path,
+              delete.indexId,
+              pendingIndex.defTransactionId
+            ))
+            Accepted(EmptyBody)
+          }
         }
-      }
-    }*/
-    ???
+
+      case _ ⇒ Future.successful(NotFound(ErrorBody("index-not-found", Some(s"Index ${delete.indexId} for ${delete.path} is not found"))))
+    } recover {
+      // todo: remove code duplication
+      case NonFatal(e) ⇒
+        log.error(s"Can't delete index $delete", e)
+        hyperbusException(e)
+    } map { result ⇒
+      owner ! ShardTaskComplete(task, result)
+    }
   }
 
   def hyperbusException(e: Throwable): HyperbusException[ErrorBody] = {
