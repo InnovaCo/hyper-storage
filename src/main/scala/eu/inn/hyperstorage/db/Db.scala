@@ -27,7 +27,8 @@ case class Content(
                     isDeleted: Boolean,
                     createdAt: Date,
                     modifiedAt: Option[Date]
-                  ) extends ContentBase
+                  ) extends ContentBase {
+}
 
 case class ContentStatic(
                     documentUri: String,
@@ -66,6 +67,7 @@ case class IndexDef(
 
 case class IndexContent(
                     documentUri: String,
+                    indexId: String,
                     itemSegment: String,
                     revision: Long,
                     body: Option[String],
@@ -242,14 +244,19 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       where document_uri = $documentUri and index_id = $indexId
     """.execute()
 
-  def insertIndexContent(indexTable: String, sortFields: Seq[(String, Value)], content: Content): Future[Unit] = {
+  def deleteIndexDef(documentUri: String, indexId: String): Future[Unit] = cql"""
+      delete index_def
+      where document_uri = $documentUri and index_id = $indexId
+    """.execute()
+
+  def insertIndexItem(indexTable: String, sortFields: Seq[(String, Value)], indexContent: IndexContent): Future[Unit] = {
     val tableName = Dynamic(indexTable)
     val sortFieldNames = if(sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_._1).mkString(",",",",""))
     val sortFieldPlaces = if(sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_ ⇒ "?").mkString(",",",",""))
     val cql = cql"""
-      insert into $tableName(document_uri,item_segment,revision,body,created_at,modified_at$sortFieldNames)
-      values(?,?,?,?,?,?$sortFieldPlaces)
-    """.bindPartial(content)
+      insert into $tableName(document_uri,index_id,item_segment,revision,body,created_at,modified_at$sortFieldNames)
+      values(?,?,?,?,?,?,?$sortFieldPlaces)
+    """.bindPartial(indexContent)
 
     sortFields.foreach {
       case (name, Text(s)) ⇒ cql.boundStatement.setString(name, s)
@@ -260,7 +267,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   }
 
   // todo: think about sort from field name!!! for get / rest // aawwwhhh
-  def selectIndexCollection(indexTable: String, documentUri: String,
+  def selectIndexCollection(indexTable: String, documentUri: String, indexId: String,
                             startSortFields: Seq[(String,Value)],
                             startItemSegment: Option[String], limit: Int): Future[Iterator[IndexContent]] = {
 
@@ -280,17 +287,25 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     })
 
     cql"""
-      select document_uri,item_segment,revision,body,created_at,modified_at from $tableName
-      where document_uri=$documentUri $startSortFieldsFilter $itemSegmentFilter
+      select document_uri,index_id,item_segment,revision,body,created_at,modified_at from $tableName
+      where document_uri=$documentUri and index_id=$indexId, $startSortFieldsFilter $itemSegmentFilter
       limit $limit
     """.all[IndexContent]
   }
 
-  def deleteIndexContent(indexTable: String, documentUri: String, itemSegment: String): Future[Unit] = {
+  def deleteIndexItem(indexTable: String, documentUri: String, indexId: String, itemSegment: String): Future[Unit] = {
     val tableName = Dynamic(indexTable)
     cql"""
       delete from $tableName
-      where document_uri=$documentUri and item_segment = $itemSegment
+      where document_uri=$documentUri and index_id=$indexId and item_segment = $itemSegment
+    """.execute()
+  }
+
+  def deleteIndex(indexTable: String, documentUri: String, indexId: String): Future[Unit] = {
+    val tableName = Dynamic(indexTable)
+    cql"""
+      delete $tableName
+      where document_uri = $documentUri and index_id=$indexId
     """.execute()
   }
 }

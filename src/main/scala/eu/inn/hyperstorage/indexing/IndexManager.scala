@@ -17,23 +17,23 @@ import scala.util.control.NonFatal
 case object ShutdownIndexManager
 case class ProcessNextPartitions(processId: Long)
 
-// todo: rename
-// todo: partition can be always generated!
-case class IndexWorkersKey(partition: Int, documentUri: String, indexId: String, defTransactionId: UUID)
+case class IndexDefTransaction(documentUri: String, indexId: String, defTransactionId: UUID) {
+  def partition: Int = TransactionLogic.partitionFromUri(documentUri)
+}
 
 // todo: rename those two
-case class PartitionPendingIndexes(partition: Int, rev: Long, indexes: Seq[IndexWorkersKey])
+case class PartitionPendingIndexes(partition: Int, rev: Long, indexes: Seq[IndexDefTransaction])
 case class PartitionPendingFailed(rev: Long)
-case class IndexCreatedOrDeleted(key: IndexWorkersKey)
-case class IndexingComplete(key: IndexWorkersKey)
+case class IndexCreatedOrDeleted(key: IndexDefTransaction)
+case class IndexingComplete(key: IndexDefTransaction)
 
 // todo: handle child termination without IndexingComplete
 
 class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndexWorkers: Int)
   extends Actor with ActorLogging {
 
-  val indexWorkers = mutable.Map[IndexWorkersKey, ActorRef]()
-  val pendingPartitions = mutable.Map[Int, mutable.ListBuffer[IndexWorkersKey]]()
+  val indexWorkers = mutable.Map[IndexDefTransaction, ActorRef]()
+  val pendingPartitions = mutable.Map[Int, mutable.ListBuffer[IndexDefTransaction]]()
   var rev: Long = 0
   var currentProcessId: Long = 0
 
@@ -97,7 +97,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
       }
   }
 
-  def addPendingIndex(key: IndexWorkersKey): Boolean = {
+  def addPendingIndex(key: IndexDefTransaction): Boolean = {
     val alreadyPending = pendingPartitions.getOrElseUpdate(key.partition, mutable.ListBuffer.empty)
     if (!alreadyPending.contains(key) && !indexWorkers.contains(key) && alreadyPending.size < maxIndexWorkers) {
       alreadyPending += key
@@ -120,7 +120,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
 
     // stop workers for detached partitions
     val toRemove = indexWorkers.flatMap {
-      case (v @ IndexWorkersKey(partition, _, _, _), actorRef) if detachedPartitions.contains(partition) ⇒
+      case (v : IndexDefTransaction, actorRef) if detachedPartitions.contains(v.partition) ⇒
         context.stop(actorRef)
         Some(v)
       case _ ⇒
@@ -130,7 +130,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
     toRemove.foreach(indexWorkers -= _)
 
     val attachedPartitions = newPartitionSet diff previousPartitionSet
-    pendingPartitions ++= attachedPartitions.map(_ → mutable.ListBuffer.empty[IndexWorkersKey])
+    pendingPartitions ++= attachedPartitions.map(_ → mutable.ListBuffer.empty[IndexDefTransaction])
 
     context.become(running(sender(), stateData))
     processPendingIndexes(sender())
@@ -166,7 +166,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
     }
   }
 
-  def nextPendingPartitions: Vector[(Int, Seq[IndexWorkersKey])] = {
+  def nextPendingPartitions: Vector[(Int, Seq[IndexDefTransaction])] = {
     // move consequently (but not strictly) over pending partitions
     // because currentProcessId is always incremented
     val v = pendingPartitions.toVector
@@ -190,7 +190,7 @@ private [indexing] object IndexManagerImpl {
                                (implicit ec: ExecutionContext): Unit = {
     db.selectPendingIndexes(partition, maxIndexWorkers) map { indexesIterator ⇒
       notifyActor ! PartitionPendingIndexes(partition, rev,
-        indexesIterator.map(ii ⇒ IndexWorkersKey(ii.partition, ii.documentUri, ii.indexId, ii.defTransactionId)).toSeq
+        indexesIterator.map(ii ⇒ IndexDefTransaction(ii.documentUri, ii.indexId, ii.defTransactionId)).toSeq
       )
     } recover {
       case NonFatal(e) ⇒

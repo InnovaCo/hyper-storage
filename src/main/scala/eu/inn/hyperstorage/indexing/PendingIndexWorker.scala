@@ -2,7 +2,7 @@ package eu.inn.hyperstorage.indexing
 
 import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Props}
 import eu.inn.hyperbus.Hyperbus
-import eu.inn.hyperstorage.{IndexTask, IndexTaskResult}
+import eu.inn.hyperstorage.{BackgroundTaskFailedException, IndexContentTask, IndexContentTaskFailed, IndexContentTaskResult}
 import eu.inn.hyperstorage.db.{Db, IndexDef, PendingIndex}
 import eu.inn.metrics.MetricsTracker
 import org.slf4j.LoggerFactory
@@ -17,7 +17,7 @@ case class WaitForIndexDef(pendingIndex: PendingIndex)
 case class IndexNextBatchTimeout(processId: Long)
 
 // todo: add indexing progress log
-class PendingIndexWorker(cluster: ActorRef, indexKey: IndexWorkersKey, hyperbus: Hyperbus, db: Db, tracker: MetricsTracker)
+class PendingIndexWorker(cluster: ActorRef, indexKey: IndexDefTransaction, hyperbus: Hyperbus, db: Db, tracker: MetricsTracker)
   extends Actor with ActorLogging {
 
   override def preStart(): Unit = {
@@ -55,25 +55,32 @@ class PendingIndexWorker(cluster: ActorRef, indexKey: IndexWorkersKey, hyperbus:
     case IndexNextBatchTimeout(p) if p == processId ⇒
       indexNextBatch(processId + 1, indexDef, lastItemSegment)
 
-    case IndexTaskResult(Some(newLastItemSegment), p) if p == processId ⇒
+    case IndexContentTaskResult(Some(newLastItemSegment), p) if p == processId ⇒
       indexNextBatch(processId + 1, indexDef, Some(newLastItemSegment))
 
-    case IndexTaskResult(None, p) if p == processId ⇒
+    case IndexContentTaskResult(None, p) if p == processId ⇒
       context.parent ! IndexingComplete(indexKey)
       context.stop(self)
+
+    case e @ IndexContentTaskFailed(p, reason) if p == processId ⇒
+      log.error(e, s"Restarting index worker $self")
+      import context._
+      become(waitingForIndexDef)
+      IndexWorkerImpl.selectPendingIndex(context.self, indexKey, db)
   }
 
   def indexNextBatch(processId: Long, indexDef: IndexDef, lastItemSegment: Option[String]): Unit = {
     import context.dispatcher
     context.become(indexing(processId, indexDef, lastItemSegment))
-    cluster ! IndexTask(System.currentTimeMillis() + IndexWorkerImpl.RETRY_PERIOD.toMillis,
-      indexDef, lastItemSegment, processId)
+    cluster ! IndexContentTask(System.currentTimeMillis() + IndexWorkerImpl.RETRY_PERIOD.toMillis,
+      IndexDefTransaction(indexDef.documentUri, indexDef.indexId, indexDef.defTransactionId),
+      lastItemSegment, processId)
     context.system.scheduler.scheduleOnce(IndexWorkerImpl.RETRY_PERIOD*2, self, IndexNextBatchTimeout(processId))
   }
 }
 
 object PendingIndexWorker {
-  def props(cluster: ActorRef, indexKey: IndexWorkersKey, hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) = Props(
+  def props(cluster: ActorRef, indexKey: IndexDefTransaction, hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) = Props(
     classOf[PendingIndexWorker], cluster: ActorRef, indexKey, hyperbus, db, tracker
   )
 }
@@ -83,7 +90,7 @@ private [indexing] object IndexWorkerImpl {
   import scala.concurrent.duration._
   val RETRY_PERIOD = 60.seconds // todo: move to config
 
-  def selectPendingIndex(notifyActor: ActorRef, indexKey: IndexWorkersKey, db: Db)
+  def selectPendingIndex(notifyActor: ActorRef, indexKey: IndexDefTransaction, db: Db)
                         (implicit ec: ExecutionContext, actorSystem: ActorSystem) = {
     db.selectPendingIndex(indexKey.partition, indexKey.documentUri, indexKey.indexId, indexKey.defTransactionId) map {
       case Some(pendingIndex) ⇒

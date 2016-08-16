@@ -49,55 +49,60 @@ create table pending_index(
 
 create table index_content(
     document_uri text,
+    index_id text,
     item_segment text,
     revision bigint static,
     body text,
     created_at timestamp,
     modified_at timestamp,
-    primary key (document_uri, item_segment)
+    primary key ((document_uri, index_id) item_segment)
 );
 
 create table index_content_ta0(
     document_uri text,
+    index_id text,
     t0 text,
     item_segment text,
     revision bigint static,
     body text,
     created_at timestamp,
     modified_at timestamp,
-    primary key (document_uri, t0, item_segment)
+    primary key ((document_uri, index_id), t0, item_segment)
 );
 
 create table index_content_da0(
     document_uri text,
+    index_id text,
     d0 decimal,
     item_segment text,
     revision bigint static,
     body text,
     created_at timestamp,
     modified_at timestamp,
-    primary key (document_uri, d0, item_segment)
+    primary key ((document_uri, index_id), d0, item_segment)
 );
 
 create table index_content_td0(
     document_uri text,
+    index_id text,
     t0 text,
     item_segment text,
     revision bigint static,
     body text,
     created_at timestamp,
     modified_at timestamp,
-    primary key (document_uri, t0, item_segment)
+    primary key ((document_uri, index_id), t0, item_segment)
 ) with clustering order by (t0 desc);
 
 create table index_content_dd0(
     document_uri text,
+    index_id text,
     d0 decimal,
     item_segment text,
     revision bigint static,
     body text,
     created_at timestamp,
     modified_at timestamp,
-    primary key (document_uri, d0, item_segment)
+    primary key ((document_uri, index_id), d0, item_segment)
 ) with clustering order by (d0 desc);
 

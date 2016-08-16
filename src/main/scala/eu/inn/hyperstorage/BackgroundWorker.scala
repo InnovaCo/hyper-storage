@@ -11,7 +11,7 @@ import eu.inn.hyperbus.model._
 import eu.inn.hyperstorage.api._
 import eu.inn.metrics.MetricsTracker
 import eu.inn.hyperstorage.db._
-import eu.inn.hyperstorage.indexing.{IndexCreatedOrDeleted, IndexLogic, IndexWorkersKey}
+import eu.inn.hyperstorage.indexing.{IndexCreatedOrDeleted, IndexLogic, IndexDefTransaction}
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
 import eu.inn.hyperstorage.utils.FutureUtils
@@ -44,11 +44,12 @@ trait BackgroundTaskTrait extends ShardTask {
   }
 }
 
-@SerialVersionUID(1L) case class IndexTask(ttl: Long, indexDef: db.IndexDef, lastItemSegment: Option[String], processId: Long) extends BackgroundTaskTrait {
-  def key = indexDef.documentUri
+@SerialVersionUID(1L) case class IndexContentTask(ttl: Long, indexDefTransaction: IndexDefTransaction, lastItemSegment: Option[String], processId: Long) extends BackgroundTaskTrait {
+  def key = indexDefTransaction.documentUri
 }
 
-@SerialVersionUID(1L) case class IndexTaskResult(lastItemSegment: Option[String], processId: Long)
+@SerialVersionUID(1L) case class IndexContentTaskResult(lastItemSegment: Option[String], processId: Long)
+@SerialVersionUID(1L) case class IndexContentTaskFailed(processId: Long, reason: String) extends RuntimeException(s"Index content task for process $processId is failed with reason $reason")
 
 @SerialVersionUID(1L) case class NoSuchResourceException(documentUri: String) extends RuntimeException(s"No such resource: $documentUri")
 @SerialVersionUID(1L) case class IncorrectDataException(documentUri: String, reason: String) extends RuntimeException(s"Data for $documentUri is incorrect: $reason")
@@ -65,8 +66,8 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     case task: IndexDefTask ⇒
       executeIndexDefTask(sender(), task)
 
-    case task: IndexTask ⇒
-      executeIndexTask(sender(), task)
+    case task: IndexContentTask ⇒
+      executeIndexContentTask(sender(), task)
   }
 
   def executeBackgroundTask(owner: ActorRef, task: BackgroundTask): Unit = {
@@ -127,7 +128,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
 
                   case None ⇒
                     // todo: delete only if filter is true!
-                    db.deleteIndexContent(indexDef.tableName, task.documentUri, itemSegment)
+                    db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemSegment)
                 }
               } map (_.size)
             }
@@ -243,7 +244,10 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
     // todo: insert depending on sort fields
     if (write) {
-      db.insertIndexContent(indexDef.tableName, sortBy, item) map { _ ⇒
+      val indexContent = IndexContent(
+        item.documentUri, indexDef.indexId, item.itemSegment, item.revision, item.body, item.createdAt, item.modifiedAt
+      )
+      db.insertIndexItem(indexDef.tableName, sortBy, indexContent) map { _ ⇒
         item.itemSegment
       }
     }
@@ -252,55 +256,67 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
   }
 
-  def executeIndexTask(owner: ActorRef, task: IndexTask): Unit = {
+  def executeIndexContentTask(owner: ActorRef, task: IndexContentTask): Unit = {
     Try {
       validateCollectionUri(task.key)
       task
     } map { task ⇒
 
       // todo: need guarantee, that status isn't changed here, select from db?
-
       {
-        task.indexDef.status match {
-          case IndexDef.STATUS_INDEXING ⇒
-            val bucketSize = 1 // todo: move to config, or make adaptive, or per index
+        db.selectIndexDef(task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId) flatMap {
+          case Some(indexDef) if indexDef.defTransactionId == task.indexDefTransaction.defTransactionId ⇒ indexDef.status match
+          {
+            case IndexDef.STATUS_INDEXING ⇒
+              val bucketSize = 1 // todo: move to config, or make adaptive, or per index
 
 
+              task.lastItemSegment.map { s ⇒
+                db.selectContentCollectionFrom(task.indexDefTransaction.documentUri, s, bucketSize)
+              } getOrElse {
+                db.selectContentCollection(task.indexDefTransaction.documentUri, bucketSize)
+              } flatMap { collectionItems ⇒
+                FutureUtils.serial(collectionItems.toSeq) { item ⇒
+                  indexItem(indexDef, item)
+                } flatMap { insertedItemSegments ⇒
 
-            task.lastItemSegment.map { s ⇒
-              db.selectContentCollectionFrom(task.indexDef.documentUri, s, bucketSize)
-            } getOrElse {
-              db.selectContentCollection(task.indexDef.documentUri, bucketSize)
-            } flatMap { collectionItems ⇒
-              FutureUtils.serial(collectionItems.toSeq) { item ⇒
-                indexItem(task.indexDef, item)
-              } flatMap { insertedItemSegments ⇒
-
-                if (insertedItemSegments.isEmpty) {
-                  // indexing is finished
-                  // todo: fix code format
-                  db.updateIndexDefStatus( task.indexDef.documentUri, task.indexDef.indexId, IndexDef.STATUS_NORMAL ) flatMap { _ ⇒
-                    db.deletePendingIndex (TransactionLogic.partitionFromUri(task.indexDef.documentUri), task.indexDef.documentUri, task.indexDef.indexId, task.indexDef.defTransactionId ) map { _ ⇒
-                      IndexTaskResult(None, task.processId)
+                  if (insertedItemSegments.isEmpty) {
+                    // indexing is finished
+                    // todo: fix code format
+                    db.updateIndexDefStatus(task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, IndexDef.STATUS_NORMAL) flatMap { _ ⇒
+                      db.deletePendingIndex(TransactionLogic.partitionFromUri(task.indexDefTransaction.documentUri), task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, task.indexDefTransaction.defTransactionId) map { _ ⇒
+                        IndexContentTaskResult(None, task.processId)
+                      }
                     }
-                  }
-                } else {
-                  val last = insertedItemSegments.last
-                  db.updatePendingIndexLastItemSegment (TransactionLogic.partitionFromUri(task.indexDef.documentUri), task.indexDef.documentUri, task.indexDef.indexId, task.indexDef.defTransactionId, last) map { _ ⇒
-                    IndexTaskResult(Some(last), task.processId)
+                  } else {
+                    val last = insertedItemSegments.last
+                    db.updatePendingIndexLastItemSegment(TransactionLogic.partitionFromUri(task.indexDefTransaction.documentUri), task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, task.indexDefTransaction.defTransactionId, last) map { _ ⇒
+                      IndexContentTaskResult(Some(last), task.processId)
+                    }
                   }
                 }
               }
-            }
 
 
-          case IndexDef.STATUS_NORMAL ⇒
-            Future.successful(IndexTaskResult(None, task.processId))
+            case IndexDef.STATUS_NORMAL ⇒
+              Future.successful(IndexContentTaskResult(None, task.processId))
 
-          case IndexDef.STATUS_DELETING ⇒
-            ??? // todo: implement deleting
+            case IndexDef.STATUS_DELETING ⇒
+              db.deleteIndex(indexDef.tableName, indexDef.documentUri, indexDef.indexId) flatMap { _ ⇒
+                db.deleteIndexDef(indexDef.documentUri, indexDef.indexId) flatMap { _ ⇒
+                  db.deletePendingIndex(
+                    TransactionLogic.partitionFromUri(indexDef.documentUri), indexDef.documentUri, indexDef.indexId, indexDef.defTransactionId
+                  ) map { _ ⇒
+                    IndexContentTaskResult(None, task.processId)
+                  }
+                }
+              }
+          }
+
+          case _ ⇒
+            Future.failed(IndexContentTaskFailed(task.processId, s"Can't find index for ${task.indexDefTransaction}")) // todo: test this
         }
-      } map { r: IndexTaskResult ⇒
+      } map { r: IndexContentTaskResult ⇒
         owner ! ShardTaskComplete(task, r)
 
 
@@ -308,7 +324,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
       } recover {
         case NonFatal(e) ⇒
           log.error(e, s"Can't execute index task: $task")
-          owner ! ShardTaskComplete(task, hyperbusException(e))
+          owner ! ShardTaskComplete(task, e)
       }
 
       /*
@@ -356,8 +372,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
         val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(post.path), post.path, indexId, None, indexDef.defTransactionId)
         db.insertPendingIndex(pendingIndex) map { _ ⇒
           // todo: need guaranty that if the message is lost, we process this index!
-          indexManager ! IndexCreatedOrDeleted(IndexWorkersKey(
-            TransactionLogic.partitionFromUri(post.path),
+          indexManager ! IndexCreatedOrDeleted(IndexDefTransaction(
             post.path,
             indexId,
             pendingIndex.defTransactionId
