@@ -47,21 +47,21 @@ case class Transaction(
                   )
 
 case class PendingIndex(
-                       partition: Int,
-                       documentUri: String,
-                       indexId: String,
-                       lastItemSegment: Option[String], // todo: rename
-                       metaTransactionId: UUID
+                         partition: Int,
+                         documentUri: String,
+                         indexId: String,
+                         lastItemSegment: Option[String], // todo: rename
+                         defTransactionId: UUID
                        )
 
-case class IndexMeta(
+case class IndexDef(
                       documentUri: String,
                       indexId: String,
                       status: Int,
                       sortBy: Option[String],
                       filterBy: Option[String],
                       tableName: String,
-                      metaTransactionId: UUID
+                      defTransactionId: UUID
                     )
 
 case class IndexContent(
@@ -73,7 +73,7 @@ case class IndexContent(
                     modifiedAt: Option[Date]
                   )
 
-object IndexMeta {
+object IndexDef {
   val STATUS_INDEXING = 0
   val STATUS_DELETING = 1
   val STATUS_NORMAL = 2
@@ -190,54 +190,54 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     """.execute()
 
   def selectPendingIndexes(partition: Int, limit: Int): Future[Iterator[PendingIndex]] = cql"""
-      select partition, document_uri, index_id, last_item_segment, meta_transaction_id
+      select partition, document_uri, index_id, last_item_segment, def_transaction_id
       from pending_index
       where partition=$partition
       limit $limit
     """.all[PendingIndex]
 
-  def selectPendingIndex(partition: Int, documentId: String, indexId: String, metaTransactionId: UUID): Future[Option[PendingIndex]] = cql"""
-      select partition, document_uri, index_id, last_item_segment, meta_transaction_id
+  def selectPendingIndex(partition: Int, documentId: String, indexId: String, defTransactionId: UUID): Future[Option[PendingIndex]] = cql"""
+      select partition, document_uri, index_id, last_item_segment, def_transaction_id
       from pending_index
-      where partition=$partition and document_uri=$documentId and index_id=$indexId and meta_transaction_id=$metaTransactionId
+      where partition=$partition and document_uri=$documentId and index_id=$indexId and def_transaction_id=$defTransactionId
     """.oneOption[PendingIndex]
 
-  def deletePendingIndex(partition: Int, documentId: String, indexId: String, metaTransactionId: UUID) = cql"""
+  def deletePendingIndex(partition: Int, documentId: String, indexId: String, defTransactionId: UUID) = cql"""
       delete
       from pending_index
-      where partition=$partition and document_uri=$documentId and index_id=$indexId and meta_transaction_id=$metaTransactionId
+      where partition=$partition and document_uri=$documentId and index_id=$indexId and def_transaction_id=$defTransactionId
     """.execute()
 
-  def updatePendingIndexLastItemSegment(partition: Int, documentId: String, indexId: String, metaTransactionId: UUID, lastItemSegment: String) = cql"""
+  def updatePendingIndexLastItemSegment(partition: Int, documentId: String, indexId: String, defTransactionId: UUID, lastItemSegment: String) = cql"""
       update pending_index
       set last_item_segment = $lastItemSegment
-      where partition=$partition and document_uri=$documentId and index_id=$indexId and meta_transaction_id=$metaTransactionId
+      where partition=$partition and document_uri=$documentId and index_id=$indexId and def_transaction_id=$defTransactionId
     """.execute()
 
   def insertPendingIndex(pendingIndex: PendingIndex): Future[Unit] = cql"""
-      insert into pending_index(partition, document_uri, index_id, last_item_segment, meta_transaction_id)
+      insert into pending_index(partition, document_uri, index_id, last_item_segment, def_transaction_id)
       values (?,?,?,?,?)
     """.bind(pendingIndex).execute()
 
-  def selectIndexMeta(documentUri: String, indexId: String): Future[Option[IndexMeta]] = cql"""
-      select document_uri, index_id, status, sort_by, filter_by, table_name, meta_transaction_id
-      from index_meta
+  def selectIndexDef(documentUri: String, indexId: String): Future[Option[IndexDef]] = cql"""
+      select document_uri, index_id, status, sort_by, filter_by, table_name, def_transaction_id
+      from index_def
       where document_uri = $documentUri and index_id=$indexId
-    """.oneOption[IndexMeta]
+    """.oneOption[IndexDef]
 
-  def selectIndexMetas(documentUri: String): Future[Iterator[IndexMeta]] = cql"""
-      select document_uri, index_id, status, sort_by, filter_by, table_name, meta_transaction_id
-      from index_meta
+  def selectIndexDefs(documentUri: String): Future[Iterator[IndexDef]] = cql"""
+      select document_uri, index_id, status, sort_by, filter_by, table_name, def_transaction_id
+      from index_def
       where document_uri = $documentUri
-    """.all[IndexMeta]
+    """.all[IndexDef]
 
-  def insertIndexMeta(indexMeta: IndexMeta): Future[Unit] = cql"""
-      insert into index_meta(document_uri, index_id, status, sort_by, filter_by, table_name, meta_transaction_id)
+  def insertIndexDef(indexDef: IndexDef): Future[Unit] = cql"""
+      insert into index_def(document_uri, index_id, status, sort_by, filter_by, table_name, def_transaction_id)
       values (?,?,?,?,?,?,?)
-    """.bind(indexMeta).execute()
+    """.bind(indexDef).execute()
 
-  def updateIndexMetaStatus(documentUri: String, indexId: String, newStatus: Int): Future[Unit] = cql"""
-      update index_meta
+  def updateIndexDefStatus(documentUri: String, indexId: String, newStatus: Int): Future[Unit] = cql"""
+      update index_def
       set status = $newStatus
       where document_uri = $documentUri and index_id = $indexId
     """.execute()

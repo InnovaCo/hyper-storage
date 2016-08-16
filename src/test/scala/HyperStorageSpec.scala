@@ -11,7 +11,7 @@ import eu.inn.hyperbus.model.utils.{Sort, SortBy}
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.hyperstorage._
 import eu.inn.hyperstorage.api._
-import eu.inn.hyperstorage.db.IndexMeta
+import eu.inn.hyperstorage.db.IndexDef$
 import eu.inn.hyperstorage.indexing.IndexManager
 import eu.inn.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
 import eu.inn.hyperstorage.sharding.ShardMemberStatus.Active
@@ -1005,15 +1005,15 @@ class HyperStorageSpec extends FreeSpec
         val f2 = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"), Seq.empty, None))
         f2.futureValue.statusCode should equal(Status.CREATED)
 
-        val indexMeta = db.selectIndexMeta("collection-1~", "index1").futureValue
-        indexMeta shouldBe defined
-        indexMeta.get.documentUri shouldBe "collection-1~"
-        indexMeta.get.indexId shouldBe "index1"
+        val indexDef = db.selectIndexDef("collection-1~", "index1").futureValue
+        indexDef shouldBe defined
+        indexDef.get.documentUri shouldBe "collection-1~"
+        indexDef.get.indexId shouldBe "index1"
 
         eventually {
-          val indexMetaUp = db.selectIndexMeta("collection-1~", "index1").futureValue
-          indexMetaUp shouldBe defined
-          indexMetaUp.get.status shouldBe IndexMeta.STATUS_NORMAL
+          val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+          indexDefUp shouldBe defined
+          indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
         }
 
         eventually {
@@ -1050,15 +1050,15 @@ class HyperStorageSpec extends FreeSpec
         val fi = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"), Seq.empty, Some("b > 10")))
         fi.futureValue.statusCode should equal(Status.CREATED)
 
-        val indexMeta = db.selectIndexMeta("collection-1~", "index1").futureValue
-        indexMeta shouldBe defined
-        indexMeta.get.documentUri shouldBe "collection-1~"
-        indexMeta.get.indexId shouldBe "index1"
+        val indexDef = db.selectIndexDef("collection-1~", "index1").futureValue
+        indexDef shouldBe defined
+        indexDef.get.documentUri shouldBe "collection-1~"
+        indexDef.get.indexId shouldBe "index1"
 
         eventually {
-          val indexMetaUp = db.selectIndexMeta("collection-1~", "index1").futureValue
-          indexMetaUp shouldBe defined
-          indexMetaUp.get.status shouldBe IndexMeta.STATUS_NORMAL
+          val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+          indexDefUp shouldBe defined
+          indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
         }
 
         eventually {
@@ -1099,15 +1099,15 @@ class HyperStorageSpec extends FreeSpec
           Seq(HyperStorageIndexSortItem("b",order=Some("asc"),fieldType=Some("decimal"))), Some("b > 10")))
         fi.futureValue.statusCode should equal(Status.CREATED)
 
-        val indexMeta = db.selectIndexMeta("collection-1~", "index1").futureValue
-        indexMeta shouldBe defined
-        indexMeta.get.documentUri shouldBe "collection-1~"
-        indexMeta.get.indexId shouldBe "index1"
+        val indexDef = db.selectIndexDef("collection-1~", "index1").futureValue
+        indexDef shouldBe defined
+        indexDef.get.documentUri shouldBe "collection-1~"
+        indexDef.get.indexId shouldBe "index1"
 
         eventually {
-          val indexMetaUp = db.selectIndexMeta("collection-1~", "index1").futureValue
-          indexMetaUp shouldBe defined
-          indexMetaUp.get.status shouldBe IndexMeta.STATUS_NORMAL
+          val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+          indexDefUp shouldBe defined
+          indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
         }
 
         eventually {
@@ -1152,15 +1152,15 @@ class HyperStorageSpec extends FreeSpec
           Seq(HyperStorageIndexSortItem("b",order=Some("desc"),fieldType=Some("decimal"))), Some("b > 10")))
         fi.futureValue.statusCode should equal(Status.CREATED)
 
-        val indexMeta = db.selectIndexMeta("collection-1~", "index1").futureValue
-        indexMeta shouldBe defined
-        indexMeta.get.documentUri shouldBe "collection-1~"
-        indexMeta.get.indexId shouldBe "index1"
+        val indexDef = db.selectIndexDef("collection-1~", "index1").futureValue
+        indexDef shouldBe defined
+        indexDef.get.documentUri shouldBe "collection-1~"
+        indexDef.get.indexId shouldBe "index1"
 
         eventually {
-          val indexMetaUp = db.selectIndexMeta("collection-1~", "index1").futureValue
-          indexMetaUp shouldBe defined
-          indexMetaUp.get.status shouldBe IndexMeta.STATUS_NORMAL
+          val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+          indexDefUp shouldBe defined
+          indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
         }
 
         eventually {
@@ -1205,15 +1205,15 @@ class HyperStorageSpec extends FreeSpec
           Seq(HyperStorageIndexSortItem("a",order=Some("asc"),fieldType=Some("text"))), Some("b > 10")))
         fi.futureValue.statusCode should equal(Status.CREATED)
 
-        val indexMeta = db.selectIndexMeta("collection-1~", "index1").futureValue
-        indexMeta shouldBe defined
-        indexMeta.get.documentUri shouldBe "collection-1~"
-        indexMeta.get.indexId shouldBe "index1"
+        val indexDef = db.selectIndexDef("collection-1~", "index1").futureValue
+        indexDef shouldBe defined
+        indexDef.get.documentUri shouldBe "collection-1~"
+        indexDef.get.indexId shouldBe "index1"
 
         eventually {
-          val indexMetaUp = db.selectIndexMeta("collection-1~", "index1").futureValue
-          indexMetaUp shouldBe defined
-          indexMetaUp.get.status shouldBe IndexMeta.STATUS_NORMAL
+          val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+          indexDefUp shouldBe defined
+          indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
         }
 
         eventually {
@@ -1258,15 +1258,15 @@ class HyperStorageSpec extends FreeSpec
           Seq(HyperStorageIndexSortItem("a",order=Some("desc"),fieldType=Some("text"))), Some("b > 10")))
         fi.futureValue.statusCode should equal(Status.CREATED)
 
-        val indexMeta = db.selectIndexMeta("collection-1~", "index1").futureValue
-        indexMeta shouldBe defined
-        indexMeta.get.documentUri shouldBe "collection-1~"
-        indexMeta.get.indexId shouldBe "index1"
+        val indexDef = db.selectIndexDef("collection-1~", "index1").futureValue
+        indexDef shouldBe defined
+        indexDef.get.documentUri shouldBe "collection-1~"
+        indexDef.get.indexId shouldBe "index1"
 
         eventually {
-          val indexMetaUp = db.selectIndexMeta("collection-1~", "index1").futureValue
-          indexMetaUp shouldBe defined
-          indexMetaUp.get.status shouldBe IndexMeta.STATUS_NORMAL
+          val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+          indexDefUp shouldBe defined
+          indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
         }
 
         eventually {

@@ -19,7 +19,7 @@ case class ProcessNextPartitions(processId: Long)
 
 // todo: rename
 // todo: partition can be always generated!
-case class IndexWorkersKey(partition: Int, documentUri: String, indexId: String, metaTransactionId: UUID)
+case class IndexWorkersKey(partition: Int, documentUri: String, indexId: String, defTransactionId: UUID)
 
 // todo: rename those two
 case class PartitionPendingIndexes(partition: Int, rev: Long, indexes: Seq[IndexWorkersKey])
@@ -147,7 +147,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
   def createWorkerActors(clusterActor: ActorRef, availableWorkers: Int): Unit = {
     nextPendingPartitions.flatMap(_._2).take(availableWorkers).foreach { key ⇒
       // createWorkingActor here
-      val actorRef = context.actorOf(IndexWorker.props(
+      val actorRef = context.actorOf(PendingIndexWorker.props(
         clusterActor, key, hyperbus, db, tracker
       ))
       indexWorkers += key → actorRef
@@ -190,7 +190,7 @@ private [indexing] object IndexManagerImpl {
                                (implicit ec: ExecutionContext): Unit = {
     db.selectPendingIndexes(partition, maxIndexWorkers) map { indexesIterator ⇒
       notifyActor ! PartitionPendingIndexes(partition, rev,
-        indexesIterator.map(ii ⇒ IndexWorkersKey(ii.partition, ii.documentUri, ii.indexId, ii.metaTransactionId)).toSeq
+        indexesIterator.map(ii ⇒ IndexWorkersKey(ii.partition, ii.documentUri, ii.indexId, ii.defTransactionId)).toSeq
       )
     } recover {
       case NonFatal(e) ⇒

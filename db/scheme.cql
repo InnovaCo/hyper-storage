@@ -27,14 +27,14 @@ create table checkpoint (
 	last_quantum bigint
 );
 
-create table index_meta(
+create table index_def(
     document_uri text,
     index_id text,
     status int,
     sort_by text,
     filter_by text,
     table_name text,
-    meta_transaction_id timeuuid,
+    def_transaction_id timeuuid,
     primary key (document_uri, index_id)
 );
 
@@ -43,8 +43,8 @@ create table pending_index(
     document_uri text,
     index_id text,
     last_item_segment text,
-    meta_transaction_id timeuuid,
-    primary key (partition, document_uri, index_id, meta_transaction_id)
+    def_transaction_id timeuuid,
+    primary key (partition, document_uri, index_id, def_transaction_id)
 );
 
 create table index_content(

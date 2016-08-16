@@ -3,37 +3,37 @@ package eu.inn.hyperstorage.indexing
 import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Props}
 import eu.inn.hyperbus.Hyperbus
 import eu.inn.hyperstorage.{IndexTask, IndexTaskResult}
-import eu.inn.hyperstorage.db.{Db, IndexMeta, PendingIndex}
+import eu.inn.hyperstorage.db.{Db, IndexDef, PendingIndex}
 import eu.inn.metrics.MetricsTracker
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.ExecutionContext
 import scala.util.control.NonFatal
 
-case object StartIndexWorker
+case object StartPendingIndexWorker
 case object CompletePendingIndex
-case class BeginIndexing(indexMeta: IndexMeta, lastItemSegment: Option[String])
-case class WaitForIndexMeta(pendingIndex: PendingIndex)
-case class IndexNextTimeout(processId: Long)
+case class BeginIndexing(indexDef: IndexDef, lastItemSegment: Option[String])
+case class WaitForIndexDef(pendingIndex: PendingIndex)
+case class IndexNextBatchTimeout(processId: Long)
 
 // todo: add indexing progress log
-class IndexWorker (cluster: ActorRef, indexKey: IndexWorkersKey, hyperbus: Hyperbus, db: Db, tracker: MetricsTracker)
+class PendingIndexWorker(cluster: ActorRef, indexKey: IndexWorkersKey, hyperbus: Hyperbus, db: Db, tracker: MetricsTracker)
   extends Actor with ActorLogging {
 
   override def preStart(): Unit = {
     super.preStart()
-    self ! StartIndexWorker
+    self ! StartPendingIndexWorker
   }
 
   override def receive = starOrStop orElse {
-    case WaitForIndexMeta ⇒
+    case WaitForIndexDef ⇒
       import context._
-      become(waitingForIndexMeta)
+      become(waitingForIndexDef)
       IndexWorkerImpl.selectPendingIndex(context.self, indexKey, db)
   }
 
   def starOrStop: Receive = {
-    case StartIndexWorker ⇒
+    case StartPendingIndexWorker ⇒
       import context._
       IndexWorkerImpl.selectPendingIndex(context.self, indexKey, db)
 
@@ -41,40 +41,40 @@ class IndexWorker (cluster: ActorRef, indexKey: IndexWorkersKey, hyperbus: Hyper
       context.parent ! IndexingComplete(indexKey)
       context.stop(self)
 
-    case BeginIndexing(indexMeta, lastItemSegment) ⇒
-      indexNext(0, indexMeta, lastItemSegment)
+    case BeginIndexing(indexDef, lastItemSegment) ⇒
+      indexNextBatch(0, indexDef, lastItemSegment)
   }
 
-  def waitingForIndexMeta: Receive = starOrStop orElse {
-    case WaitForIndexMeta(pendingIndex) ⇒
+  def waitingForIndexDef: Receive = starOrStop orElse {
+    case WaitForIndexDef(pendingIndex) ⇒
       import context._
       IndexWorkerImpl.deletePendingIndex(context.self, pendingIndex, db)
   }
 
-  def indexing(processId: Long, indexMeta: IndexMeta, lastItemSegment: Option[String]): Receive = {
-    case IndexNextTimeout(p) if p == processId ⇒
-      indexNext(processId + 1, indexMeta, lastItemSegment)
+  def indexing(processId: Long, indexDef: IndexDef, lastItemSegment: Option[String]): Receive = {
+    case IndexNextBatchTimeout(p) if p == processId ⇒
+      indexNextBatch(processId + 1, indexDef, lastItemSegment)
 
     case IndexTaskResult(Some(newLastItemSegment), p) if p == processId ⇒
-      indexNext(processId + 1, indexMeta, Some(newLastItemSegment))
+      indexNextBatch(processId + 1, indexDef, Some(newLastItemSegment))
 
     case IndexTaskResult(None, p) if p == processId ⇒
       context.parent ! IndexingComplete(indexKey)
       context.stop(self)
   }
 
-  def indexNext(processId: Long, indexMeta: IndexMeta, lastItemSegment: Option[String]): Unit = {
+  def indexNextBatch(processId: Long, indexDef: IndexDef, lastItemSegment: Option[String]): Unit = {
     import context.dispatcher
-    context.become(indexing(processId, indexMeta, lastItemSegment))
+    context.become(indexing(processId, indexDef, lastItemSegment))
     cluster ! IndexTask(System.currentTimeMillis() + IndexWorkerImpl.RETRY_PERIOD.toMillis,
-      indexMeta, lastItemSegment, processId)
-    context.system.scheduler.scheduleOnce(IndexWorkerImpl.RETRY_PERIOD*2, self, IndexNextTimeout(processId))
+      indexDef, lastItemSegment, processId)
+    context.system.scheduler.scheduleOnce(IndexWorkerImpl.RETRY_PERIOD*2, self, IndexNextBatchTimeout(processId))
   }
 }
 
-object IndexWorker {
+object PendingIndexWorker {
   def props(cluster: ActorRef, indexKey: IndexWorkersKey, hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) = Props(
-    classOf[IndexWorker], cluster: ActorRef, indexKey, hyperbus, db, tracker
+    classOf[PendingIndexWorker], cluster: ActorRef, indexKey, hyperbus, db, tracker
   )
 }
 
@@ -85,13 +85,13 @@ private [indexing] object IndexWorkerImpl {
 
   def selectPendingIndex(notifyActor: ActorRef, indexKey: IndexWorkersKey, db: Db)
                         (implicit ec: ExecutionContext, actorSystem: ActorSystem) = {
-    db.selectPendingIndex(indexKey.partition, indexKey.documentUri, indexKey.indexId, indexKey.metaTransactionId) map {
+    db.selectPendingIndex(indexKey.partition, indexKey.documentUri, indexKey.indexId, indexKey.defTransactionId) map {
       case Some(pendingIndex) ⇒
-        db.selectIndexMeta(indexKey.documentUri, indexKey.indexId) map {
-          case Some(indexMeta) if indexMeta.metaTransactionId == pendingIndex.metaTransactionId ⇒
-            notifyActor ! BeginIndexing(indexMeta, pendingIndex.lastItemSegment)
+        db.selectIndexDef(indexKey.documentUri, indexKey.indexId) map {
+          case Some(indexDef) if indexDef.defTransactionId == pendingIndex.defTransactionId ⇒
+            notifyActor ! BeginIndexing(indexDef, pendingIndex.lastItemSegment)
           case _ ⇒
-            actorSystem.scheduler.scheduleOnce(RETRY_PERIOD, notifyActor, WaitForIndexMeta(pendingIndex))
+            actorSystem.scheduler.scheduleOnce(RETRY_PERIOD, notifyActor, WaitForIndexDef(pendingIndex))
         }
 
       case None ⇒
@@ -101,21 +101,21 @@ private [indexing] object IndexWorkerImpl {
     } recover {
       case NonFatal(e) ⇒
         log.error(s"Can't fetch pending index for $indexKey", e)
-        actorSystem.scheduler.scheduleOnce(RETRY_PERIOD, notifyActor, StartIndexWorker)
+        actorSystem.scheduler.scheduleOnce(RETRY_PERIOD, notifyActor, StartPendingIndexWorker)
     }
   }
 
   def deletePendingIndex(notifyActor: ActorRef, pendingIndex: PendingIndex, db: Db)
                         (implicit ec: ExecutionContext, actorSystem: ActorSystem) = {
-    db.deletePendingIndex(pendingIndex.partition, pendingIndex.documentUri, pendingIndex.indexId, pendingIndex.metaTransactionId) map { _ ⇒
+    db.deletePendingIndex(pendingIndex.partition, pendingIndex.documentUri, pendingIndex.indexId, pendingIndex.defTransactionId) map { _ ⇒
 
-      log.warn(s"Pending index deleted: $pendingIndex (no corresponding index meta was found)")
+      log.warn(s"Pending index deleted: $pendingIndex (no corresponding index definition was found)")
       notifyActor ! CompletePendingIndex
 
     } recover {
       case NonFatal(e) ⇒
         log.error(s"Can't delete pending index $pendingIndex", e)
-        actorSystem.scheduler.scheduleOnce(RETRY_PERIOD, notifyActor, StartIndexWorker)
+        actorSystem.scheduler.scheduleOnce(RETRY_PERIOD, notifyActor, StartPendingIndexWorker)
     }
   }
 }

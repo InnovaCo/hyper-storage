@@ -37,15 +37,15 @@ trait BackgroundTaskTrait extends ShardTask {
 @SerialVersionUID(1L) case class BackgroundTaskResult(documentUri: String, transactions: Seq[UUID])
 
 // todo: request -> string as for the Foreground
-@SerialVersionUID(1L) case class IndexMetaTask(ttl: Long, request: Request[Body]) extends BackgroundTaskTrait {
+@SerialVersionUID(1L) case class IndexDefTask(ttl: Long, request: Request[Body]) extends BackgroundTaskTrait {
   def key: String = request match {
     case post: HyperStorageIndexPost ⇒ post.path
     case delete: HyperStorageIndexDelete ⇒ delete.path
   }
 }
 
-@SerialVersionUID(1L) case class IndexTask(ttl: Long, indexMeta: db.IndexMeta, lastItemSegment: Option[String], processId: Long) extends BackgroundTaskTrait {
-  def key = indexMeta.documentUri
+@SerialVersionUID(1L) case class IndexTask(ttl: Long, indexDef: db.IndexDef, lastItemSegment: Option[String], processId: Long) extends BackgroundTaskTrait {
+  def key = indexDef.documentUri
 }
 
 @SerialVersionUID(1L) case class IndexTaskResult(lastItemSegment: Option[String], processId: Long)
@@ -62,8 +62,8 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     case task: BackgroundTask ⇒
       executeBackgroundTask(sender(), task)
 
-    case task: IndexMetaTask ⇒
-      executeIndexMetaTask(sender(), task)
+    case task: IndexDefTask ⇒
+      executeIndexDefTask(sender(), task)
 
     case task: IndexTask ⇒
       executeIndexTask(sender(), task)
@@ -112,22 +112,22 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
         }.toSet
 
         // todo: cache index meta
-        val updateIndexFuture: Future[Seq[Int]] = db.selectIndexMetas(task.documentUri).flatMap { indexMetasIterator ⇒
-          val indexMetas = indexMetasIterator.toSeq
+        val updateIndexFuture: Future[Seq[Int]] = db.selectIndexDefs(task.documentUri).flatMap { indexDefsIterator ⇒
+          val indexDefs = indexDefsIterator.toSeq
           FutureUtils.serial(itemSegments.toSeq) { itemSegment ⇒
             // todo: cache content
             db.selectContent(task.documentUri, itemSegment) flatMap { contentOption ⇒
               if (log.isDebugEnabled) {
-                log.debug(s"Indexing content $contentOption for $indexMetas")
+                log.debug(s"Indexing content $contentOption for $indexDefs")
               }
-              FutureUtils.serial(indexMetas.toSeq) { indexMeta ⇒
+              FutureUtils.serial(indexDefs.toSeq) { indexDef ⇒
                 contentOption match {
                   case Some(item) ⇒
-                    indexItem(indexMeta, item)
+                    indexItem(indexDef, item)
 
                   case None ⇒
                     // todo: delete only if filter is true!
-                    db.deleteIndexContent(indexMeta.tableName, task.documentUri, itemSegment)
+                    db.deleteIndexContent(indexDef.tableName, task.documentUri, itemSegment)
                 }
               } map (_.size)
             }
@@ -178,7 +178,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     } map (_.reverse)
   }
 
-  def executeIndexMetaTask(owner: ActorRef, task: IndexMetaTask): Unit = {
+  def executeIndexDefTask(owner: ActorRef, task: IndexDefTask): Unit = {
     Try {
       validateCollectionUri(task.key)
       task
@@ -205,9 +205,9 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
   }
 
-  def indexItem(indexMeta: IndexMeta, item: Content): Future[String] = {
+  def indexItem(indexDef: IndexDef, item: Content): Future[String] = {
     if (log.isDebugEnabled) {
-      log.debug(s"Indexing item $item with $indexMeta")
+      log.debug(s"Indexing item $item with $indexDef")
     }
 
     import eu.inn.binders.json._
@@ -220,14 +220,14 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
 
     // todo: cache this
-    val sortBy = indexMeta.sortBy.map { sortString ⇒
+    val sortBy = indexDef.sortBy.map { sortString ⇒
       val sortBy = sortString.parseJson[Seq[HyperStorageIndexSortItem]]
       IndexLogic.extractSortFields(sortBy, contentValue)
     } getOrElse {
       Seq.empty
     }
 
-    val write: Boolean = indexMeta.filterBy.map { filterBy ⇒
+    val write: Boolean = indexDef.filterBy.map { filterBy ⇒
       IndexLogic.evaluateFilterExpression(filterBy, contentValue) recover {
         case NonFatal(e) ⇒
           // todo: log this?
@@ -239,11 +239,11 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
 
     if (log.isDebugEnabled) {
-      log.debug(s"Evaluating: ${indexMeta.filterBy}=$write on $item")
+      log.debug(s"Evaluating: ${indexDef.filterBy}=$write on $item")
     }
     // todo: insert depending on sort fields
     if (write) {
-      db.insertIndexContent(indexMeta.tableName, sortBy, item) map { _ ⇒
+      db.insertIndexContent(indexDef.tableName, sortBy, item) map { _ ⇒
         item.itemSegment
       }
     }
@@ -261,32 +261,32 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
       // todo: need guarantee, that status isn't changed here, select from db?
 
       {
-        task.indexMeta.status match {
-          case IndexMeta.STATUS_INDEXING ⇒
+        task.indexDef.status match {
+          case IndexDef.STATUS_INDEXING ⇒
             val bucketSize = 1 // todo: move to config, or make adaptive, or per index
 
 
 
             task.lastItemSegment.map { s ⇒
-              db.selectContentCollectionFrom(task.indexMeta.documentUri, s, bucketSize)
+              db.selectContentCollectionFrom(task.indexDef.documentUri, s, bucketSize)
             } getOrElse {
-              db.selectContentCollection(task.indexMeta.documentUri, bucketSize)
+              db.selectContentCollection(task.indexDef.documentUri, bucketSize)
             } flatMap { collectionItems ⇒
               FutureUtils.serial(collectionItems.toSeq) { item ⇒
-                indexItem(task.indexMeta, item)
+                indexItem(task.indexDef, item)
               } flatMap { insertedItemSegments ⇒
 
                 if (insertedItemSegments.isEmpty) {
                   // indexing is finished
                   // todo: fix code format
-                  db.updateIndexMetaStatus( task.indexMeta.documentUri, task.indexMeta.indexId, IndexMeta.STATUS_NORMAL ) flatMap { _ ⇒
-                    db.deletePendingIndex (TransactionLogic.partitionFromUri(task.indexMeta.documentUri), task.indexMeta.documentUri, task.indexMeta.indexId, task.indexMeta.metaTransactionId ) map { _ ⇒
+                  db.updateIndexDefStatus( task.indexDef.documentUri, task.indexDef.indexId, IndexDef.STATUS_NORMAL ) flatMap { _ ⇒
+                    db.deletePendingIndex (TransactionLogic.partitionFromUri(task.indexDef.documentUri), task.indexDef.documentUri, task.indexDef.indexId, task.indexDef.defTransactionId ) map { _ ⇒
                       IndexTaskResult(None, task.processId)
                     }
                   }
                 } else {
                   val last = insertedItemSegments.last
-                  db.updatePendingIndexLastItemSegment (TransactionLogic.partitionFromUri(task.indexMeta.documentUri), task.indexMeta.documentUri, task.indexMeta.indexId, task.indexMeta.metaTransactionId, last) map { _ ⇒
+                  db.updatePendingIndexLastItemSegment (TransactionLogic.partitionFromUri(task.indexDef.documentUri), task.indexDef.documentUri, task.indexDef.indexId, task.indexDef.defTransactionId, last) map { _ ⇒
                     IndexTaskResult(Some(last), task.processId)
                   }
                 }
@@ -294,10 +294,10 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
             }
 
 
-          case IndexMeta.STATUS_NORMAL ⇒
+          case IndexDef.STATUS_NORMAL ⇒
             Future.successful(IndexTaskResult(None, task.processId))
 
-          case IndexMeta.STATUS_DELETING ⇒
+          case IndexDef.STATUS_DELETING ⇒
             ??? // todo: implement deleting
         }
       } map { r: IndexTaskResult ⇒
@@ -340,27 +340,27 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     val tableName = IndexLogic.tableName(post.body.sortBy)
     post.body.filterBy.foreach(IndexLogic.validateFilterExpression(_).get)
 
-    db.selectIndexMetas(post.path) flatMap { indexMetas ⇒
-      indexMetas.foreach { existingIndex ⇒
+    db.selectIndexDefs(post.path) flatMap { indexDefs ⇒
+      indexDefs.foreach { existingIndex ⇒
         if (existingIndex.indexId == indexId) {
           throw Conflict(ErrorBody("already-exists", Some(s"Index '$indexId' already exists")))
         }
       }
 
       import eu.inn.binders.json._
-      val indexMeta = IndexMeta(post.path, indexId, IndexMeta.STATUS_INDEXING,
-        if (post.body.sortBy.nonEmpty) Some(post.body.sortBy.toJson) else None, post.body.filterBy, tableName, metaTransactionId = UUIDs.timeBased()
+      val indexDef = IndexDef(post.path, indexId, IndexDef.STATUS_INDEXING,
+        if (post.body.sortBy.nonEmpty) Some(post.body.sortBy.toJson) else None, post.body.filterBy, tableName, defTransactionId = UUIDs.timeBased()
       )
       // validate: id, sort, expression, etc
-      db.insertIndexMeta(indexMeta) flatMap { _ ⇒
-        val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(post.path), post.path, indexId, None, indexMeta.metaTransactionId)
+      db.insertIndexDef(indexDef) flatMap { _ ⇒
+        val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(post.path), post.path, indexId, None, indexDef.defTransactionId)
         db.insertPendingIndex(pendingIndex) map { _ ⇒
           // todo: need guaranty that if the message is lost, we process this index!
           indexManager ! IndexCreatedOrDeleted(IndexWorkersKey(
             TransactionLogic.partitionFromUri(post.path),
             post.path,
             indexId,
-            pendingIndex.metaTransactionId
+            pendingIndex.defTransactionId
           ))
 
           Created(HyperStorageIndexCreated(indexId = indexId, path = post.path, links = new LinksBuilder()
