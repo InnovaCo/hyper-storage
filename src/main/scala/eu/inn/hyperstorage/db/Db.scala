@@ -244,8 +244,8 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
 
   def insertIndexContent(indexTable: String, sortFields: Seq[(String, Value)], content: Content): Future[Unit] = {
     val tableName = Dynamic(indexTable)
-    val sortFieldNames = Dynamic(sortFields.map(_._1).mkString(",",",",""))
-    val sortFieldPlaces = Dynamic(sortFields.map(_ ⇒ "?").mkString(",",",",""))
+    val sortFieldNames = if(sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_._1).mkString(",",",",""))
+    val sortFieldPlaces = if(sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_ ⇒ "?").mkString(",",",",""))
     val cql = cql"""
       insert into $tableName(document_uri,item_segment,revision,body,created_at,modified_at$sortFieldNames)
       values(?,?,?,?,?,?$sortFieldPlaces)
