@@ -11,7 +11,7 @@ import eu.inn.hyperbus.model.utils.{Sort, SortBy}
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.hyperstorage._
 import eu.inn.hyperstorage.api._
-import eu.inn.hyperstorage.db.IndexDef$
+import eu.inn.hyperstorage.db.IndexDef
 import eu.inn.hyperstorage.indexing.IndexManager
 import eu.inn.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
 import eu.inn.hyperstorage.sharding.ShardMemberStatus.Active
