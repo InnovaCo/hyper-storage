@@ -612,8 +612,8 @@ class HyperStorageSpec extends FreeSpec
         val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
         val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, self)
         val workerSettings = Map(
-          "hyper-storage-foreground-worker" → (workerProps, 1),
-          "hyper-storage-background-worker" → (backgroundWorkerProps, 1)
+          "hyper-storage-foreground-worker" → (workerProps, 1, "fgw-"),
+          "hyper-storage-background-worker" → (backgroundWorkerProps, 1, "bgw-")
         )
 
         val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
@@ -661,8 +661,8 @@ class HyperStorageSpec extends FreeSpec
         val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
         val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, self)
         val workerSettings = Map(
-          "hyper-storage-foreground-worker" → (workerProps, 1),
-          "hyper-storage-background-worker" → (backgroundWorkerProps, 1)
+          "hyper-storage-foreground-worker" → (workerProps, 1, "fgw-"),
+          "hyper-storage-background-worker" → (backgroundWorkerProps, 1, "bgw-")
         )
 
         val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
@@ -716,9 +716,9 @@ class HyperStorageSpec extends FreeSpec
         val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
         val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, self)
         val workerSettings = Map(
-          "hyper-storage-foreground-worker" → (workerProps, 1),
-          "hyper-storage-background-worker" → (backgroundWorkerProps, 1)
-        )
+          "hyper-storage-foreground-worker" → (workerProps, 1, "fgw-"),
+          "hyper-storage-background-worker" → (backgroundWorkerProps, 1, "bgw-")
+       )
 
         val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
         val distributor = TestActorRef(HyperbusAdapter.props(processor, db, tracker, 20.seconds))
@@ -801,8 +801,8 @@ class HyperStorageSpec extends FreeSpec
         val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
         val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, self)
         val workerSettings = Map(
-          "hyper-storage-foreground-worker" → (workerProps, 1),
-          "hyper-storage-background-worker" → (backgroundWorkerProps, 1)
+          "hyper-storage-foreground-worker" → (workerProps, 1, "fgw-"),
+          "hyper-storage-background-worker" → (backgroundWorkerProps, 1, "bgw-")
         )
 
         val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
@@ -952,7 +952,6 @@ class HyperStorageSpec extends FreeSpec
         )
         db.insertContent(newContent).futureValue
         db.insertTransaction(newTransaction).futureValue
-        println(s"old uuid = ${transaction.uuid}, new uuid = $newTransactionUuid, ${UUIDs.unixTimestamp(transaction.uuid)}, ${UUIDs.unixTimestamp(newTransactionUuid)}")
 
         db.updateCheckpoint(transaction.partition, transaction.dtQuantum - 10) // checkpoint to - 10 minutes
 
@@ -1034,7 +1033,6 @@ class HyperStorageSpec extends FreeSpec
           indexContent(1).documentUri shouldBe "collection-1~"
           indexContent(1).itemSegment shouldBe "item2"
           indexContent(1).body.get should include("\"item2\"")
-          println(indexContent(1).body.get)
         }
       }
 

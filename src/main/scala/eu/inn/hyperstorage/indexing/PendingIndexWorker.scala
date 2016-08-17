@@ -7,7 +7,7 @@ import eu.inn.hyperstorage.db.{Db, IndexDef, PendingIndex}
 import eu.inn.metrics.MetricsTracker
 import org.slf4j.LoggerFactory
 
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 
 case object StartPendingIndexWorker
@@ -92,7 +92,7 @@ private [indexing] object IndexWorkerImpl {
 
   def selectPendingIndex(notifyActor: ActorRef, indexKey: IndexDefTransaction, db: Db)
                         (implicit ec: ExecutionContext, actorSystem: ActorSystem) = {
-    db.selectPendingIndex(indexKey.partition, indexKey.documentUri, indexKey.indexId, indexKey.defTransactionId) map {
+    db.selectPendingIndex(indexKey.partition, indexKey.documentUri, indexKey.indexId, indexKey.defTransactionId) flatMap {
       case Some(pendingIndex) ⇒
         db.selectIndexDef(indexKey.documentUri, indexKey.indexId) map {
           case Some(indexDef) if indexDef.defTransactionId == pendingIndex.defTransactionId ⇒
@@ -104,7 +104,7 @@ private [indexing] object IndexWorkerImpl {
       case None ⇒
         log.info(s"Can't find pending index for $indexKey, stopping actor")
         notifyActor ! CompletePendingIndex
-
+        Future.successful()
     } recover {
       case NonFatal(e) ⇒
         log.error(s"Can't fetch pending index for $indexKey", e)

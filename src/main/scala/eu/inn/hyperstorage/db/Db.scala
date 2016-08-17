@@ -238,14 +238,14 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       values (?,?,?,?,?,?,?)
     """.bind(indexDef).execute()
 
-  def updateIndexDefStatus(documentUri: String, indexId: String, newStatus: Int): Future[Unit] = cql"""
+  def updateIndexDefStatus(documentUri: String, indexId: String, newStatus: Int, defTransactionId: UUID): Future[Unit] = cql"""
       update index_def
-      set status = $newStatus
+      set status = $newStatus, def_transaction_id = $defTransactionId
       where document_uri = $documentUri and index_id = $indexId
     """.execute()
 
   def deleteIndexDef(documentUri: String, indexId: String): Future[Unit] = cql"""
-      delete index_def
+      delete from index_def
       where document_uri = $documentUri and index_id = $indexId
     """.execute()
 
@@ -304,7 +304,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   def deleteIndex(indexTable: String, documentUri: String, indexId: String): Future[Unit] = {
     val tableName = Dynamic(indexTable)
     cql"""
-      delete $tableName
+      delete from $tableName
       where document_uri = $documentUri and index_id=$indexId
     """.execute()
   }

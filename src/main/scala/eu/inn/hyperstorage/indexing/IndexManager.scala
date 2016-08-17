@@ -8,6 +8,7 @@ import eu.inn.hyperstorage.TransactionLogic
 import eu.inn.hyperstorage.db.Db
 import eu.inn.hyperstorage.sharding.ShardMemberStatus.{Active, Deactivating}
 import eu.inn.hyperstorage.sharding.{ShardedClusterData, UpdateShardStatus}
+import eu.inn.hyperstorage.utils.AkkaNaming
 import eu.inn.metrics.MetricsTracker
 
 import scala.collection.mutable
@@ -86,7 +87,6 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
       processPendingIndexes(clusterActor)
 
     case IndexCreatedOrDeleted(key) ⇒
-      log.debug(s"key = $key") // todo: logging
       val partitionSet = TransactionLogic.getPartitions(stateData).toSet
       if (partitionSet.contains(key.partition)) {
         if (addPendingIndex(key)) {
@@ -150,7 +150,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
       // createWorkingActor here
       val actorRef = context.actorOf(PendingIndexWorker.props(
         clusterActor, key, hyperbus, db, tracker
-      ))
+      ), AkkaNaming.next("idxw-"))
       indexWorkers += key → actorRef
       pendingPartitions(key.partition) -= key
     }

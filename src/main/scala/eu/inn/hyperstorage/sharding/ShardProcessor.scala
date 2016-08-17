@@ -7,6 +7,7 @@ import akka.cluster.{Cluster, ClusterEvent, Member, MemberStatus}
 import akka.routing.{ConsistentHash, MurmurHash}
 import eu.inn.metrics.MetricsTracker
 import eu.inn.hyperstorage.metrics.Metrics
+import eu.inn.hyperstorage.utils.AkkaNaming
 
 import scala.collection.mutable
 import scala.concurrent.duration._
@@ -77,7 +78,7 @@ private [sharding] case object ShardSyncTimer
 case object ShutdownProcessor
 case class ShardTaskComplete(task: ShardTask, result: Any)
 
-class ShardProcessor(workersSettings: Map[String, (Props, Int)],
+class ShardProcessor(workersSettings: Map[String, (Props, Int, String)],
                      roleName: String,
                      tracker: MetricsTracker,
                      syncTimeout: FiniteDuration = 1000.millisecond)
@@ -88,7 +89,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
     log.error(s"Cluster doesn't contains '$roleName' role. Please configure.")
   }
   private val selfAddress = cluster.selfAddress
-  val activeWorkers = workersSettings.map { case (groupName, (props, maxCount)) ⇒
+  val activeWorkers = workersSettings.map { case (groupName, _) ⇒
     groupName → mutable.ArrayBuffer[(ShardTask, ActorRef, ActorRef)]()
   }
   private val shardStatusSubscribers = mutable.MutableList[ActorRef]()
@@ -378,8 +379,9 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
                   safeStash(task)
                 } else {
                   val workerProps = workersSettings(task.group)._1
+                  val prefix = workersSettings(task.group)._3
                   try {
-                    val worker = context.system.actorOf(workerProps)
+                    val worker = context.system.actorOf(workerProps, AkkaNaming.next(prefix))
                     if (log.isDebugEnabled) {
                       log.debug(s"Forwarding task from ${sender()} to worker $worker: $task")
                     }
@@ -492,7 +494,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int)],
 
 object ShardProcessor {
   def props(
-             workersSettings: Map[String, (Props, Int)],
+             workersSettings: Map[String, (Props, Int, String)],
              roleName: String,
              tracker: MetricsTracker,
              syncTimeout: FiniteDuration = 1000.millisecond // todo: move to config!

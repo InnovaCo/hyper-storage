@@ -84,8 +84,8 @@ class HyperStorageService(console: Console,
   val foregroundWorkerProps = ForegroundWorker.props(hyperbus, db, tracker, backgroundTaskTimeout)
   val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, indexManagerRef)
   val workerSettings = Map(
-    "hyper-storage-foreground-worker" → (foregroundWorkerProps, maxForegroundWorkers),
-    "hyper-storage-background-worker" → (backgroundWorkerProps, maxBackgroundWorkers)
+    "hyper-storage-foreground-worker" → (foregroundWorkerProps, maxForegroundWorkers, "fgw-"),
+    "hyper-storage-background-worker" → (backgroundWorkerProps, maxBackgroundWorkers, "bgw-")
   )
 
   // shard processor actor
@@ -93,21 +93,21 @@ class HyperStorageService(console: Console,
     ShardProcessor.props(workerSettings, "hyper-storage", tracker, shardSyncTimeout), "hyper-storage"
   )
 
-  val distributorRef = actorSystem.actorOf(HyperbusAdapter.props(shardProcessorRef, db, tracker, requestTimeout))
+  val adapterRef = actorSystem.actorOf(HyperbusAdapter.props(shardProcessorRef, db, tracker, requestTimeout), "adapter")
 
   val subscriptions = Await.result({
     implicit val timeout: akka.util.Timeout = requestTimeout
-    hyperbus.routeTo[HyperbusAdapter](distributorRef)
+    hyperbus.routeTo[HyperbusAdapter](adapterRef)
   }, requestTimeout)
 
   val hotPeriod = (hotRecovery.toMillis, failTimeout.toMillis)
   log.info(s"Launching hot recovery $hotRecovery-$failTimeout")
-  val hotRecoveryRef = actorSystem.actorOf(HotRecoveryWorker.props(hotPeriod, db, shardProcessorRef, tracker, hotRecoveryRetry, backgroundTaskTimeout))
+  val hotRecoveryRef = actorSystem.actorOf(HotRecoveryWorker.props(hotPeriod, db, shardProcessorRef, tracker, hotRecoveryRetry, backgroundTaskTimeout), "hot-recovery")
   shardProcessorRef ! SubscribeToShardStatus(hotRecoveryRef)
 
   val stalePeriod = (staleRecovery.toMillis, hotRecovery.toMillis)
   log.info(s"Launching stale recovery $staleRecovery-$hotRecovery")
-  val staleRecoveryRef = actorSystem.actorOf(StaleRecoveryWorker.props(stalePeriod, db, shardProcessorRef, tracker, staleRecoveryRetry, backgroundTaskTimeout))
+  val staleRecoveryRef = actorSystem.actorOf(StaleRecoveryWorker.props(stalePeriod, db, shardProcessorRef, tracker, staleRecoveryRetry, backgroundTaskTimeout), "stale-recovery")
   shardProcessorRef ! SubscribeToShardStatus(staleRecoveryRef)
 
   log.info(s"Launching index manager")

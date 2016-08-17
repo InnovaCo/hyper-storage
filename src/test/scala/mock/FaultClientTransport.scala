@@ -16,11 +16,9 @@ class FaultClientTransport(config: Config) extends ClientTransport {
     if (FaultClientTransport.checkers.exists { checker ⇒
       checker.isDefinedAt(message) && checker(message)
     }) {
-      println(s"Failed publish: $message")
       throw new RuntimeException("publish failed (test method)")
     }
     else {
-      println(s"Successfully published: $message")
       new PublishResult {
         override def sent: Option[Boolean] = None
         override def offset: Option[String] = None

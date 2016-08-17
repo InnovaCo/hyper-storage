@@ -81,7 +81,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
   }
 
   def createShardProcessor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
-    val workerSettings = Map(groupName → (Props[TestWorker], workerCount))
+    val workerSettings = Map(groupName → (Props[TestWorker], workerCount, "test-worker"))
     val fsm = new TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor](actorSystem,
       ShardProcessor.props(workerSettings, "hyper-storage", tracker).withDispatcher("deque-dispatcher"),
       GuardianExtractor.guardian(actorSystem),
@@ -106,8 +106,8 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
     val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, indexManager)
     val workerSettings = Map(
-      "hyper-storage-foreground-worker" → (workerProps, 1),
-      "hyper-storage-background-worker" → (backgroundWorkerProps, 1)
+      "hyper-storage-foreground-worker" → (workerProps, 1, "fgw-"),
+      "hyper-storage-background-worker" → (backgroundWorkerProps, 1, "bgw-")
     )
 
     val processor = new TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor](system,

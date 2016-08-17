@@ -282,7 +282,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
                   if (insertedItemSegments.isEmpty) {
                     // indexing is finished
                     // todo: fix code format
-                    db.updateIndexDefStatus(task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, IndexDef.STATUS_NORMAL) flatMap { _ ⇒
+                    db.updateIndexDefStatus(task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, IndexDef.STATUS_NORMAL, task.indexDefTransaction.defTransactionId) flatMap { _ ⇒
                       db.deletePendingIndex(TransactionLogic.partitionFromUri(task.indexDefTransaction.documentUri), task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, task.indexDefTransaction.defTransactionId) map { _ ⇒
                         IndexContentTaskResult(None, task.processId)
                       }
@@ -391,7 +391,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
       case Some(indexDef) if indexDef.status != IndexDef.STATUS_DELETING ⇒
         val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(delete.path), delete.path, delete.indexId, None, UUIDs.timeBased())
         db.insertPendingIndex(pendingIndex) flatMap { _ ⇒
-          db.updateIndexDefStatus(pendingIndex.documentUri, pendingIndex.indexId, IndexDef.STATUS_DELETING) map { _ ⇒
+          db.updateIndexDefStatus(pendingIndex.documentUri, pendingIndex.indexId, IndexDef.STATUS_DELETING, pendingIndex.defTransactionId) map { _ ⇒
             // todo: need guaranty that if the message is lost, we process this index!
             indexManager ! IndexCreatedOrDeleted(IndexDefTransaction(
               delete.path,
