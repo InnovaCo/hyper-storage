@@ -24,7 +24,6 @@ case class Content(
                     revision: Long,
                     transactionList: List[UUID],
                     body: Option[String],
-                    isDeleted: Boolean,
                     createdAt: Date,
                     modifiedAt: Option[Date]
                   ) extends ContentBase {
@@ -105,31 +104,31 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   }
 
   def selectContent(documentUri: String, itemSegment: String): Future[Option[Content]] = cql"""
-      select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
+      select document_uri,item_segment,revision,transaction_list,body,created_at,modified_at from content
       where document_uri=$documentUri and item_segment=$itemSegment
     """.oneOption[Content]
 
   def selectContentCollection(documentUri: String, limit: Int): Future[Iterator[Content]] = cql"""
-      select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
+      select document_uri,item_segment,revision,transaction_list,body,created_at,modified_at from content
       where document_uri=$documentUri and item_segment > ''
       limit $limit
     """.all[Content]
 
   def selectContentCollectionFrom(documentUri: String, fromId: String, limit: Int): Future[Iterator[Content]] = cql"""
-      select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
+      select document_uri,item_segment,revision,transaction_list,body,created_at,modified_at from content
       where document_uri=$documentUri and item_segment > $fromId
       limit $limit
     """.all[Content]
 
   def selectContentCollectionDesc(documentUri: String, limit: Int): Future[Iterator[Content]] = cql"""
-      select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
+      select document_uri,item_segment,revision,transaction_list,body,created_at,modified_at from content
       where document_uri=$documentUri
       order by item_segment desc
       limit $limit
     """.all[Content]
 
   def selectContentCollectionDescFrom(documentUri: String, fromId: String, limit: Int): Future[Iterator[Content]] = cql"""
-      select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
+      select document_uri,item_segment,revision,transaction_list,body,created_at,modified_at from content
       where document_uri=$documentUri and item_segment < $fromId
       order by item_segment desc
       limit $limit
@@ -142,9 +141,14 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     """.oneOption[ContentStatic]
 
   def insertContent(content: Content): Future[Unit] = cql"""
-      insert into content(document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at)
-      values(?,?,?,?,?,?,?,?)
+      insert into content(document_uri,item_segment,revision,transaction_list,body,created_at,modified_at)
+      values(?,?,?,?,?,?,?)
     """.bind(content).execute()
+
+  def deleteContent(documentUri: String, itemSegment: String): Future[Unit] = cql"""
+      delete from content
+      where document_uri = $documentUri and item_segment = $itemSegment
+    """.execute()
 
   def selectTransaction(dtQuantum: Long, partition: Int, documentUri: String, uuid: UUID): Future[Option[Transaction]] = cql"""
       select dt_quantum,partition,document_uri,item_segment,uuid,revision,body,completed_at from transaction

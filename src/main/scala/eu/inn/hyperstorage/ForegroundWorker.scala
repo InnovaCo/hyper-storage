@@ -166,7 +166,7 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
                             newTransaction: Transaction,
                             request: DynamicRequest,
                             existingContent: Option[Content],
-                            existingContentStatic: Option[ContentBase]): Content =
+                            existingContentStatic: Option[ContentBase]): Option[Content] =
   request.method match {
     case Method.PUT ⇒ putContent(documentUri, itemSegment, newTransaction, request, existingContent, existingContentStatic)
     case Method.PATCH ⇒ patchContent(documentUri, itemSegment, newTransaction, request, existingContent)
@@ -178,40 +178,37 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
                          newTransaction: Transaction,
                          request: DynamicRequest,
                          existingContent: Option[Content],
-                         existingContentStatic: Option[ContentBase]): Content = existingContentStatic match {
+                         existingContentStatic: Option[ContentBase]): Option[Content] = existingContentStatic match {
     case None ⇒
-      Content(documentUri, itemSegment, newTransaction.revision,
+      Some(Content(documentUri, itemSegment, newTransaction.revision,
         transactionList = List(newTransaction.uuid),
         body = Some(request.body.serializeToString()),
-        isDeleted = false,
         createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
         modifiedAt = existingContent.flatMap(_.modifiedAt)
-      )
+      ))
 
     case Some(static) ⇒
-      Content(documentUri, itemSegment, newTransaction.revision,
+      Some(Content(documentUri, itemSegment, newTransaction.revision,
         transactionList = newTransaction.uuid +: static.transactionList,
         body = Some(request.body.serializeToString()),
-        isDeleted = false,
         createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
         modifiedAt = existingContent.flatMap(_.modifiedAt)
-      )
+      ))
   }
 
   private def patchContent(documentUri: String,
                            itemSegment: String,
                            newTransaction: Transaction,
                            request: DynamicRequest,
-                           existingContent: Option[Content]): Content = existingContent match {
+                           existingContent: Option[Content]): Option[Content] = existingContent match {
 
-    case Some(content) if !content.isDeleted ⇒
-      Content(documentUri, itemSegment, newTransaction.revision,
+    case Some(content) ⇒
+      Some(Content(documentUri, itemSegment, newTransaction.revision,
         transactionList = newTransaction.uuid +: content.transactionList,
         body = Some(mergeBody(StringDeserializer.dynamicBody(content.body), request.body).serializeToString()),
-        isDeleted = false,
         createdAt = content.createdAt,
         modifiedAt = Some(new Date())
-      )
+      ))
 
     case _ ⇒
       implicit val mcx = request
@@ -222,19 +219,13 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
                             itemSegment: String,
                             newTransaction: Transaction,
                             request: DynamicRequest,
-                            existingContent: Option[Content]): Content = existingContent match {
+                            existingContent: Option[Content]): Option[Content] = existingContent match {
     case None ⇒
       implicit val mcx = request
       throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
 
     case Some(content) ⇒
-      Content(documentUri, itemSegment, newTransaction.revision,
-        transactionList = newTransaction.uuid +: content.transactionList,
-        body = None,
-        isDeleted = true,
-        createdAt = content.createdAt,
-        modifiedAt = Some(new Date())
-      )
+      None
   }
 
   private def updateResource(documentUri: String,
@@ -245,8 +236,14 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
     val newTransaction = createNewTransaction(documentUri, itemSegment, request, existingContentStatic)
     val newContent = updateContent(documentUri, itemSegment, newTransaction, request, existingContent, existingContentStatic)
     db.insertTransaction(newTransaction) flatMap { _ ⇒
-      db.insertContent(newContent) map { _ ⇒
-        newTransaction
+      newContent match {
+        case Some(content) ⇒ db.insertContent(content) map { _ ⇒
+          newTransaction
+        }
+
+        case None ⇒ db.deleteContent(documentUri, itemSegment) map {_ ⇒
+          newTransaction
+        }
       }
     }
   }
