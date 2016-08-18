@@ -56,7 +56,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
             val stream = collection.toStream
             val result = Obj(Map("_embedded" →
               Obj(Map("els" →
-                Lst(stream.filterNot(s ⇒ s.itemSegment.isEmpty).map { item ⇒
+                Lst(stream.filterNot(s ⇒ s.itemSegment.isEmpty || s.isDeleted).map { item ⇒ // todo: isDeleted & paging = :(
                   StringDeserializer.dynamicBody(item.body).content
                 }.toSeq)
               ))))
@@ -75,8 +75,12 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
           case None ⇒
             notFound
           case Some(content) ⇒
-            val body = StringDeserializer.dynamicBody(content.body)
-            Ok(body, Headers(Map(Header.REVISION → Seq(content.revision.toString))))
+            if (!content.isDeleted) {
+              val body = StringDeserializer.dynamicBody(content.body)
+              Ok(body, Headers(Map(Header.REVISION → Seq(content.revision.toString))))
+            } else {
+              notFound
+            }
         }
       }
     }

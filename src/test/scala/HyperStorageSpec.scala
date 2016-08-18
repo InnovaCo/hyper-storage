@@ -22,7 +22,6 @@ import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
 import org.scalatest.{FreeSpec, Matchers}
 
-import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 
@@ -300,7 +299,7 @@ class HyperStorageSpec extends FreeSpec
         }
 
         whenReady(db.selectContent(path, "")) { result =>
-          result shouldBe None
+          result.get.isDeleted shouldBe true
         }
       }
 
@@ -311,8 +310,6 @@ class HyperStorageSpec extends FreeSpec
 
         cleanUpCassandra()
 
-        val transactionList = mutable.ListBuffer[Value]()
-
         val worker = TestActorRef(ForegroundWorker.props(hyperbus, db, tracker, 10.seconds))
         val path = "abcde"
         val taskStr1 = StringSerializer.serializeToString(HyperStorageContentPut(path,
@@ -320,16 +317,14 @@ class HyperStorageSpec extends FreeSpec
         ))
         worker ! ForegroundTask(path, System.currentTimeMillis() + 10000, taskStr1)
         expectMsgType[BackgroundTask]
-        val result1 = expectMsgType[ShardTaskComplete]
-        transactionList += response(result1.result.asInstanceOf[ForegroundWorkerTaskResult].content).body.content.transactionId
+        expectMsgType[ShardTaskComplete]
 
         val taskStr2 = StringSerializer.serializeToString(HyperStorageContentPatch(path,
           DynamicBody(ObjV("text" → "abc", "text2" → "klmn"))
         ))
         worker ! ForegroundTask(path, System.currentTimeMillis() + 10000, taskStr2)
         expectMsgType[BackgroundTask]
-        val result2 = expectMsgType[ShardTaskComplete]
-        transactionList += response(result2.result.asInstanceOf[ForegroundWorkerTaskResult].content).body.content.transactionId
+        expectMsgType[ShardTaskComplete]
 
         val taskStr3 = StringSerializer.serializeToString(HyperStorageContentDelete(path))
         worker ! ForegroundTask(path, System.currentTimeMillis() + 10000, taskStr3)
@@ -337,23 +332,22 @@ class HyperStorageSpec extends FreeSpec
         val workerResult = expectMsgType[ShardTaskComplete]
         val r = response(workerResult.result.asInstanceOf[ForegroundWorkerTaskResult].content)
         r.statusCode should equal(Status.OK)
-        transactionList += r.body.content.transactionId
-        // todo: list of transactions!s
 
-        whenReady(db.selectContent(path, "")) { result =>
-          result shouldBe None
+        val transactions = whenReady(db.selectContent(path, "")) { result =>
+          result.get.isDeleted should equal(true)
+          result.get.transactionList
         }
 
-//        selectTransactions(transactions, path, db) foreach { transaction ⇒
-//          transaction.completedAt should be(None)
-//        }
+        selectTransactions(transactions, path, db) foreach { transaction ⇒
+          transaction.completedAt should be(None)
+        }
 
         val backgroundWorker = TestActorRef(BackgroundWorker.props(hyperbus, db, tracker, self))
         backgroundWorker ! backgroundWorkerTask
         val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
         val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundTaskResult]
         rc.documentUri should equal(path)
-        // rc.transactions should equal(transactions.reverse)
+        rc.transactions should equal(transactions.reverse)
 
         selectTransactions(rc.transactions, path, db) foreach { transaction ⇒
           transaction.completedAt shouldNot be(None)
@@ -600,7 +594,8 @@ class HyperStorageSpec extends FreeSpec
         }
 
         whenReady(db.selectContent(documentUri, itemSegment)) { result =>
-          result shouldBe None
+          result.get.isDeleted shouldNot be(None)
+          result.get.modifiedAt shouldNot be(None)
         }
       }
     }
@@ -1342,6 +1337,5 @@ class HyperStorageSpec extends FreeSpec
     }
   }
 
-  // todo: StringDeserializer should return DynamicBody here
-  def response(content: String): Response[DynamicBody] = StringDeserializer.dynamicResponse(content).asInstanceOf[Response[DynamicBody]]
+  def response(content: String): Response[Body] = StringDeserializer.dynamicResponse(content)
 }

@@ -100,6 +100,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
   }
 
+  // todo: index new updates
   def completeTransactions(task: BackgroundTask, content: ContentStatic): Future[ShardTaskComplete] = {
     if (content.transactionList.isEmpty) {
       Future.successful(ShardTaskComplete(task, BackgroundTaskResult(task.documentUri, Seq.empty)))

@@ -4,6 +4,7 @@ create table content (
 	revision bigint static,
 	transaction_list list<timeuuid> static,
 	body text,
+	is_deleted boolean,
 	created_at timestamp,
 	modified_at timestamp,
 	primary key (document_uri, item_segment)
