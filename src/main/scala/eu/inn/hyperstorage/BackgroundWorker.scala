@@ -3,7 +3,8 @@ package eu.inn.hyperstorage
 import java.util.UUID
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props, Status}
-import akka.pattern.pipe
+import akka.pattern.{ask, pipe}
+import akka.util.Timeout
 import com.datastax.driver.core.utils.UUIDs
 import eu.inn.binders.value.{Null, Value}
 import eu.inn.hyperbus.{Hyperbus, IdGenerator}
@@ -11,13 +12,14 @@ import eu.inn.hyperbus.model._
 import eu.inn.hyperstorage.api._
 import eu.inn.metrics.MetricsTracker
 import eu.inn.hyperstorage.db._
-import eu.inn.hyperstorage.indexing.{IndexCreatedOrDeleted, IndexLogic, IndexDefTransaction}
+import eu.inn.hyperstorage.indexing.{IndexCreatedOrDeleted, IndexDefTransaction, IndexLogic}
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
 import eu.inn.hyperstorage.utils.FutureUtils
 
 import scala.collection.Seq
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.Future
+import scala.concurrent.duration._
 import scala.util.{Success, Try}
 import scala.util.control.NonFatal
 
@@ -354,18 +356,18 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
 
       // validate: id, sort, expression, etc
       db.insertPendingIndex(pendingIndex) flatMap { _ ⇒
-        db.insertIndexDef(indexDef) map { _ ⇒
-          // todo: need guaranty that if the message is lost, we process this index!
-          indexManager ! IndexCreatedOrDeleted(IndexDefTransaction(
+        db.insertIndexDef(indexDef) flatMap { _ ⇒
+          implicit val timeout = Timeout(60.seconds)
+          indexManager ? IndexCreatedOrDeleted(IndexDefTransaction(
             post.path,
             indexId,
             pendingIndex.defTransactionId
-          ))
-
-          Created(HyperStorageIndexCreated(indexId, path = post.path, links = new LinksBuilder()
-            .location(HyperStorageIndex.selfPattern, templated = true)
-            .result()
-          ))
+          )) map { _ ⇒
+            Created(HyperStorageIndexCreated(indexId, path = post.path, links = new LinksBuilder()
+              .location(HyperStorageIndex.selfPattern, templated = true)
+              .result()
+            ))
+          }
         }
       }
     } recover {
@@ -391,14 +393,15 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
       case Some(indexDef) if indexDef.status != IndexDef.STATUS_DELETING ⇒
         val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(delete.path), delete.path, delete.indexId, None, UUIDs.timeBased())
         db.insertPendingIndex(pendingIndex) flatMap { _ ⇒
-          db.updateIndexDefStatus(pendingIndex.documentUri, pendingIndex.indexId, IndexDef.STATUS_DELETING, pendingIndex.defTransactionId) map { _ ⇒
-            // todo: need guaranty that if the message is lost, we process this index!
-            indexManager ! IndexCreatedOrDeleted(IndexDefTransaction(
+          db.updateIndexDefStatus(pendingIndex.documentUri, pendingIndex.indexId, IndexDef.STATUS_DELETING, pendingIndex.defTransactionId) flatMap { _ ⇒
+            implicit val timeout = Timeout(60.seconds)
+            indexManager ? IndexCreatedOrDeleted(IndexDefTransaction(
               delete.path,
               delete.indexId,
               pendingIndex.defTransactionId
-            ))
-            NoContent(EmptyBody)
+            )) map { _ ⇒
+              NoContent(EmptyBody)
+            }
           }
         }
 

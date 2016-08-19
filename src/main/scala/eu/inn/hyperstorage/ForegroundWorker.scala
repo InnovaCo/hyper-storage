@@ -210,7 +210,7 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
                            newTransaction: Transaction,
                            request: DynamicRequest,
                            existingContent: Option[Content]): Content = {
-    if (ContentLogic.isCollectionUri(documentUri)) {
+    if (ContentLogic.isCollectionUri(documentUri) && itemSegment.isEmpty) {
       throw new IllegalArgumentException(s"PATCH is not allowed for a collection~")
     }
 

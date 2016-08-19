@@ -22,11 +22,12 @@ case class IndexDefTransaction(documentUri: String, indexId: String, defTransact
   def partition: Int = TransactionLogic.partitionFromUri(documentUri)
 }
 
-// todo: rename those two
+// todo: rename those four?
 case class PartitionPendingIndexes(partition: Int, rev: Long, indexes: Seq[IndexDefTransaction])
 case class PartitionPendingFailed(rev: Long)
 case class IndexCreatedOrDeleted(key: IndexDefTransaction)
 case class IndexingComplete(key: IndexDefTransaction)
+case object IndexCommandAccepted
 
 // todo: handle child termination without IndexingComplete
 
@@ -96,6 +97,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
       else {
         log.info(s"Received $key update but partition is handled by other node, ignored")
       }
+      sender() ! IndexCommandAccepted
   }
 
   def addPendingIndex(key: IndexDefTransaction): Boolean = {
