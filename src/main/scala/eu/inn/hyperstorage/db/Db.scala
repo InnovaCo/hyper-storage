@@ -16,6 +16,7 @@ trait ContentBase {
   def documentUri: String
   def revision: Long
   def transactionList: List[UUID]
+  def isDeleted: Boolean
 }
 
 case class Content(
@@ -33,7 +34,8 @@ case class Content(
 case class ContentStatic(
                     documentUri: String,
                     revision: Long,
-                    transactionList: List[UUID]
+                    transactionList: List[UUID],
+                    isDeleted: Boolean
                   ) extends ContentBase
 
 case class Transaction(
@@ -105,46 +107,56 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   }
 
   def selectContent(documentUri: String, itemSegment: String): Future[Option[Content]] = cql"""
-      select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
+      select document_uri,item_segment,revision,transaction_list,is_deleted,body,created_at,modified_at from content
       where document_uri=$documentUri and item_segment=$itemSegment
     """.oneOption[Content]
 
   def selectContentCollection(documentUri: String, limit: Int): Future[Iterator[Content]] = cql"""
-      select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
+      select document_uri,item_segment,revision,transaction_list,is_deleted,body,created_at,modified_at from content
       where document_uri=$documentUri and item_segment > ''
       limit $limit
     """.all[Content]
 
   def selectContentCollectionFrom(documentUri: String, fromId: String, limit: Int): Future[Iterator[Content]] = cql"""
-      select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
+      select document_uri,item_segment,revision,transaction_list,is_deleted,body,created_at,modified_at from content
       where document_uri=$documentUri and item_segment > $fromId
       limit $limit
     """.all[Content]
 
   def selectContentCollectionDesc(documentUri: String, limit: Int): Future[Iterator[Content]] = cql"""
-      select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
+      select document_uri,item_segment,revision,transaction_list,is_deleted,body,created_at,modified_at from content
       where document_uri=$documentUri
       order by item_segment desc
       limit $limit
     """.all[Content]
 
   def selectContentCollectionDescFrom(documentUri: String, fromId: String, limit: Int): Future[Iterator[Content]] = cql"""
-      select document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at from content
+      select document_uri,item_segment,revision,transaction_list,is_deleted,body,created_at,modified_at from content
       where document_uri=$documentUri and item_segment < $fromId
       order by item_segment desc
       limit $limit
     """.all[Content]
 
   def selectContentStatic(documentUri: String): Future[Option[ContentStatic]] = cql"""
-      select document_uri,revision,transaction_list from content
+      select document_uri,revision,transaction_list,is_deleted from content
       where document_uri=$documentUri
       limit 1
     """.oneOption[ContentStatic]
 
   def insertContent(content: Content): Future[Unit] = cql"""
-      insert into content(document_uri,item_segment,revision,transaction_list,body,is_deleted,created_at,modified_at)
+      insert into content(document_uri,item_segment,revision,transaction_list,is_deleted,body,created_at,modified_at)
       values(?,?,?,?,?,?,?,?)
     """.bind(content).execute()
+
+  def deleteContentItem(content: ContentBase, itemSegment: String): Future[Unit] = cql"""
+      begin batch
+        update content
+        set transaction_list = ${content.transactionList}, revision = ${content.revision}
+        where document_uri = ${content.documentUri};
+        delete from content
+        where document_uri = ${content.documentUri} and item_segment = $itemSegment;
+      apply batch;
+    """.execute()
 
   def selectTransaction(dtQuantum: Long, partition: Int, documentUri: String, uuid: UUID): Future[Option[Transaction]] = cql"""
       select dt_quantum,partition,document_uri,item_segment,uuid,revision,body,completed_at from transaction

@@ -38,7 +38,7 @@ object ContentLogic {
       // collection item
       val r = segments.reverse
       val a = r(1)
-      if (a.endsWith("~")) {
+      if (isCollectionUri(a)) {
         val documentUri = r.tail.reverse.mkString("/")
         val itemSegment = r.head
         ResourcePath(documentUri, itemSegment)
@@ -51,4 +51,6 @@ object ContentLogic {
       ResourcePath(path, "")
     }
   }
+
+  def isCollectionUri(path: String): Boolean = path.endsWith("~")
 }

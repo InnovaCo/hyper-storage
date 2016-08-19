@@ -56,9 +56,9 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
             val stream = collection.toStream
             val result = Obj(Map("_embedded" →
               Obj(Map("els" →
-                Lst(stream.filterNot(s ⇒ s.itemSegment.isEmpty || s.isDeleted).map { item ⇒ // todo: isDeleted & paging = :(
+                Lst(stream.filterNot(s ⇒ s.itemSegment.isEmpty || s.isDeleted).map { item ⇒
                   StringDeserializer.dynamicBody(item.body).content
-                }.toSeq)
+                })
               ))))
 
             Ok(DynamicBody(result), Headers(

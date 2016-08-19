@@ -54,7 +54,7 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
         case Method.POST ⇒
           // posting new item into collection, converting post to put
           val id = IdGenerator.create()
-          if (itemSegment.isEmpty) {
+          if (ContentLogic.isCollectionUri(documentUri) && itemSegment.isEmpty) {
             (id, request.copy(
               uri = Uri(request.uri.pattern, request.uri.args + "path" → Specific(request.path + "/" + id)),
               headers = new HeadersBuilder(request.headers) withMethod Method.PUT result(), // POST becomes PUT with auto Id
@@ -62,7 +62,8 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
             ))
           }
           else {
-            throw new IllegalArgumentException(s"POST on collection item is not supported")
+            // todo: replace with BadRequest?
+            throw new IllegalArgumentException(s"POST is allowed only for a collection~")
           }
 
         case Method.PUT ⇒
@@ -96,7 +97,7 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
 
       f flatMap { existingContentStatic ⇒
         updateResource(documentUri, itemSegment, request, existingContent, existingContentStatic) map { newTransaction ⇒
-          ForegroundWorkerTaskCompleted(task, newTransaction, existingContent.isEmpty)
+          ForegroundWorkerTaskCompleted(task, newTransaction, existingContent.isEmpty && request.method != Method.DELETE)
         }
       }
     } recover {
@@ -170,7 +171,7 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
   request.method match {
     case Method.PUT ⇒ putContent(documentUri, itemSegment, newTransaction, request, existingContent, existingContentStatic)
     case Method.PATCH ⇒ patchContent(documentUri, itemSegment, newTransaction, request, existingContent)
-    case Method.DELETE ⇒ deleteContent(documentUri, itemSegment, newTransaction, request, existingContent)
+    case Method.DELETE ⇒ deleteContent(documentUri, itemSegment, newTransaction, request, existingContent, existingContentStatic)
   }
 
   private def putContent(documentUri: String,
@@ -178,51 +179,63 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
                          newTransaction: Transaction,
                          request: DynamicRequest,
                          existingContent: Option[Content],
-                         existingContentStatic: Option[ContentBase]): Content = existingContentStatic match {
-    case None ⇒
-      Content(documentUri, itemSegment, newTransaction.revision,
-        transactionList = List(newTransaction.uuid),
-        body = Some(request.body.serializeToString()),
-        isDeleted = false,
-        createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
-        modifiedAt = existingContent.flatMap(_.modifiedAt)
-      )
+                         existingContentStatic: Option[ContentBase]): Content = {
+    if (ContentLogic.isCollectionUri(documentUri) && itemSegment.isEmpty) {
+      throw Conflict(ErrorBody("collection-put-not-implemented", Some(s"Currently you can't put the whole collection")))
+    }
 
-    case Some(static) ⇒
-      Content(documentUri, itemSegment, newTransaction.revision,
-        transactionList = newTransaction.uuid +: static.transactionList,
-        body = Some(request.body.serializeToString()),
-        isDeleted = false,
-        createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
-        modifiedAt = existingContent.flatMap(_.modifiedAt)
-      )
+    existingContentStatic match {
+      case None ⇒
+        Content(documentUri, itemSegment, newTransaction.revision,
+          transactionList = List(newTransaction.uuid),
+          body = Some(request.body.serializeToString()),
+          isDeleted = false,
+          createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
+          modifiedAt = existingContent.flatMap(_.modifiedAt)
+        )
+
+      case Some(static) ⇒
+        Content(documentUri, itemSegment, newTransaction.revision,
+          transactionList = newTransaction.uuid +: static.transactionList,
+          body = Some(request.body.serializeToString()),
+          isDeleted = false,
+          createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
+          modifiedAt = existingContent.flatMap(_.modifiedAt)
+        )
+    }
   }
 
   private def patchContent(documentUri: String,
                            itemSegment: String,
                            newTransaction: Transaction,
                            request: DynamicRequest,
-                           existingContent: Option[Content]): Content = existingContent match {
+                           existingContent: Option[Content]): Content = {
+    if (ContentLogic.isCollectionUri(documentUri)) {
+      throw new IllegalArgumentException(s"PATCH is not allowed for a collection~")
+    }
 
-    case Some(content) if !content.isDeleted ⇒
-      Content(documentUri, itemSegment, newTransaction.revision,
-        transactionList = newTransaction.uuid +: content.transactionList,
-        body = Some(mergeBody(StringDeserializer.dynamicBody(content.body), request.body).serializeToString()),
-        isDeleted = false,
-        createdAt = content.createdAt,
-        modifiedAt = Some(new Date())
-      )
+    existingContent match {
+      case Some(content) if !content.isDeleted ⇒
+        Content(documentUri, itemSegment, newTransaction.revision,
+          transactionList = newTransaction.uuid +: content.transactionList,
+          body = Some(mergeBody(StringDeserializer.dynamicBody(content.body), request.body).serializeToString()),
+          isDeleted = false,
+          createdAt = content.createdAt,
+          modifiedAt = Some(new Date())
+        )
 
-    case _ ⇒
-      implicit val mcx = request
-      throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
+      case _ ⇒
+        implicit val mcx = request
+        throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
+    }
   }
 
   private def deleteContent(documentUri: String,
                             itemSegment: String,
                             newTransaction: Transaction,
                             request: DynamicRequest,
-                            existingContent: Option[Content]): Content = existingContent match {
+                            existingContent: Option[Content],
+                            existingContentStatic: Option[ContentBase]): Content = existingContentStatic match {
     case None ⇒
       implicit val mcx = request
       throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
@@ -232,7 +245,7 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
         transactionList = newTransaction.uuid +: content.transactionList,
         body = None,
         isDeleted = true,
-        createdAt = content.createdAt,
+        createdAt = existingContent.map(_.createdAt).getOrElse(new Date()),
         modifiedAt = Some(new Date())
       )
   }
@@ -245,7 +258,14 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
     val newTransaction = createNewTransaction(documentUri, itemSegment, request, existingContentStatic)
     val newContent = updateContent(documentUri, itemSegment, newTransaction, request, existingContent, existingContentStatic)
     db.insertTransaction(newTransaction) flatMap { _ ⇒
-      db.insertContent(newContent) map { _ ⇒
+      {
+        if (!itemSegment.isEmpty && newContent.isDeleted) { // deleting item
+          db.deleteContentItem(newContent, itemSegment)
+        }
+        else {
+          db.insertContent(newContent)
+        }
+      } map { _ ⇒
         newTransaction
       }
     }

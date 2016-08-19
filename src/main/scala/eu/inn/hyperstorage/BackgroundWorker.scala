@@ -198,7 +198,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
 
   def validateCollectionUri(uri: String) = {
     val ResourcePath(documentUri, itemSegment) = splitPath(uri)
-    if (!uri.endsWith("~") || !itemSegment.isEmpty) {
+    if (!ContentLogic.isCollectionUri(uri) || !itemSegment.isEmpty) {
       throw new IllegalArgumentException(s"Task key '$uri' isn't a collection URI.")
     }
     if (documentUri != uri) {
@@ -398,7 +398,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
               delete.indexId,
               pendingIndex.defTransactionId
             ))
-            Accepted(EmptyBody)
+            NoContent(EmptyBody)
           }
         }
 

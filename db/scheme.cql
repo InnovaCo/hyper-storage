@@ -3,8 +3,8 @@ create table content (
 	item_segment text,
 	revision bigint static,
 	transaction_list list<timeuuid> static,
+	is_deleted boolean static,
 	body text,
-	is_deleted boolean,
 	created_at timestamp,
 	modified_at timestamp,
 	primary key (document_uri, item_segment)

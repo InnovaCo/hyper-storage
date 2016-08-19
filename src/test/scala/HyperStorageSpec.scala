@@ -222,7 +222,7 @@ class HyperStorageSpec extends FreeSpec
           result.get.body should equal(Some("""{"text1":"efg","text3":"zzz"}"""))
         }
 
-        // delete element
+        // delete resource
         val deleteTask = HyperStorageContentDelete(path)
         val deleteTaskStr = StringSerializer.serializeToString(deleteTask)
         worker ! ForegroundTask(path, System.currentTimeMillis() + 10000, deleteTaskStr)
@@ -604,10 +604,41 @@ class HyperStorageSpec extends FreeSpec
           }
         }
 
-        whenReady(db.selectContent(documentUri, itemSegment)) { result =>
-          result.get.isDeleted shouldNot be(None)
-          result.get.modifiedAt shouldNot be(None)
+        db.selectContent(documentUri, itemSegment).futureValue shouldBe None
+      }
+
+      "Delete collection" in {
+        val hyperbus = testHyperbus()
+        val tk = testKit()
+        import tk._
+
+        val worker = TestActorRef(ForegroundWorker.props(hyperbus, db, tracker, 10.seconds))
+
+        val path = UUID.randomUUID().toString + "~/el1"
+        val ResourcePath(documentUri, itemSegment) = ContentLogic.splitPath(path)
+
+        val taskPutStr = StringSerializer.serializeToString(HyperStorageContentPut(path,
+          DynamicBody(ObjV("text1" → "abc", "text2" → "klmn"))
+        ))
+
+        worker ! ForegroundTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr)
+        expectMsgType[BackgroundTask]
+        expectMsgType[ShardTaskComplete]
+
+        val task = HyperStorageContentDelete(documentUri)
+        val taskStr = StringSerializer.serializeToString(task)
+        worker ! ForegroundTask(documentUri, System.currentTimeMillis() + 10000, taskStr)
+
+        expectMsgType[BackgroundTask]
+        expectMsgPF() {
+          case ShardTaskComplete(_, result: ForegroundWorkerTaskResult) if response(result.content).statusCode == Status.OK &&
+            response(result.content).correlationId == task.correlationId ⇒ {
+            true
+          }
         }
+
+        db.selectContent(documentUri, itemSegment).futureValue.get.isDeleted shouldBe true
+        db.selectContent(documentUri, "").futureValue.get.isDeleted shouldBe true
       }
     }
 
@@ -1336,7 +1367,7 @@ class HyperStorageSpec extends FreeSpec
         }
 
         val f3 = hyperbus <~ HyperStorageIndexDelete(path, "index1")
-        f3.futureValue.statusCode should equal(Status.ACCEPTED)
+        f3.futureValue.statusCode should equal(Status.NO_CONTENT)
 
         eventually {
           val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
