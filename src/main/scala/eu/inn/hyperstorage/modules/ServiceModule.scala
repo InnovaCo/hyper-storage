@@ -9,12 +9,12 @@ import eu.inn.servicecontrol.api.Service
 import scala.concurrent.ExecutionContext
 
 class ServiceModule(config: Config) extends ConsoleModule {
-  bind [Config] to config
-  bind [ExecutionContext] to scala.concurrent.ExecutionContext.Implicits.global
-  bind [CassandraConnector] to new CassandraConnector {
+  bind[Config] to config
+  bind[ExecutionContext] to scala.concurrent.ExecutionContext.Implicits.global
+  bind[CassandraConnector] to new CassandraConnector {
     override def connect(): Session = {
       CassandraConnector.createCassandraSession(config.getConfig("cassandra"))
     }
   }
-  bind [Service] to injected [HyperStorageService]
+  bind[Service] to injected[HyperStorageService]
 }

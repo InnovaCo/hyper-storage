@@ -7,21 +7,21 @@ import akka.pattern.{ask, pipe}
 import akka.util.Timeout
 import com.datastax.driver.core.utils.UUIDs
 import eu.inn.binders.value.{Null, Value}
-import eu.inn.hyperbus.{Hyperbus, IdGenerator}
 import eu.inn.hyperbus.model._
-import eu.inn.hyperstorage.api._
-import eu.inn.metrics.MetricsTracker
+import eu.inn.hyperbus.{Hyperbus, IdGenerator}
 import eu.inn.hyperstorage.db._
+import eu.inn.hyperstorage.api._
 import eu.inn.hyperstorage.indexing.{IndexCreatedOrDeleted, IndexDefTransaction, IndexLogic}
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
 import eu.inn.hyperstorage.utils.FutureUtils
+import eu.inn.metrics.MetricsTracker
 
 import scala.collection.Seq
 import scala.concurrent.Future
 import scala.concurrent.duration._
-import scala.util.{Success, Try}
 import scala.util.control.NonFatal
+import scala.util.{Success, Try}
 
 // todo: do we really need a ShardTaskComplete ?
 // todo: use strictly Hyperbus OR akka serialization for the internal akka-cluster
@@ -29,13 +29,16 @@ import scala.util.control.NonFatal
 
 trait BackgroundTaskTrait extends ShardTask {
   def ttl: Long
+
   def isExpired = ttl < System.currentTimeMillis()
+
   def group = "hyper-storage-background-worker"
 }
 
 @SerialVersionUID(1L) case class BackgroundTask(ttl: Long, documentUri: String) extends BackgroundTaskTrait {
   def key = documentUri
 }
+
 @SerialVersionUID(1L) case class BackgroundTaskResult(documentUri: String, transactions: Seq[UUID])
 
 // todo: request -> string as for the Foreground
@@ -51,13 +54,17 @@ trait BackgroundTaskTrait extends ShardTask {
 }
 
 @SerialVersionUID(1L) case class IndexContentTaskResult(lastItemSegment: Option[String], processId: Long)
+
 @SerialVersionUID(1L) case class IndexContentTaskFailed(processId: Long, reason: String) extends RuntimeException(s"Index content task for process $processId is failed with reason $reason")
 
 @SerialVersionUID(1L) case class NoSuchResourceException(documentUri: String) extends RuntimeException(s"No such resource: $documentUri")
+
 @SerialVersionUID(1L) case class IncorrectDataException(documentUri: String, reason: String) extends RuntimeException(s"Data for $documentUri is incorrect: $reason")
+
 @SerialVersionUID(1L) case class BackgroundTaskFailedException(documentUri: String, reason: String) extends RuntimeException(s"Background task for $documentUri is failed: $reason")
 
 class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, indexManager: ActorRef) extends Actor with ActorLogging {
+
   import ContentLogic._
   import context._
 
@@ -75,7 +82,8 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
   def executeBackgroundTask(owner: ActorRef, task: BackgroundTask): Unit = {
     val ResourcePath(documentUri, itemSegment) = ContentLogic.splitPath(task.documentUri)
     if (!itemSegment.isEmpty) {
-      owner ! Status.Success { // todo: is this have to be a success
+      // todo: is this have to be a success
+      owner ! Status.Success {
         val e = new IllegalArgumentException(s"Background task key ${task.key} doesn't correspond to $documentUri")
         ShardTaskComplete(task, e)
       }
@@ -197,141 +205,6 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
   }
 
-
-  def validateCollectionUri(uri: String) = {
-    val ResourcePath(documentUri, itemSegment) = splitPath(uri)
-    if (!ContentLogic.isCollectionUri(uri) || !itemSegment.isEmpty) {
-      throw new IllegalArgumentException(s"Task key '$uri' isn't a collection URI.")
-    }
-    if (documentUri != uri) {
-      throw new IllegalArgumentException(s"Task key '$uri' doesn't correspond to $documentUri")
-    }
-  }
-
-  def indexItem(indexDef: IndexDef, item: Content): Future[String] = {
-    if (log.isDebugEnabled) {
-      log.debug(s"Indexing item $item with $indexDef")
-    }
-
-    import eu.inn.binders.json._
-
-    // todo: cache this
-    val contentValue = item.body.map { str ⇒
-      str.parseJson[Value]
-    } getOrElse {
-      Null
-    }
-
-    // todo: cache this
-    val sortBy = indexDef.sortBy.map { sortString ⇒
-      val sortBy = sortString.parseJson[Seq[HyperStorageIndexSortItem]]
-      IndexLogic.extractSortFields(sortBy, contentValue)
-    } getOrElse {
-      Seq.empty
-    }
-
-    val write: Boolean = indexDef.filterBy.map { filterBy ⇒
-      IndexLogic.evaluateFilterExpression(filterBy, contentValue) recover {
-        case NonFatal(e) ⇒
-          // todo: log this?
-          log.error(e, s"Can't evaluate expression: `$filterBy`")
-        false
-      } get
-    } getOrElse {
-      true
-    }
-
-    if (log.isDebugEnabled) {
-      log.debug(s"Evaluating: ${indexDef.filterBy}=$write on $item")
-    }
-
-    if (write) {
-      val indexContent = IndexContent(
-        item.documentUri, indexDef.indexId, item.itemSegment, item.revision, item.body, item.createdAt, item.modifiedAt
-      )
-      db.insertIndexItem(indexDef.tableName, sortBy, indexContent) map { _ ⇒
-        item.itemSegment
-      }
-    }
-    else {
-      Future.successful(item.itemSegment)
-    }
-  }
-
-  def executeIndexContentTask(owner: ActorRef, task: IndexContentTask): Unit = {
-    Try {
-      validateCollectionUri(task.key)
-      task
-    } map { task ⇒
-
-      {
-        // todo: cache indexDef
-        db.selectIndexDef(task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId) flatMap {
-          case Some(indexDef) if indexDef.defTransactionId == task.indexDefTransaction.defTransactionId ⇒ indexDef.status match
-          {
-            case IndexDef.STATUS_INDEXING ⇒
-              val bucketSize = 1 // todo: move to config, or make adaptive, or per index
-
-              task.lastItemSegment.map { s ⇒
-                db.selectContentCollectionFrom(task.indexDefTransaction.documentUri, s, bucketSize)
-              } getOrElse {
-                db.selectContentCollection(task.indexDefTransaction.documentUri, bucketSize)
-              } flatMap { collectionItems ⇒
-                FutureUtils.serial(collectionItems.toSeq) { item ⇒
-                  indexItem(indexDef, item)
-                } flatMap { insertedItemSegments ⇒
-
-                  if (insertedItemSegments.isEmpty) {
-                    // indexing is finished
-                    // todo: fix code format
-                    db.updateIndexDefStatus(task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, IndexDef.STATUS_NORMAL, task.indexDefTransaction.defTransactionId) flatMap { _ ⇒
-                      db.deletePendingIndex(TransactionLogic.partitionFromUri(task.indexDefTransaction.documentUri), task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, task.indexDefTransaction.defTransactionId) map { _ ⇒
-                        IndexContentTaskResult(None, task.processId)
-                      }
-                    }
-                  } else {
-                    val last = insertedItemSegments.last
-                    db.updatePendingIndexLastItemSegment(TransactionLogic.partitionFromUri(task.indexDefTransaction.documentUri), task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, task.indexDefTransaction.defTransactionId, last) map { _ ⇒
-                      IndexContentTaskResult(Some(last), task.processId)
-                    }
-                  }
-                }
-              }
-
-
-            case IndexDef.STATUS_NORMAL ⇒
-              Future.successful(IndexContentTaskResult(None, task.processId))
-
-            case IndexDef.STATUS_DELETING ⇒
-              db.deleteIndex(indexDef.tableName, indexDef.documentUri, indexDef.indexId) flatMap { _ ⇒
-                db.deleteIndexDef(indexDef.documentUri, indexDef.indexId) flatMap { _ ⇒
-                  db.deletePendingIndex(
-                    TransactionLogic.partitionFromUri(indexDef.documentUri), indexDef.documentUri, indexDef.indexId, indexDef.defTransactionId
-                  ) map { _ ⇒
-                    IndexContentTaskResult(None, task.processId)
-                  }
-                }
-              }
-          }
-
-          case _ ⇒
-            Future.failed(IndexContentTaskFailed(task.processId, s"Can't find index for ${task.indexDefTransaction}")) // todo: test this
-        }
-      } map { r: IndexContentTaskResult ⇒
-        owner ! ShardTaskComplete(task, r)
-        // todo: remove ugly code duplication
-      } recover {
-        case NonFatal(e) ⇒
-          log.error(e, s"Can't execute index task: $task")
-          owner ! ShardTaskComplete(task, e)
-      }
-    } recover {
-      case NonFatal(e) ⇒
-        log.error(e, s"Can't execute index task: $task")
-        owner ! ShardTaskComplete(task, hyperbusException(e))
-    }
-  }
-
   def createNewIndex(task: BackgroundTaskTrait, owner: ActorRef, post: HyperStorageIndexPost): Unit = {
     implicit val mcx = post
     val indexId = post.body.indexId.getOrElse(
@@ -416,10 +289,141 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
   }
 
+  def executeIndexContentTask(owner: ActorRef, task: IndexContentTask): Unit = {
+    Try {
+      validateCollectionUri(task.key)
+      task
+    } map { task ⇒ {
+      // todo: cache indexDef
+      db.selectIndexDef(task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId) flatMap {
+        case Some(indexDef) if indexDef.defTransactionId == task.indexDefTransaction.defTransactionId ⇒ indexDef.status match {
+          case IndexDef.STATUS_INDEXING ⇒
+            val bucketSize = 1 // todo: move to config, or make adaptive, or per index
+
+            task.lastItemSegment.map { s ⇒
+              db.selectContentCollectionFrom(task.indexDefTransaction.documentUri, s, bucketSize)
+            } getOrElse {
+              db.selectContentCollection(task.indexDefTransaction.documentUri, bucketSize)
+            } flatMap { collectionItems ⇒
+              FutureUtils.serial(collectionItems.toSeq) { item ⇒
+                indexItem(indexDef, item)
+              } flatMap { insertedItemSegments ⇒
+
+                if (insertedItemSegments.isEmpty) {
+                  // indexing is finished
+                  // todo: fix code format
+                  db.updateIndexDefStatus(task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, IndexDef.STATUS_NORMAL, task.indexDefTransaction.defTransactionId) flatMap { _ ⇒
+                    db.deletePendingIndex(TransactionLogic.partitionFromUri(task.indexDefTransaction.documentUri), task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, task.indexDefTransaction.defTransactionId) map { _ ⇒
+                      IndexContentTaskResult(None, task.processId)
+                    }
+                  }
+                } else {
+                  val last = insertedItemSegments.last
+                  db.updatePendingIndexLastItemSegment(TransactionLogic.partitionFromUri(task.indexDefTransaction.documentUri), task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, task.indexDefTransaction.defTransactionId, last) map { _ ⇒
+                    IndexContentTaskResult(Some(last), task.processId)
+                  }
+                }
+              }
+            }
+
+
+          case IndexDef.STATUS_NORMAL ⇒
+            Future.successful(IndexContentTaskResult(None, task.processId))
+
+          case IndexDef.STATUS_DELETING ⇒
+            db.deleteIndex(indexDef.tableName, indexDef.documentUri, indexDef.indexId) flatMap { _ ⇒
+              db.deleteIndexDef(indexDef.documentUri, indexDef.indexId) flatMap { _ ⇒
+                db.deletePendingIndex(
+                  TransactionLogic.partitionFromUri(indexDef.documentUri), indexDef.documentUri, indexDef.indexId, indexDef.defTransactionId
+                ) map { _ ⇒
+                  IndexContentTaskResult(None, task.processId)
+                }
+              }
+            }
+        }
+
+        case _ ⇒
+          Future.failed(IndexContentTaskFailed(task.processId, s"Can't find index for ${task.indexDefTransaction}")) // todo: test this
+      }
+    } map { r: IndexContentTaskResult ⇒
+      owner ! ShardTaskComplete(task, r)
+      // todo: remove ugly code duplication
+    } recover {
+      case NonFatal(e) ⇒
+        log.error(e, s"Can't execute index task: $task")
+        owner ! ShardTaskComplete(task, e)
+    }
+    } recover {
+      case NonFatal(e) ⇒
+        log.error(e, s"Can't execute index task: $task")
+        owner ! ShardTaskComplete(task, hyperbusException(e))
+    }
+  }
+
+  def validateCollectionUri(uri: String) = {
+    val ResourcePath(documentUri, itemSegment) = splitPath(uri)
+    if (!ContentLogic.isCollectionUri(uri) || !itemSegment.isEmpty) {
+      throw new IllegalArgumentException(s"Task key '$uri' isn't a collection URI.")
+    }
+    if (documentUri != uri) {
+      throw new IllegalArgumentException(s"Task key '$uri' doesn't correspond to $documentUri")
+    }
+  }
+
+  def indexItem(indexDef: IndexDef, item: Content): Future[String] = {
+    if (log.isDebugEnabled) {
+      log.debug(s"Indexing item $item with $indexDef")
+    }
+
+    import eu.inn.binders.json._
+
+    // todo: cache this
+    val contentValue = item.body.map { str ⇒
+      str.parseJson[Value]
+    } getOrElse {
+      Null
+    }
+
+    // todo: cache this
+    val sortBy = indexDef.sortBy.map { sortString ⇒
+      val sortBy = sortString.parseJson[Seq[HyperStorageIndexSortItem]]
+      IndexLogic.extractSortFields(sortBy, contentValue)
+    } getOrElse {
+      Seq.empty
+    }
+
+    val write: Boolean = indexDef.filterBy.map { filterBy ⇒
+      IndexLogic.evaluateFilterExpression(filterBy, contentValue) recover {
+        case NonFatal(e) ⇒
+          // todo: log this?
+          log.error(e, s"Can't evaluate expression: `$filterBy`")
+          false
+      } get
+    } getOrElse {
+      true
+    }
+
+    if (log.isDebugEnabled) {
+      log.debug(s"Evaluating: ${indexDef.filterBy}=$write on $item")
+    }
+
+    if (write) {
+      val indexContent = IndexContent(
+        item.documentUri, indexDef.indexId, item.itemSegment, item.revision, item.body, item.createdAt, item.modifiedAt
+      )
+      db.insertIndexItem(indexDef.tableName, sortBy, indexContent) map { _ ⇒
+        item.itemSegment
+      }
+    }
+    else {
+      Future.successful(item.itemSegment)
+    }
+  }
+
   def hyperbusException(e: Throwable): HyperbusException[ErrorBody] = {
     e match {
       case h: HyperbusException[ErrorBody] ⇒ h
-      case other ⇒ InternalServerError(ErrorBody("failed",Some(e.toString)))
+      case other ⇒ InternalServerError(ErrorBody("failed", Some(e.toString)))
     }
   }
 }

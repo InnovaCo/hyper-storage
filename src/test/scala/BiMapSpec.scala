@@ -1,7 +1,7 @@
 import eu.inn.hyperstorage.utils.BiMap
 import org.scalatest.{FreeSpec, Matchers}
 
-class BiMapSpec extends FreeSpec with Matchers{
+class BiMapSpec extends FreeSpec with Matchers {
   "BiMap" - {
     "should map in both ways" in {
       val m = BiMap("a" → 1, "b" → 2)

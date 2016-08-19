@@ -2,8 +2,8 @@ package eu.inn.hyperstorage.indexing
 
 import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Props}
 import eu.inn.hyperbus.Hyperbus
-import eu.inn.hyperstorage.{BackgroundTaskFailedException, IndexContentTask, IndexContentTaskFailed, IndexContentTaskResult}
 import eu.inn.hyperstorage.db.{Db, IndexDef, PendingIndex}
+import eu.inn.hyperstorage.{IndexContentTask, IndexContentTaskFailed, IndexContentTaskResult}
 import eu.inn.metrics.MetricsTracker
 import org.slf4j.LoggerFactory
 
@@ -11,9 +11,13 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 
 case object StartPendingIndexWorker
+
 case object CompletePendingIndex
+
 case class BeginIndexing(indexDef: IndexDef, lastItemSegment: Option[String])
+
 case class WaitForIndexDef(pendingIndex: PendingIndex)
+
 case class IndexNextBatchTimeout(processId: Long)
 
 // todo: add indexing progress log
@@ -62,7 +66,7 @@ class PendingIndexWorker(cluster: ActorRef, indexKey: IndexDefTransaction, hyper
       context.parent ! IndexingComplete(indexKey)
       context.stop(self)
 
-    case e @ IndexContentTaskFailed(p, reason) if p == processId ⇒
+    case e@IndexContentTaskFailed(p, reason) if p == processId ⇒
       log.error(e, s"Restarting index worker $self")
       import context._
       become(waitingForIndexDef)
@@ -75,7 +79,7 @@ class PendingIndexWorker(cluster: ActorRef, indexKey: IndexDefTransaction, hyper
     cluster ! IndexContentTask(System.currentTimeMillis() + IndexWorkerImpl.RETRY_PERIOD.toMillis,
       IndexDefTransaction(indexDef.documentUri, indexDef.indexId, indexDef.defTransactionId),
       lastItemSegment, processId)
-    context.system.scheduler.scheduleOnce(IndexWorkerImpl.RETRY_PERIOD*2, self, IndexNextBatchTimeout(processId))
+    context.system.scheduler.scheduleOnce(IndexWorkerImpl.RETRY_PERIOD * 2, self, IndexNextBatchTimeout(processId))
   }
 }
 
@@ -85,9 +89,11 @@ object PendingIndexWorker {
   )
 }
 
-private [indexing] object IndexWorkerImpl {
+private[indexing] object IndexWorkerImpl {
   val log = LoggerFactory.getLogger(getClass)
+
   import scala.concurrent.duration._
+
   val RETRY_PERIOD = 60.seconds // todo: move to config
 
   def selectPendingIndex(notifyActor: ActorRef, indexKey: IndexDefTransaction, db: Db)

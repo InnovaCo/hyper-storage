@@ -1,9 +1,14 @@
 package eu.inn.hyperstorage.metrics
 
 object Metrics {
-  val FOREGROUND_PROCESS_TIME = "hyper-storage.foreground.process-time" // time of processing message by foreground worker
-  val BACKGROUND_PROCESS_TIME = "hyper-storage.background.process-time" // time of processing message by background worker
-  val RETRIEVE_TIME = "hyper-storage.retrieve-time" // time of retrieving data (get request)
+  // time of processing message by foreground worker
+  val FOREGROUND_PROCESS_TIME = "hyper-storage.foreground.process-time"
+
+  // time of processing message by background worker
+  val BACKGROUND_PROCESS_TIME = "hyper-storage.background.process-time"
+
+  // time of retrieving data (get request)
+  val RETRIEVE_TIME = "hyper-storage.retrieve-time"
 
   val SHARD_PROCESSOR_STASH_METER = "hyper-storage.shard-stash-meter"
   val SHARD_PROCESSOR_TASK_METER = "hyper-storage.shard-message-meter"

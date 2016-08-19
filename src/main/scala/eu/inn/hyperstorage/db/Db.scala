@@ -14,8 +14,11 @@ import scala.util.control.NonFatal
 
 trait ContentBase {
   def documentUri: String
+
   def revision: Long
+
   def transactionList: List[UUID]
+
   def isDeleted: Boolean
 }
 
@@ -32,22 +35,22 @@ case class Content(
 }
 
 case class ContentStatic(
-                    documentUri: String,
-                    revision: Long,
-                    transactionList: List[UUID],
-                    isDeleted: Boolean
-                  ) extends ContentBase
+                          documentUri: String,
+                          revision: Long,
+                          transactionList: List[UUID],
+                          isDeleted: Boolean
+                        ) extends ContentBase
 
 case class Transaction(
-                    dtQuantum: Long,
-                    partition: Int,
-                    documentUri: String,
-                    itemSegment: String,
-                    uuid: UUID,
-                    revision: Long,
-                    body: String,
-                    completedAt: Option[Date]
-                  )
+                        dtQuantum: Long,
+                        partition: Int,
+                        documentUri: String,
+                        itemSegment: String,
+                        uuid: UUID,
+                        revision: Long,
+                        body: String,
+                        completedAt: Option[Date]
+                      )
 
 case class PendingIndex(
                          partition: Int,
@@ -58,24 +61,24 @@ case class PendingIndex(
                        )
 
 case class IndexDef(
-                      documentUri: String,
-                      indexId: String,
-                      status: Int,
-                      sortBy: Option[String],
-                      filterBy: Option[String],
-                      tableName: String,
-                      defTransactionId: UUID
-                    )
+                     documentUri: String,
+                     indexId: String,
+                     status: Int,
+                     sortBy: Option[String],
+                     filterBy: Option[String],
+                     tableName: String,
+                     defTransactionId: UUID
+                   )
 
 case class IndexContent(
-                    documentUri: String,
-                    indexId: String,
-                    itemSegment: String,
-                    revision: Long,
-                    body: Option[String],
-                    createdAt: Date,
-                    modifiedAt: Option[Date]
-                  )
+                         documentUri: String,
+                         indexId: String,
+                         itemSegment: String,
+                         revision: Long,
+                         body: Option[String],
+                         createdAt: Date,
+                         modifiedAt: Option[Date]
+                       )
 
 object IndexDef {
   val STATUS_INDEXING = 0
@@ -83,7 +86,7 @@ object IndexDef {
   val STATUS_NORMAL = 2
 }
 
-private [db] case class CheckPoint(lastQuantum: Long)
+private[db] case class CheckPoint(lastQuantum: Long)
 
 class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   private[this] lazy val session: com.datastax.driver.core.Session = connector.connect()
@@ -263,8 +266,8 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
 
   def insertIndexItem(indexTable: String, sortFields: Seq[(String, Value)], indexContent: IndexContent): Future[Unit] = {
     val tableName = Dynamic(indexTable)
-    val sortFieldNames = if(sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_._1).mkString(",",",",""))
-    val sortFieldPlaces = if(sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_ ⇒ "?").mkString(",",",",""))
+    val sortFieldNames = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_._1).mkString(",", ",", ""))
+    val sortFieldPlaces = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_ ⇒ "?").mkString(",", ",", ""))
     val cql = cql"""
       insert into $tableName(document_uri,index_id,item_segment,revision,body,created_at,modified_at$sortFieldNames)
       values(?,?,?,?,?,?,?$sortFieldPlaces)
@@ -280,11 +283,12 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
 
   // todo: think about sort from field name!!! for get / rest // aawwwhhh
   def selectIndexCollection(indexTable: String, documentUri: String, indexId: String,
-                            startSortFields: Seq[(String,Value)],
+                            startSortFields: Seq[(String, Value)],
                             startItemSegment: Option[String], limit: Int): Future[Iterator[IndexContent]] = {
 
     val tableName = Dynamic(indexTable)
-    val startSortFieldsFilter = if(startSortFields.isEmpty) Dynamic("") else Dynamic(
+    val startSortFieldsFilter = if (startSortFields.isEmpty) Dynamic("")
+    else Dynamic(
       startSortFields.map {
         case (name, Text(s)) ⇒ s"$name > '$s'" // todo: safety escaping! IMPORTANT!!!! also '
         case (name, Number(n)) ⇒ s"$name > $n"

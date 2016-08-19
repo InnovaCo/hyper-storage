@@ -5,9 +5,9 @@ import akka.cluster.ClusterEvent._
 import akka.cluster.Member.addressOrdering
 import akka.cluster.{Cluster, ClusterEvent, Member, MemberStatus}
 import akka.routing.{ConsistentHash, MurmurHash}
-import eu.inn.metrics.MetricsTracker
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.hyperstorage.utils.AkkaNaming
+import eu.inn.metrics.MetricsTracker
 
 import scala.collection.mutable
 import scala.concurrent.duration._
@@ -15,21 +15,32 @@ import scala.util.control.NonFatal
 
 @SerialVersionUID(1L) trait ShardTask {
   def key: String
+
   def group: String
+
   def isExpired: Boolean
 }
 
 sealed trait ShardMemberStatus
+
 object ShardMemberStatus {
+
   @SerialVersionUID(1L) case object Unknown extends ShardMemberStatus
+
   @SerialVersionUID(1L) case object Passive extends ShardMemberStatus
+
   @SerialVersionUID(1L) case object Activating extends ShardMemberStatus
+
   @SerialVersionUID(1L) case object Active extends ShardMemberStatus
+
   @SerialVersionUID(1L) case object Deactivating extends ShardMemberStatus
+
 }
 
 @SerialVersionUID(1L) case class Sync(applicantAddress: Address, status: ShardMemberStatus, clusterHash: Int)
+
 @SerialVersionUID(1L) case class SyncReply(acceptorAddress: Address, status: ShardMemberStatus, acceptedStatus: ShardMemberStatus, clusterHash: Int)
+
 @SerialVersionUID(1L) case class NoSuchGroupWorkerException(groupName: String) extends RuntimeException(s"No such worker group: $groupName")
 
 case class ShardMember(actorRef: ActorSelection,
@@ -38,30 +49,29 @@ case class ShardMember(actorRef: ActorSelection,
 
 case class ShardedClusterData(members: Map[Address, ShardMember], selfAddress: Address, selfStatus: ShardMemberStatus) {
   lazy val clusterHash = MurmurHash.stringHash(allMemberStatuses.map(_._1).mkString("|"))
-  def + (elem: (Address, ShardMember)) = ShardedClusterData(members + elem, selfAddress, selfStatus)
-  def - (key: Address) = ShardedClusterData(members - key, selfAddress, selfStatus)
-
-  def taskIsFor(task: ShardTask): Address = consistentHash.nodeFor(task.key)
-
-  def taskWasFor(task: ShardTask): Address = consistentHashPrevious.nodeFor(task.key)
-
   private lazy val consistentHash = ConsistentHash(activeMembers, VirtualNodesSize)
-
   private lazy val consistentHashPrevious = ConsistentHash(previouslyActiveMembers, VirtualNodesSize)
-
   private lazy val allMemberStatuses: List[(Address, ShardMemberStatus)] = {
     members.map {
       case (address, rvm) ⇒ address → rvm.status
     }.toList :+ (selfAddress → selfStatus)
   }.sortBy(_._1)
 
+  def +(elem: (Address, ShardMember)) = ShardedClusterData(members + elem, selfAddress, selfStatus)
+
+  def -(key: Address) = ShardedClusterData(members - key, selfAddress, selfStatus)
+
+  def taskIsFor(task: ShardTask): Address = consistentHash.nodeFor(task.key)
+
+  def taskWasFor(task: ShardTask): Address = consistentHashPrevious.nodeFor(task.key)
+
   private def VirtualNodesSize = 128 // todo: find a better value, configurable? http://www.tom-e-white.com/2007/11/consistent-hashing.html
 
   private def activeMembers: Iterable[Address] = allMemberStatuses.flatMap {
-      case (address, ShardMemberStatus.Active) ⇒ Some(address)
-      case (address, ShardMemberStatus.Activating) ⇒ Some(address)
-      case _ ⇒ None
-    }
+    case (address, ShardMemberStatus.Active) ⇒ Some(address)
+    case (address, ShardMemberStatus.Activating) ⇒ Some(address)
+    case _ ⇒ None
+  }
 
   private def previouslyActiveMembers: Iterable[Address] = allMemberStatuses.flatMap {
     case (address, ShardMemberStatus.Active) ⇒ Some(address)
@@ -72,17 +82,20 @@ case class ShardedClusterData(members: Map[Address, ShardMember], selfAddress: A
 }
 
 case class SubscribeToShardStatus(subscriber: ActorRef)
+
 case class UpdateShardStatus(self: ActorRef, stateName: ShardMemberStatus, stateData: ShardedClusterData)
 
-private [sharding] case object ShardSyncTimer
+private[sharding] case object ShardSyncTimer
+
 case object ShutdownProcessor
+
 case class ShardTaskComplete(task: ShardTask, result: Any)
 
 class ShardProcessor(workersSettings: Map[String, (Props, Int, String)],
                      roleName: String,
                      tracker: MetricsTracker,
                      syncTimeout: FiniteDuration = 1000.millisecond)
-                     extends FSMEx[ShardMemberStatus, ShardedClusterData] with Stash {
+  extends FSMEx[ShardMemberStatus, ShardedClusterData] with Stash {
 
   private val cluster = Cluster(context.system)
   if (!cluster.selfRoles.contains(roleName)) {
@@ -136,7 +149,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int, String)],
 
   when(ShardMemberStatus.Deactivating) {
     case Event(ShardSyncTimer, data) ⇒
-      if(confirmStatus(data, ShardMemberStatus.Deactivating, isFirst = false)) {
+      if (confirmStatus(data, ShardMemberStatus.Deactivating, isFirst = false)) {
         confirmStatus(data, ShardMemberStatus.Passive, isFirst = false) // not reliable
         stop()
       }
@@ -200,10 +213,6 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int, String)],
 
   initialize()
 
-  def setSyncTimer(): Unit = {
-    setTimer("syncing", ShardSyncTimer, syncTimeout)
-  }
-
   override def processEventEx(event: Event, source: AnyRef): Unit = {
     val oldState = stateName
     val oldData = stateData
@@ -213,18 +222,18 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int, String)],
     }
   }
 
-  def introduceSelfTo(member: Member, data: ShardedClusterData) : Option[ShardedClusterData] = {
+  def introduceSelfTo(member: Member, data: ShardedClusterData): Option[ShardedClusterData] = {
     if (member.hasRole(roleName) && member.address != selfAddress) {
-        val actor = context.actorSelection(RootActorPath(member.address) / "user" / roleName)
-        val newData = data + member.address → ShardMember(
-          actor, ShardMemberStatus.Unknown, ShardMemberStatus.Unknown
-        )
-        val sync = Sync(selfAddress, ShardMemberStatus.Activating, newData.clusterHash)
-        actor ! sync
-        setSyncTimer()
-        log.info(s"New member of shard cluster $roleName: $member. $sync was sent to $actor")
-        Some(newData)
-      }
+      val actor = context.actorSelection(RootActorPath(member.address) / "user" / roleName)
+      val newData = data + member.address → ShardMember(
+        actor, ShardMemberStatus.Unknown, ShardMemberStatus.Unknown
+      )
+      val sync = Sync(selfAddress, ShardMemberStatus.Activating, newData.clusterHash)
+      actor ! sync
+      setSyncTimer()
+      log.info(s"New member of shard cluster $roleName: $member. $sync was sent to $actor")
+      Some(newData)
+    }
     else if (member.hasRole(roleName) && member.address == selfAddress) {
       log.info(s"Self is up: $member on role $roleName")
       setSyncTimer()
@@ -236,7 +245,11 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int, String)],
     }
   }
 
-  def processReply(syncReply: SyncReply, data: ShardedClusterData) : Option[ShardedClusterData] = {
+  def setSyncTimer(): Unit = {
+    setTimer("syncing", ShardSyncTimer, syncTimeout)
+  }
+
+  def processReply(syncReply: SyncReply, data: ShardedClusterData): Option[ShardedClusterData] = {
     if (log.isDebugEnabled) {
       log.debug(s"$syncReply received from $sender")
     }
@@ -265,7 +278,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int, String)],
     }
   }
 
-  def confirmStatus(data: ShardedClusterData, status: ShardMemberStatus, isFirst: Boolean) : Boolean = {
+  def confirmStatus(data: ShardedClusterData, status: ShardMemberStatus, isFirst: Boolean): Boolean = {
     var syncedWithAllMembers = true
     data.members.foreach { case (address, member) ⇒
       if (member.confirmedStatus != status) {
@@ -433,14 +446,6 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int, String)],
       log.error(e, s"Can't stash task: $task. It's lost now")
   }
 
-  def safeUnstashAll() = try {
-    log.debug("Unstashing tasks")
-    unstashAll()
-  } catch {
-    case NonFatal(e) ⇒
-      log.error(e, s"Can't unstash tasks. Some are lost now")
-  }
-
   def forwardTask(task: ShardTask, data: ShardedClusterData): Unit = {
     trackForwardMeter.mark()
     val address = data.taskIsFor(task)
@@ -460,7 +465,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int, String)],
       case Some(activeGroupWorkers) ⇒
         val idx = activeGroupWorkers.indexWhere(_._2 == sender())
         if (idx >= 0) {
-          val (task,worker,client) = activeGroupWorkers(idx)
+          val (task, worker, client) = activeGroupWorkers(idx)
           result match {
             case None ⇒ // no result
             case other ⇒ client ! other
@@ -479,7 +484,15 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int, String)],
     }
   }
 
-  protected [this] implicit class ImplicitExtender(data: Option[ShardedClusterData]) {
+  def safeUnstashAll() = try {
+    log.debug("Unstashing tasks")
+    unstashAll()
+  } catch {
+    case NonFatal(e) ⇒
+      log.error(e, s"Can't unstash tasks. Some are lost now")
+  }
+
+  protected[this] implicit class ImplicitExtender(data: Option[ShardedClusterData]) {
     def andUpdate: State = {
       if (data.isDefined) {
         safeUnstashAll()
@@ -490,6 +503,7 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int, String)],
       }
     }
   }
+
 }
 
 object ShardProcessor {

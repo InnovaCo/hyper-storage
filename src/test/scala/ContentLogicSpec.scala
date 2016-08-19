@@ -1,7 +1,7 @@
 import eu.inn.hyperstorage.{ContentLogic, ResourcePath}
 import org.scalatest.{FreeSpec, Matchers}
 
-class ContentLogicSpec extends FreeSpec with Matchers{
+class ContentLogicSpec extends FreeSpec with Matchers {
   "ContentLogic" - {
     "splitPath should parse document" in {
       ContentLogic.splitPath("document") should equal(ResourcePath("document", ""))
@@ -14,28 +14,28 @@ class ContentLogicSpec extends FreeSpec with Matchers{
     }
 
     "splitPath should fail when invalid chars are used" in {
-      intercept [IllegalArgumentException] {
+      intercept[IllegalArgumentException] {
         ContentLogic.splitPath(" ")
       }
-      intercept [IllegalArgumentException] {
+      intercept[IllegalArgumentException] {
         ContentLogic.splitPath("\t")
       }
     }
 
     "splitPath should fail when invalid URI is used" in {
-      intercept [IllegalArgumentException] {
+      intercept[IllegalArgumentException] {
         ContentLogic.splitPath("/")
       }
-      intercept [IllegalArgumentException] {
+      intercept[IllegalArgumentException] {
         ContentLogic.splitPath("//")
       }
-      intercept [IllegalArgumentException] {
+      intercept[IllegalArgumentException] {
         ContentLogic.splitPath("/a")
       }
-      intercept [IllegalArgumentException] {
+      intercept[IllegalArgumentException] {
         ContentLogic.splitPath("a/")
       }
-      intercept [IllegalArgumentException] {
+      intercept[IllegalArgumentException] {
         ContentLogic.splitPath("a//b")
       }
     }

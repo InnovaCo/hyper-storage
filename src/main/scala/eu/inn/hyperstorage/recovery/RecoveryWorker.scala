@@ -35,27 +35,31 @@ import scala.util.control.NonFatal
 */
 
 case class StartCheck(processId: Long)
+
 case object ShutdownRecoveryWorker
+
 case class CheckQuantum[T <: WorkerState](processId: Long, dtQuantum: Long, partitions: Seq[Int], state: T)
 
 trait WorkerState {
   def startedAt: Long
+
   def startQuantum: Long
 
   def nextCheck(currentQuantum: Long, multiplier: Int): Long = {
-    if (currentQuantum <= startQuantum) { // just starting
+    if (currentQuantum <= startQuantum) {
+      // just starting
       0
     }
     else {
-      val periodChecked = TransactionLogic.getUnixTimeFromQuantum(currentQuantum-startQuantum)
+      val periodChecked = TransactionLogic.getUnixTimeFromQuantum(currentQuantum - startQuantum)
       val quantumTime = TransactionLogic.getUnixTimeFromQuantum(1)
       val millisNow = System.currentTimeMillis()
       val tookTime = millisNow - startedAt
-      val timeSpentPerQuantum = tookTime/(currentQuantum-startQuantum)
-      if (timeSpentPerQuantum*multiplier < quantumTime) {
+      val timeSpentPerQuantum = tookTime / (currentQuantum - startQuantum)
+      if (timeSpentPerQuantum * multiplier < quantumTime) {
         // if we are x (multiplier) times faster, then we can delay our checks
         // but no more than 15seconds
-        quantumTime - timeSpentPerQuantum*multiplier
+        quantumTime - timeSpentPerQuantum * multiplier
       }
       else {
         0
@@ -70,11 +74,14 @@ abstract class RecoveryWorker[T <: WorkerState](
                                                  tracker: MetricsTracker,
                                                  retryPeriod: FiniteDuration,
                                                  backgroundTaskTimeout: FiniteDuration
-                                ) extends Actor with ActorLogging {
+                                               ) extends Actor with ActorLogging {
+
   import context._
+
   var currentProcessId: Long = 0
 
   def checkQuantumTimerName: String
+
   def trackIncompleteMeter: Meter
 
   def receive = {
@@ -116,7 +123,7 @@ abstract class RecoveryWorker[T <: WorkerState](
   }
 
   def shuttingDown: Receive = {
-    case _ : StartCheck | _ : CheckQuantum[_] ⇒
+    case _: StartCheck | _: CheckQuantum[_] ⇒
       context.stop(self)
   }
 
@@ -127,6 +134,7 @@ abstract class RecoveryWorker[T <: WorkerState](
   }
 
   def runNewRecoveryCheck(partitions: Seq[Int]): Unit
+
   def runNextRecoveryCheck(previous: CheckQuantum[T]): Unit
 
   def checkQuantum(dtQuantum: Long, partitions: Seq[Int]): Future[Unit] = {
@@ -171,7 +179,7 @@ abstract class RecoveryWorker[T <: WorkerState](
           }
         }
       }
-    } map(_ ⇒ {})
+    } map (_ ⇒ {})
   }
 
   def qts(qt: Long) = s"$qt [${new Date(TransactionLogic.getUnixTimeFromQuantum(qt))}]"
@@ -191,15 +199,15 @@ case class HotWorkerState(workerPartitions: Seq[Int],
                           startedAt: Long = System.currentTimeMillis()) extends WorkerState
 
 class HotRecoveryWorker(
-                         hotPeriod: (Long,Long),
+                         hotPeriod: (Long, Long),
                          db: Db,
                          shardProcessor: ActorRef,
                          tracker: MetricsTracker,
                          retryPeriod: FiniteDuration,
                          recoveryCompleterTimeout: FiniteDuration
-                       ) extends RecoveryWorker[HotWorkerState] (
-    db, shardProcessor, tracker, retryPeriod, recoveryCompleterTimeout
-  ) {
+                       ) extends RecoveryWorker[HotWorkerState](
+  db, shardProcessor, tracker, retryPeriod, recoveryCompleterTimeout
+) {
 
   import context._
 
@@ -224,6 +232,7 @@ class HotRecoveryWorker(
   }
 
   override def checkQuantumTimerName: String = Metrics.HOT_QUANTUM_TIMER
+
   override def trackIncompleteMeter: Meter = tracker.meter(Metrics.HOT_INCOMPLETE_METER)
 }
 
@@ -234,15 +243,15 @@ case class StaleWorkerState(workerPartitions: Seq[Int],
 
 //  We need StaleRecoveryWorker because of cassandra data can reappear later due to replication
 class StaleRecoveryWorker(
-                           stalePeriod: (Long,Long),
+                           stalePeriod: (Long, Long),
                            db: Db,
                            shardProcessor: ActorRef,
                            tracker: MetricsTracker,
                            retryPeriod: FiniteDuration,
                            backgroundTaskTimeout: FiniteDuration
-                         ) extends RecoveryWorker[StaleWorkerState] (
+                         ) extends RecoveryWorker[StaleWorkerState](
   db, shardProcessor, tracker, retryPeriod, backgroundTaskTimeout
-  ) {
+) {
 
   import context._
 
@@ -260,7 +269,7 @@ class StaleRecoveryWorker(
 
       val stalest = partitionQuantums.sortBy(_._1).head._1
       val partitionsPerQuantum: Map[Long, Seq[Int]] = partitionQuantums.groupBy(_._1).map(kv ⇒ kv._1 → kv._2.map(_._2))
-      val (startFrom,partitionsToProcess) = if (stalest < lowerBound) {
+      val (startFrom, partitionsToProcess) = if (stalest < lowerBound) {
         (stalest, partitionsPerQuantum(stalest))
       } else {
         (lowerBound, partitions)
@@ -313,17 +322,18 @@ class StaleRecoveryWorker(
   }
 
   override def checkQuantumTimerName: String = Metrics.STALE_QUANTUM_TIMER
+
   override def trackIncompleteMeter: Meter = tracker.meter(Metrics.STALE_INCOMPLETE_METER)
 }
 
 object HotRecoveryWorker {
   def props(
-              hotPeriod: (Long, Long),
-              db: Db,
-              shardProcessor: ActorRef,
-              tracker: MetricsTracker,
-              retryPeriod: FiniteDuration,
-              recoveryCompleterTimeout: FiniteDuration
+             hotPeriod: (Long, Long),
+             db: Db,
+             shardProcessor: ActorRef,
+             tracker: MetricsTracker,
+             retryPeriod: FiniteDuration,
+             recoveryCompleterTimeout: FiniteDuration
            ) = Props(
     classOf[HotRecoveryWorker],
     hotPeriod,
@@ -337,7 +347,7 @@ object HotRecoveryWorker {
 
 object StaleRecoveryWorker {
   def props(
-             stalePeriod: (Long,Long),
+             stalePeriod: (Long, Long),
              db: Db,
              shardProcessor: ActorRef,
              tracker: MetricsTracker,

@@ -29,7 +29,7 @@ buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion, sbtVersion)
 
 
 // BuildInfo
-lazy val root = (project in file(".")). enablePlugins(BuildInfoPlugin, Raml2Hyperbus)
+lazy val root = (project in file(".")).enablePlugins(BuildInfoPlugin, Raml2Hyperbus)
 
 val projectMajorVersion = settingKey[String]("Defines the major version number")
 

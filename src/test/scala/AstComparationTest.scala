@@ -5,6 +5,7 @@ import eu.inn.parser.ast.{AstComparation, AstComparator}
 import org.scalatest.{FreeSpec, Matchers}
 
 class AstComparationTest extends FreeSpec with Matchers {
+
   import AstComparation._
 
   "AstComparation" - {

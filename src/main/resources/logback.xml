@@ -8,31 +8,31 @@
     </appender>
 
     <logger name="akka.cluster.ClusterHeartbeatSender">
-        <level value="INFO" />
+        <level value="INFO"/>
     </logger>
 
     <logger name="eu.inn.hyperstorage">
-        <level value="TRACE" />
+        <level value="TRACE"/>
     </logger>
 
     <logger name="eu.inn.hyperstorage.recovery">
-        <level value="INFO" />
+        <level value="INFO"/>
     </logger>
 
     <logger name="com.datastax">
-        <level value="INFO" />
+        <level value="INFO"/>
     </logger>
 
     <logger name="io.netty">
-        <level value="INFO" />
+        <level value="INFO"/>
     </logger>
 
     <logger name="eu.inn.binders.cassandra">
-        <level value="INFO" />
+        <level value="INFO"/>
     </logger>
 
     <logger name="org.apache.kafka">
-        <level value="INFO" />
+        <level value="INFO"/>
     </logger>
 
     <root level="TRACE">

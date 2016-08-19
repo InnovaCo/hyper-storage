@@ -8,25 +8,14 @@ import org.scalatest.{BeforeAndAfterAll, Suite}
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.ExecutionContext
-import scala.concurrent.ExecutionContext.Implicits.global
-
-object Cassandra extends CassandraCQLUnit(
-    new ClassPathCQLDataSet("schema.cql","hyper_storage_test")
-  ) {
-  this.startupTimeoutMillis = 60000l
-  lazy val start = {
-    before()
-  }
-}
 
 trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures {
   this: Suite =>
+  private[this] val log = LoggerFactory.getLogger(getClass)
   var session: Session = null
   var db: Db = null
 
   implicit def executionContext: ExecutionContext
-
-  private [this] val log = LoggerFactory.getLogger(getClass)
 
   override def beforeAll() {
     Cassandra.start
@@ -47,5 +36,14 @@ trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures {
     import scala.collection.JavaConversions._
     val cleanDs = new ClassPathCQLDataSet("cleanup.cql", "hyper_storage_test")
     cleanDs.getCQLStatements.foreach(c ⇒ Cassandra.session.execute(c))
+  }
+}
+
+object Cassandra extends CassandraCQLUnit(
+  new ClassPathCQLDataSet("schema.cql", "hyper_storage_test")
+) {
+  this.startupTimeoutMillis = 60000l
+  lazy val start = {
+    before()
   }
 }

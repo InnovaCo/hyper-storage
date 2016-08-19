@@ -10,7 +10,9 @@ object AstComparation extends Enumeration {
 }
 
 object AstComparator {
+
   import AstComparation._
+
   val pureEval = new HEval()
 
   def compare(a: Expression, b: Expression): AstComparation.Value = {
@@ -23,9 +25,9 @@ object AstComparator {
             NotEqual
         }
 
-      case bopA @ BinaryOperation(leftA, opA, rightA) ⇒
+      case bopA@BinaryOperation(leftA, opA, rightA) ⇒
         b match {
-          case bopB @ BinaryOperation(leftB, opB, rightB) ⇒
+          case bopB@BinaryOperation(leftB, opB, rightB) ⇒
             compareBinaryOperations(bopA, bopB)
 
           case _ ⇒
@@ -35,7 +37,7 @@ object AstComparator {
       case Function(nameA, argumentsA) ⇒
         b match {
           case Function(nameB, argumentsB) if nameA == nameB && argumentsA.size == argumentsB.size ⇒
-            aggregate(argumentsA zip argumentsB map(p ⇒ compare(p._1, p._2)))
+            aggregate(argumentsA zip argumentsB map (p ⇒ compare(p._1, p._2)))
           case _ ⇒
             NotEqual
         }
@@ -79,15 +81,15 @@ object AstComparator {
         val b = bopB.op.segments.head
 
         a match {
-          case ">" if b == ">" ⇒ compareBOp(bopA,bopB,(ac,bc) ⇒ bc > ac)
-          case ">=" if b == ">=" ⇒ compareBOp(bopA,bopB,(ac,bc) ⇒ bc >= ac)
-          case "<" if b == "<" ⇒ compareBOp(bopB, bopA,(ac,bc) ⇒ bc > ac)
-          case "<=" if b == "<=" ⇒ compareBOp(bopB, bopA,(ac,bc) ⇒ bc >= ac)
-          case "has" if b == "has" ⇒ compareBOp(bopA, bopB,(ac,bc) ⇒ EvaluatorEngine.hasBop(ac,bc))
-          case "has not" if b == "has not" ⇒ compareBOp(bopA, bopB,(ac,bc) ⇒ EvaluatorEngine.hasBop(bc,ac))
+          case ">" if b == ">" ⇒ compareBOp(bopA, bopB, (ac, bc) ⇒ bc > ac)
+          case ">=" if b == ">=" ⇒ compareBOp(bopA, bopB, (ac, bc) ⇒ bc >= ac)
+          case "<" if b == "<" ⇒ compareBOp(bopB, bopA, (ac, bc) ⇒ bc > ac)
+          case "<=" if b == "<=" ⇒ compareBOp(bopB, bopA, (ac, bc) ⇒ bc >= ac)
+          case "has" if b == "has" ⇒ compareBOp(bopA, bopB, (ac, bc) ⇒ EvaluatorEngine.hasBop(ac, bc))
+          case "has not" if b == "has not" ⇒ compareBOp(bopA, bopB, (ac, bc) ⇒ EvaluatorEngine.hasBop(bc, ac))
           case _ ⇒
             compareBinaryOperationWithExpression(bopA, bopB) match {
-              case NotEqual ⇒  compareExpressionWithBinaryOperation(bopA, bopB)
+              case NotEqual ⇒ compareExpressionWithBinaryOperation(bopA, bopB)
               case other ⇒ other
             }
         }
@@ -97,21 +99,21 @@ object AstComparator {
     }
   }
 
-  private def compareBOp(a:BinaryOperation, b:BinaryOperation, op: (bn.Value,bn.Value) ⇒ Boolean): AstComparation.Value = {
+  private def compareBOp(a: BinaryOperation, b: BinaryOperation, op: (bn.Value, bn.Value) ⇒ Boolean): AstComparation.Value = {
     aggregate(Seq(
-      comparePureOp(a.rightArgument,b.rightArgument, op),
+      comparePureOp(a.rightArgument, b.rightArgument, op),
       comparePureOp(a.leftArgument, b.leftArgument, op)
     ))
   }
 
-  private def comparePureOp(a:Expression, b:Expression, op: (bn.Value,bn.Value) ⇒ Boolean): AstComparation.Value = {
+  private def comparePureOp(a: Expression, b: Expression, op: (bn.Value, bn.Value) ⇒ Boolean): AstComparation.Value = {
     if (isConstantExpression(a) && isConstantExpression(b)) {
       val ac = pureEval.eval(a)
       val bc = pureEval.eval(b)
       if (ac == bc) {
         Equal
       }
-      else if (op(ac,bc)) {
+      else if (op(ac, bc)) {
         Wider
       }
       else {
@@ -119,12 +121,13 @@ object AstComparator {
       }
     }
     else {
-      compare(a,b) match {
+      compare(a, b) match {
         case Wider ⇒ NotEqual // a and be are exchanged, so it's not possible to sure about subset here
         case other ⇒ other
       }
     }
   }
+
   private def isConstantExpression(expression: Expression): Boolean = {
     expression match {
       case _: Constant ⇒ true

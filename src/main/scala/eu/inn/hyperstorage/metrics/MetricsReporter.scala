@@ -7,6 +7,7 @@ import scaldi.{Injectable, Injector, TypeTagIdentifier}
 
 object MetricsReporter extends Injectable {
   val log = LoggerFactory.getLogger(getClass)
+
   def startReporter(tracker: MetricsTracker)(implicit injector: Injector): Unit = {
     import scala.reflect.runtime.universe._
     injector.getBinding(List(TypeTagIdentifier(typeOf[MetricsReporterLoader]))) match {

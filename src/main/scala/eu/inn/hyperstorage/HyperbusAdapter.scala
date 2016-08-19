@@ -2,19 +2,21 @@ package eu.inn.hyperstorage
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.ask
-import eu.inn.binders.value.{Lst, Number, Obj}
+import eu.inn.binders.value.{Lst, Obj}
 import eu.inn.hyperbus.akkaservice.AkkaHyperService
 import eu.inn.hyperbus.model._
-import eu.inn.hyperbus.model.utils.{Sort, SortBy}
+import eu.inn.hyperbus.model.utils.SortBy
+import eu.inn.hyperbus.model.utils.Sort._
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
-import eu.inn.metrics.MetricsTracker
-import eu.inn.hyperstorage.api._
 import eu.inn.hyperstorage.db.Db
 import eu.inn.hyperstorage.metrics.Metrics
+import eu.inn.metrics.MetricsTracker
+import eu.inn.hyperstorage.api._
 
 import scala.concurrent.duration._
 
 class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsTracker, requestTimeout: FiniteDuration) extends Actor with ActorLogging {
+
   import context._
 
   val COLLECTION_TOKEN_FIELD_NAME = "from"
@@ -22,12 +24,12 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
 
   def receive = AkkaHyperService.dispatch(this)
 
-  def ~> (implicit request: HyperStorageContentGet) = {
+  def ~>(implicit request: HyperStorageContentGet) = {
     tracker.timeOfFuture(Metrics.RETRIEVE_TIME) {
       val ResourcePath(documentUri, itemSegment) = ContentLogic.splitPath(request.path)
       val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
-      if (itemSegment.isEmpty && request.body.content.asMap.contains(COLLECTION_SIZE_FIELD_NAME)) { // collection
-        import Sort._
+      if (itemSegment.isEmpty && request.body.content.asMap.contains(COLLECTION_SIZE_FIELD_NAME)) {
+        // collection
 
         val sortByDesc = request.body.sortBy.exists(_.contains(SortBy("id", descending = true)))
         val pageFrom = request.body.content.asMap.get(COLLECTION_TOKEN_FIELD_NAME).map(_.asString)
@@ -86,24 +88,9 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     }
   }
 
-  def ~> (request: HyperStorageContentPut) = executeRequest(request, request.path)
-  def ~> (request: HyperStorageContentPost) = executeRequest(request, request.path)
-  def ~> (request: HyperStorageContentPatch) = executeRequest(request, request.path)
-  def ~> (request: HyperStorageContentDelete) = executeRequest(request, request.path)
+  def ~>(request: HyperStorageContentPut) = executeRequest(request, request.path)
 
-  def ~> (request: HyperStorageIndexPost) = executeIndexRequest(request)
-  def ~> (request: HyperStorageIndexDelete) = executeIndexRequest(request)
-
-  def executeIndexRequest(request: Request[Body]) = {
-    val ttl = Math.max(requestTimeout.toMillis - 100, 100)
-    val indexDefTask = IndexDefTask(System.currentTimeMillis() + ttl, request)
-    implicit val timeout: akka.util.Timeout = requestTimeout
-
-    hyperStorageProcessor ? indexDefTask map {
-      case r: Response[Body] ⇒
-        r
-    }
-  }
+  def ~>(request: HyperStorageContentPost) = executeRequest(request, request.path)
 
   private def executeRequest(implicit request: Request[Body], uri: String) = {
     val str = StringSerializer.serializeToString(request)
@@ -115,6 +102,25 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     hyperStorageProcessor ? task map {
       case ForegroundWorkerTaskResult(content) ⇒
         StringDeserializer.dynamicResponse(content)
+    }
+  }
+
+  def ~>(request: HyperStorageContentPatch) = executeRequest(request, request.path)
+
+  def ~>(request: HyperStorageContentDelete) = executeRequest(request, request.path)
+
+  def ~>(request: HyperStorageIndexPost) = executeIndexRequest(request)
+
+  def ~>(request: HyperStorageIndexDelete) = executeIndexRequest(request)
+
+  def executeIndexRequest(request: Request[Body]) = {
+    val ttl = Math.max(requestTimeout.toMillis - 100, 100)
+    val indexDefTask = IndexDefTask(System.currentTimeMillis() + ttl, request)
+    implicit val timeout: akka.util.Timeout = requestTimeout
+
+    hyperStorageProcessor ? indexDefTask map {
+      case r: Response[Body] ⇒
+        r
     }
   }
 }

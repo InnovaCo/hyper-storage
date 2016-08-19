@@ -1,13 +1,11 @@
 package eu.inn.hyperstorage.indexing
 
 import eu.inn.binders.value.{Null, Obj, Value}
-import eu.inn.hyperbus.model.{BadRequest, ErrorBody}
 import eu.inn.parser.ast.Identifier
 import eu.inn.parser.eval.{EvalIdentifierNotFound, ValueContext}
 import eu.inn.parser.{HEval, HParser}
 import eu.inn.hyperstorage.api._
 
-import scala.util.control.NonFatal
 import scala.util.{Success, Try}
 
 object IndexLogic {
@@ -22,13 +20,20 @@ object IndexLogic {
         }
 
         tableName
-        .append(tableFieldType(sortItem))
-        .append(sortItem.order match {
-          case Some("desc") ⇒ "d"
-          case _ ⇒ "a"
-        })
-        .append(index)
+          .append(tableFieldType(sortItem))
+          .append(sortItem.order match {
+            case Some("desc") ⇒ "d"
+            case _ ⇒ "a"
+          })
+          .append(index)
       }.toString
+    }
+  }
+
+  private def tableFieldType(sortItem: HyperStorageIndexSortItem): String = {
+    sortItem.fieldType match {
+      case Some("decimal") ⇒ "d"
+      case _ ⇒ "t"
     }
   }
 
@@ -41,7 +46,7 @@ object IndexLogic {
     sortBy.zipWithIndex.map { case (sortItem, index) ⇒
       val fieldName = tableFieldType(sortItem) + index.toString
       val fieldValue = HParser(sortItem.fieldName) match {
-        case Success(identifier : Identifier) if valueContext.identifier.isDefinedAt(identifier) ⇒
+        case Success(identifier: Identifier) if valueContext.identifier.isDefinedAt(identifier) ⇒
           valueContext.identifier(identifier)
         case _ ⇒ Null
       }
@@ -65,12 +70,5 @@ object IndexLogic {
       case _ ⇒ Obj.empty
     }
     HEval(expression, v).map(_.asBoolean)
-  }
-
-  private def tableFieldType(sortItem: HyperStorageIndexSortItem): String = {
-    sortItem.fieldType match {
-      case Some("decimal") ⇒ "d"
-      case _ ⇒ "t"
-    }
   }
 }

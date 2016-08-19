@@ -16,6 +16,7 @@ import scala.concurrent.ExecutionContext
 import scala.util.control.NonFatal
 
 case object ShutdownIndexManager
+
 case class ProcessNextPartitions(processId: Long)
 
 case class IndexDefTransaction(documentUri: String, indexId: String, defTransactionId: UUID) {
@@ -24,9 +25,13 @@ case class IndexDefTransaction(documentUri: String, indexId: String, defTransact
 
 // todo: rename those four?
 case class PartitionPendingIndexes(partition: Int, rev: Long, indexes: Seq[IndexDefTransaction])
+
 case class PartitionPendingFailed(rev: Long)
+
 case class IndexCreatedOrDeleted(key: IndexDefTransaction)
+
 case class IndexingComplete(key: IndexDefTransaction)
+
 case object IndexCommandAccepted
 
 // todo: handle child termination without IndexingComplete
@@ -76,7 +81,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
         pendingPartitions.remove(partition)
       }
       else {
-        val updated = indexes.foldLeft(false) { (updated,index) ⇒
+        val updated = indexes.foldLeft(false) { (updated, index) ⇒
           addPendingIndex(index) || updated
         }
         if (updated) {
@@ -123,7 +128,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
 
     // stop workers for detached partitions
     val toRemove = indexWorkers.flatMap {
-      case (v : IndexDefTransaction, actorRef) if detachedPartitions.contains(v.partition) ⇒
+      case (v: IndexDefTransaction, actorRef) if detachedPartitions.contains(v.partition) ⇒
         context.stop(actorRef)
         Some(v)
       case _ ⇒
@@ -160,7 +165,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
 
   def fetchPendingIndexes(): Unit = {
     nextPendingPartitions.flatMap {
-      case(k,v) if v.isEmpty ⇒  Some(k)
+      case (k, v) if v.isEmpty ⇒ Some(k)
       case _ ⇒ None
     }.headOption.foreach { nextPartitionToFetch ⇒
       // async fetch and send as a message next portion of indexes along with `rev`
@@ -174,7 +179,9 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
     // because currentProcessId is always incremented
     val v = pendingPartitions.toVector
     val startFrom = currentProcessId % v.size
-    val vn = if (startFrom == 0) { v } else {
+    val vn = if (startFrom == 0) {
+      v
+    } else {
       val vnp = v.splitAt(startFrom.toInt)
       vnp._2 ++ vnp._1
     }
@@ -188,7 +195,7 @@ object IndexManager {
   )
 }
 
-private [indexing] object IndexManagerImpl {
+private[indexing] object IndexManagerImpl {
   def fetchPendingIndexesFromDb(notifyActor: ActorRef, partition: Int, rev: Long, maxIndexWorkers: Int, db: Db)
                                (implicit ec: ExecutionContext): Unit = {
     db.selectPendingIndexes(partition, maxIndexWorkers) map { indexesIterator ⇒

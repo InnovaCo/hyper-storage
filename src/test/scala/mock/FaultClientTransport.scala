@@ -12,6 +12,7 @@ class FaultClientTransport(config: Config) extends ClientTransport {
   override def ask(message: TransportRequest, outputDeserializer: Deserializer[TransportResponse]): Future[TransportResponse] = {
     Future.failed(new RuntimeException("ask failed (test method)"))
   }
+
   override def publish(message: TransportRequest): Future[PublishResult] = Future {
     if (FaultClientTransport.checkers.exists { checker ⇒
       checker.isDefinedAt(message) && checker(message)
@@ -21,11 +22,15 @@ class FaultClientTransport(config: Config) extends ClientTransport {
     else {
       new PublishResult {
         override def sent: Option[Boolean] = None
+
         override def offset: Option[String] = None
       }
     }
   }
-  override def shutdown(duration: FiniteDuration): Future[Boolean] = Future{true}
+
+  override def shutdown(duration: FiniteDuration): Future[Boolean] = Future {
+    true
+  }
 }
 
 object FaultClientTransport {
