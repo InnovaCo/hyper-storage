@@ -11,7 +11,7 @@ import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.{Hyperbus, IdGenerator}
 import eu.inn.hyperstorage.db._
 import eu.inn.hyperstorage.api._
-import eu.inn.hyperstorage.indexing.{IndexCreatedOrDeleted, IndexDefTransaction, IndexLogic}
+import eu.inn.hyperstorage.indexing.{IndexDefTransaction, IndexLogic, IndexManager}
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
 import eu.inn.hyperstorage.utils.FutureUtils
@@ -131,7 +131,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
               if (log.isDebugEnabled) {
                 log.debug(s"Indexing content $contentOption for $indexDefs")
               }
-              FutureUtils.serial(indexDefs.toSeq) { indexDef ⇒
+              FutureUtils.serial(indexDefs) { indexDef ⇒
                 contentOption match {
                   case Some(item) ⇒
                     indexItem(indexDef, item)
@@ -231,11 +231,11 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
       db.insertPendingIndex(pendingIndex) flatMap { _ ⇒
         db.insertIndexDef(indexDef) flatMap { _ ⇒
           implicit val timeout = Timeout(60.seconds)
-          indexManager ? IndexCreatedOrDeleted(IndexDefTransaction(
+          indexManager ? IndexManager.IndexCreatedOrDeleted(IndexDefTransaction(
             post.path,
             indexId,
             pendingIndex.defTransactionId
-          )) map { _ ⇒
+          )) map { _ ⇒ // IndexManager.IndexCommandAccepted
             Created(HyperStorageIndexCreated(indexId, path = post.path, links = new LinksBuilder()
               .location(HyperStorageIndex.selfPattern, templated = true)
               .result()
@@ -268,11 +268,11 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
         db.insertPendingIndex(pendingIndex) flatMap { _ ⇒
           db.updateIndexDefStatus(pendingIndex.documentUri, pendingIndex.indexId, IndexDef.STATUS_DELETING, pendingIndex.defTransactionId) flatMap { _ ⇒
             implicit val timeout = Timeout(60.seconds)
-            indexManager ? IndexCreatedOrDeleted(IndexDefTransaction(
+            indexManager ? IndexManager.IndexCreatedOrDeleted(IndexDefTransaction(
               delete.path,
               delete.indexId,
               pendingIndex.defTransactionId
-            )) map { _ ⇒
+            )) map { _ ⇒ // IndexManager.IndexCommandAccepted
               NoContent(EmptyBody)
             }
           }

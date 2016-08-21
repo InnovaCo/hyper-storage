@@ -10,34 +10,20 @@ import eu.inn.hyperstorage.sharding.ShardMemberStatus.{Active, Deactivating}
 import eu.inn.hyperstorage.sharding.{ShardedClusterData, UpdateShardStatus}
 import eu.inn.hyperstorage.utils.AkkaNaming
 import eu.inn.metrics.MetricsTracker
+import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext
 import scala.util.control.NonFatal
 
-case object ShutdownIndexManager
-
-case class ProcessNextPartitions(processId: Long)
-
 case class IndexDefTransaction(documentUri: String, indexId: String, defTransactionId: UUID) {
   def partition: Int = TransactionLogic.partitionFromUri(documentUri)
 }
 
-// todo: rename those four?
-case class PartitionPendingIndexes(partition: Int, rev: Long, indexes: Seq[IndexDefTransaction])
-
-case class PartitionPendingFailed(rev: Long)
-
-case class IndexCreatedOrDeleted(key: IndexDefTransaction)
-
-case class IndexingComplete(key: IndexDefTransaction)
-
-case object IndexCommandAccepted
-
 // todo: handle child termination without IndexingComplete
-
 class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndexWorkers: Int)
   extends Actor with ActorLogging {
+  import IndexManager._
 
   val indexWorkers = mutable.Map[IndexDefTransaction, ActorRef]()
   val pendingPartitions = mutable.Map[Int, mutable.ListBuffer[IndexDefTransaction]]()
@@ -76,7 +62,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
       currentProcessId = currentProcessId + 1
       processPendingIndexes(clusterActor)
 
-    case PartitionPendingIndexes(partition, msgRev, indexes) if rev == msgRev ⇒
+    case ProcessPartitionPendingIndexes(partition, msgRev, indexes) if rev == msgRev ⇒
       if (indexes.isEmpty) {
         pendingPartitions.remove(partition)
       }
@@ -190,20 +176,32 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
 }
 
 object IndexManager {
+  case object ShutdownIndexManager
+  case class ProcessNextPartitions(processId: Long)
+  case class ProcessPartitionPendingIndexes(partition: Int, rev: Long, indexes: Seq[IndexDefTransaction])
+  case class PartitionPendingFailed(rev: Long)
+  case class IndexCreatedOrDeleted(key: IndexDefTransaction)
+  case class IndexingComplete(key: IndexDefTransaction)
+  case object IndexCommandAccepted
+
   def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndexWorkers: Int) = Props(classOf[IndexManager],
     hyperbus, db, tracker, maxIndexWorkers
   )
 }
 
 private[indexing] object IndexManagerImpl {
+  import IndexManager._
+  val log = LoggerFactory.getLogger(getClass)
+
   def fetchPendingIndexesFromDb(notifyActor: ActorRef, partition: Int, rev: Long, maxIndexWorkers: Int, db: Db)
                                (implicit ec: ExecutionContext): Unit = {
     db.selectPendingIndexes(partition, maxIndexWorkers) map { indexesIterator ⇒
-      notifyActor ! PartitionPendingIndexes(partition, rev,
+      notifyActor ! ProcessPartitionPendingIndexes(partition, rev,
         indexesIterator.map(ii ⇒ IndexDefTransaction(ii.documentUri, ii.indexId, ii.defTransactionId)).toSeq
       )
     } recover {
       case NonFatal(e) ⇒
+        log.error(s"Can't fetch pending indexes", e)
         notifyActor ! PartitionPendingFailed(rev)
     }
   }

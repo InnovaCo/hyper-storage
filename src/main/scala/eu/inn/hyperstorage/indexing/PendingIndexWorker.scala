@@ -42,7 +42,7 @@ class PendingIndexWorker(cluster: ActorRef, indexKey: IndexDefTransaction, hyper
       IndexWorkerImpl.selectPendingIndex(context.self, indexKey, db)
 
     case CompletePendingIndex ⇒
-      context.parent ! IndexingComplete(indexKey)
+      context.parent ! IndexManager.IndexingComplete(indexKey)
       context.stop(self)
 
     case BeginIndexing(indexDef, lastItemSegment) ⇒
@@ -63,7 +63,7 @@ class PendingIndexWorker(cluster: ActorRef, indexKey: IndexDefTransaction, hyper
       indexNextBatch(processId + 1, indexDef, Some(newLastItemSegment))
 
     case IndexContentTaskResult(None, p) if p == processId ⇒
-      context.parent ! IndexingComplete(indexKey)
+      context.parent ! IndexManager.IndexingComplete(indexKey)
       context.stop(self)
 
     case e@IndexContentTaskFailed(p, reason) if p == processId ⇒
