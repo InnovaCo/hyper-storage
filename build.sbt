@@ -49,7 +49,7 @@ libraryDependencies ++= Seq(
   "eu.inn" %% "hyperbus-t-kafka" % "0.1.80",
   "eu.inn" %% "binders-core" % "0.12.93",
   "eu.inn" %% "binders-json" % "0.12.47",
-  "eu.inn" %% "binders-cassandra" % "0.12.45",
+  "eu.inn" %% "binders-cassandra" % "0.13.49",
   "eu.inn" %% "expression-parser" % "0.1.22",
   "com.datastax.cassandra" % "cassandra-driver-core" % "2.1.9",
   "org.slf4j" % "slf4j-api" % "1.7.12",

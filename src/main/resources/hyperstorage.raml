@@ -97,9 +97,9 @@ annotationTypes:
           application/json:
             type: HyperStorageTransaction
 
-/hyper-storage/indexes/{path:*}:
+/hyper-storage/indexes/{path}:
   uriParameters:
-    path:*: string
+    path: string
   post:
     body:
       application/json:
@@ -110,9 +110,9 @@ annotationTypes:
           application/json:
             type: HyperStorageIndexCreated
 
-/hyper-storage/indexes/{path:*}/{indexId}:
+/hyper-storage/indexes/{path}/{indexId}:
   uriParameters:
-    path:*: string
+    path: string
     indexId: string
   get:
     responses:

@@ -90,7 +90,7 @@ private[db] case class CheckPoint(lastQuantum: Long)
 
 class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   private[this] lazy val session: com.datastax.driver.core.Session = connector.connect()
-  private[this] lazy implicit val sessionQueryCache = new SessionQueryCache[CamelCaseToSnakeCaseConverter](session)
+  private[this] lazy implicit val sessionQueryCache = new GuavaSessionQueryCache[CamelCaseToSnakeCaseConverter](session)
   val log = LoggerFactory.getLogger(getClass)
 
   def preStart(): Unit = {
