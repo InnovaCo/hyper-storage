@@ -17,7 +17,6 @@ import eu.inn.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
 import eu.inn.hyperstorage.utils.FutureUtils
 import eu.inn.metrics.MetricsTracker
 
-import scala.collection.Seq
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.control.NonFatal
@@ -25,7 +24,6 @@ import scala.util.{Success, Try}
 
 // todo: do we really need a ShardTaskComplete ?
 // todo: use strictly Hyperbus OR akka serialization for the internal akka-cluster
-// todo: collection removal + index removal
 
 trait BackgroundTaskTrait extends ShardTask {
   def ttl: Long
@@ -41,7 +39,7 @@ trait BackgroundTaskTrait extends ShardTask {
 
 @SerialVersionUID(1L) case class BackgroundTaskResult(documentUri: String, transactions: Seq[UUID])
 
-// todo: request -> string as for the Foreground
+// todo: request -> string as for the Foreground (strictly Hyperbus OR akka serialization)
 @SerialVersionUID(1L) case class IndexDefTask(ttl: Long, request: Request[Body]) extends BackgroundTaskTrait {
   def key: String = request match {
     case post: HyperStorageIndexPost ⇒ post.path
@@ -49,7 +47,7 @@ trait BackgroundTaskTrait extends ShardTask {
   }
 }
 
-@SerialVersionUID(1L) case class IndexContentTask(ttl: Long, indexDefTransaction: IndexDefTransaction, lastItemSegment: Option[String], processId: Long) extends BackgroundTaskTrait {
+@SerialVersionUID(1L) case class IndexNextBucketTask(ttl: Long, indexDefTransaction: IndexDefTransaction, lastItemSegment: Option[String], processId: Long) extends BackgroundTaskTrait {
   def key = indexDefTransaction.documentUri
 }
 
@@ -75,14 +73,14 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     case task: IndexDefTask ⇒
       executeIndexDefTask(sender(), task)
 
-    case task: IndexContentTask ⇒
-      executeIndexContentTask(sender(), task)
+    case task: IndexNextBucketTask ⇒
+      indexNextBucket(sender(), task)
   }
 
   def executeBackgroundTask(owner: ActorRef, task: BackgroundTask): Unit = {
     val ResourcePath(documentUri, itemSegment) = ContentLogic.splitPath(task.documentUri)
     if (!itemSegment.isEmpty) {
-      // todo: is this have to be a success
+      // todo: is this have to be a success?
       owner ! Status.Success {
         val e = new IllegalArgumentException(s"Background task key ${task.key} doesn't correspond to $documentUri")
         ShardTaskComplete(task, e)
@@ -110,73 +108,73 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
   }
 
+  def updateIndexes(content: ContentStatic, incompleteTransactions: Seq[UnwrappedTransaction]): Future[Unit] = {
+    if (ContentLogic.isCollectionUri(content.documentUri)) {
+      val isCollectionDelete = incompleteTransactions.exists { it ⇒
+        it.transaction.itemSegment.isEmpty && it.unwrappedBody.method == Method.FEED_DELETE
+      }
+      if (isCollectionDelete) {
+        // todo: cache index meta
+        db.selectIndexDefs(content.documentUri).flatMap { indexDefsIterator ⇒
+          val indexDefs = indexDefsIterator.toSeq
+          FutureUtils.serial(indexDefs) { indexDef ⇒
+            log.debug(s"Removing index $indexDef")
+            deleteIndexDefAndData(indexDef)
+          } map (_ ⇒ {})
+        }
+      }
+      else {
+        val itemSegments = incompleteTransactions.collect {
+          case it if it.transaction.itemSegment.nonEmpty ⇒ it.transaction.itemSegment
+        }.toSet
+
+        // todo: cache index meta
+        db.selectIndexDefs(content.documentUri).flatMap { indexDefsIterator ⇒
+          val indexDefs = indexDefsIterator.toSeq
+          FutureUtils.serial(itemSegments.toSeq) { itemSegment ⇒
+            // todo: cache content
+            db.selectContent(content.documentUri, itemSegment) flatMap { contentOption ⇒
+              if (log.isDebugEnabled) {
+                log.debug(s"Indexing content $contentOption for $indexDefs")
+              }
+              FutureUtils.serial(indexDefs) { indexDef ⇒
+                contentOption match {
+                  case Some(item) ⇒
+                    indexItem(indexDef, item)
+
+                  case None ⇒
+                    // todo: delete only if filter is true!
+                    db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemSegment)
+                }
+              }
+            }
+          } map (_ ⇒ {})
+        }
+      }
+    } else {
+      Future.successful()
+    }
+  }
+
   def completeTransactions(task: BackgroundTask, content: ContentStatic): Future[ShardTaskComplete] = {
     if (content.transactionList.isEmpty) {
       Future.successful(ShardTaskComplete(task, BackgroundTaskResult(task.documentUri, Seq.empty)))
     }
     else {
       selectIncompleteTransactions(content) flatMap { incompleteTransactions ⇒
-
-        // todo: move to other method
-        val updateIndexFuture: Future[Unit] = if (ContentLogic.isCollectionUri(content.documentUri)) {
-          val isCollectionDelete = incompleteTransactions.exists { transaction ⇒
-            transaction.itemSegment.isEmpty && DynamicRequest(transaction.body).method == Method.FEED_DELETE
-          }
-
-          if (isCollectionDelete) {
-            // todo: cache index meta
-            db.selectIndexDefs(task.documentUri).flatMap { indexDefsIterator ⇒
-              val indexDefs = indexDefsIterator.toSeq
-              FutureUtils.serial(indexDefs) { indexDef ⇒
-                log.debug(s"Removing index $indexDef")
-                deleteIndexDefAndData(indexDef)
-              } map (_ ⇒ {})
-            }
-          }
-          else {
-            val itemSegments = incompleteTransactions.collect {
-              case it if it.itemSegment.nonEmpty ⇒ it.itemSegment
-            }.toSet
-
-            // todo: cache index meta
-            db.selectIndexDefs(task.documentUri).flatMap { indexDefsIterator ⇒
-              val indexDefs = indexDefsIterator.toSeq
-              FutureUtils.serial(itemSegments.toSeq) { itemSegment ⇒
-                // todo: cache content
-                db.selectContent(task.documentUri, itemSegment) flatMap { contentOption ⇒
-                  if (log.isDebugEnabled) {
-                    log.debug(s"Indexing content $contentOption for $indexDefs")
-                  }
-                  FutureUtils.serial(indexDefs) { indexDef ⇒
-                    contentOption match {
-                      case Some(item) ⇒
-                        indexItem(indexDef, item)
-
-                      case None ⇒
-                        // todo: delete only if filter is true!
-                        db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemSegment)
-                    }
-                  }
-                }
-              } map (_ ⇒ {})
-            }
-          }
-        } else {
-          Future.successful()
-        }
-
+        val updateIndexFuture: Future[Unit] = updateIndexes(content, incompleteTransactions)
         updateIndexFuture.flatMap { _ ⇒
-          FutureUtils.serial(incompleteTransactions) { transaction ⇒
-            val event = DynamicRequest(transaction.body) // todo: do something with deserialization!
+          FutureUtils.serial(incompleteTransactions) { it ⇒
+            val event = it.unwrappedBody
             hyperbus <| event flatMap { publishResult ⇒
               if (log.isDebugEnabled) {
                 log.debug(s"Event $event is published with result $publishResult")
               }
-              db.completeTransaction(transaction) map { _ ⇒
+              db.completeTransaction(it.transaction) map { _ ⇒
                 if (log.isDebugEnabled) {
-                  log.debug(s"$transaction is complete")
+                  log.debug(s"${it.transaction} is complete")
                 }
-                transaction
+                it.transaction
               }
             }
           }
@@ -197,13 +195,13 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
   }
 
-  def selectIncompleteTransactions(content: ContentStatic): Future[Seq[Transaction]] = {
+  def selectIncompleteTransactions(content: ContentStatic): Future[Seq[UnwrappedTransaction]] = {
     val transactionsFStream = content.transactionList.toStream.map { transactionUuid ⇒
       val quantum = TransactionLogic.getDtQuantum(UUIDs.unixTimestamp(transactionUuid))
       db.selectTransaction(quantum, content.partition, content.documentUri, transactionUuid)
     }
     FutureUtils.collectWhile(transactionsFStream) {
-      case Some(transaction) ⇒ transaction
+      case Some(transaction) ⇒ UnwrappedTransaction(transaction)
     } map (_.reverse)
   }
 
@@ -213,18 +211,13 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
       task
     } map { task ⇒
       task.request match {
-        case post: HyperStorageIndexPost ⇒ createNewIndex(task, owner, post)
-        case delete: HyperStorageIndexDelete ⇒ deleteIndex(task, owner, delete)
+        case post: HyperStorageIndexPost ⇒ startCreatingNewIndex(task, owner, post)
+        case delete: HyperStorageIndexDelete ⇒ startRemovingIndex(task, owner, delete)
       }
-    } recover {
-      case NonFatal(e) ⇒
-        log.error(e, s"Can't execute index task: $task")
-        owner ! ShardTaskComplete(task, hyperbusException(e))
-    }
+    } recover withHyperbusException(s"Can't execute index task: $task", owner, task)
   }
 
-  // todo: rename
-  def createNewIndex(task: BackgroundTaskTrait, owner: ActorRef, post: HyperStorageIndexPost): Unit = {
+  def startCreatingNewIndex(task: BackgroundTaskTrait, owner: ActorRef, post: HyperStorageIndexPost): Unit = {
     implicit val mcx = post
     val indexId = post.body.indexId.getOrElse(
       IdGenerator.create()
@@ -262,24 +255,12 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
           }
         }
       }
-    } recover {
-      case NonFatal(e) ⇒
-        log.error(s"Can't create index $post", e)
-        hyperbusException(e)
     } map { result ⇒
       owner ! ShardTaskComplete(task, result)
-    }
+    } recover withHyperbusException(s"Can't create index $post", owner, task)
   }
 
-  // todo: rename (this only starts)
-  def deleteIndex(task: BackgroundTaskTrait, owner: ActorRef, delete: HyperStorageIndexDelete): Unit = {
-    /*
-      1. fetch indexes (404)
-      2. insert pending index
-      3. update meta index
-      4. notify index worker
-    */
-
+  def startRemovingIndex(task: BackgroundTaskTrait, owner: ActorRef, delete: HyperStorageIndexDelete): Unit = {
     implicit val mcx = delete
 
     db.selectIndexDef(delete.path, delete.indexId) flatMap {
@@ -299,18 +280,12 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
         }
 
       case _ ⇒ Future.successful(NotFound(ErrorBody("index-not-found", Some(s"Index ${delete.indexId} for ${delete.path} is not found"))))
-    } recover {
-      // todo: remove code duplication
-      case NonFatal(e) ⇒
-        log.error(s"Can't delete index $delete", e)
-        hyperbusException(e)
     } map { result ⇒
       owner ! ShardTaskComplete(task, result)
-    }
+    } recover withHyperbusException(s"Can't delete index $delete", owner, task)
   }
 
-  // todo: rename
-  def executeIndexContentTask(owner: ActorRef, task: IndexContentTask): Unit = {
+  def indexNextBucket(owner: ActorRef, task: IndexNextBucketTask): Unit = {
     Try {
       validateCollectionUri(task.key)
       task
@@ -363,16 +338,14 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     } map { r: IndexContentTaskResult ⇒
       owner ! ShardTaskComplete(task, r)
       // todo: remove ugly code duplication
-    } recover {
-      case NonFatal(e) ⇒
-        log.error(e, s"Can't execute index task: $task")
-        owner ! ShardTaskComplete(task, e)
-    }
-    } recover {
-      case NonFatal(e) ⇒
-        log.error(e, s"Can't execute index task: $task")
-        owner ! ShardTaskComplete(task, hyperbusException(e))
-    }
+    } recover withHyperbusException(s"Can't execute index task: $task", owner, task)
+    } recover withHyperbusException(s"Can't execute index task: $task", owner, task)
+  }
+
+  def withHyperbusException(msg: String, owner: ActorRef, task: BackgroundTaskTrait): PartialFunction[Throwable, Unit] = {
+    case NonFatal(e) ⇒
+      log.error(e, msg)
+      owner ! ShardTaskComplete(task, hyperbusException(e))
   }
 
   def deleteIndexDefAndData(indexDef: IndexDef): Future[Unit] = {
@@ -420,16 +393,13 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     val write: Boolean = indexDef.filterBy.map { filterBy ⇒
       IndexLogic.evaluateFilterExpression(filterBy, contentValue) recover {
         case NonFatal(e) ⇒
-          // todo: log this?
-          log.error(e, s"Can't evaluate expression: `$filterBy`")
+          if (log.isDebugEnabled) {
+            log.debug(s"Can't evaluate expression: `$filterBy` for $item", e)
+          }
           false
       } get
     } getOrElse {
       true
-    }
-
-    if (log.isDebugEnabled) {
-      log.debug(s"Evaluating: ${indexDef.filterBy}=$write on $item")
     }
 
     if (write) {
@@ -456,5 +426,13 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
 object BackgroundWorker {
   def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, indexManager: ActorRef) = Props(classOf[BackgroundWorker],
     hyperbus, db, tracker, indexManager
+  )
+}
+
+case class UnwrappedTransaction(transaction: Transaction, unwrappedBody: DynamicRequest)
+
+object UnwrappedTransaction {
+  def apply(transaction: Transaction): UnwrappedTransaction = UnwrappedTransaction(
+    transaction, DynamicRequest(transaction.body)
   )
 }
