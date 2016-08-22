@@ -110,7 +110,6 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
   }
 
-  // todo: index new updates
   def completeTransactions(task: BackgroundTask, content: ContentStatic): Future[ShardTaskComplete] = {
     if (content.transactionList.isEmpty) {
       Future.successful(ShardTaskComplete(task, BackgroundTaskResult(task.documentUri, Seq.empty)))
@@ -118,38 +117,57 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     else {
       selectIncompleteTransactions(content) flatMap { incompleteTransactions ⇒
 
-        val itemSegments = incompleteTransactions.collect {
-          case it if it.itemSegment.nonEmpty ⇒ it.itemSegment
-        }.toSet
-
-        // todo: cache index meta
-        val updateIndexFuture: Future[Seq[Int]] = db.selectIndexDefs(task.documentUri).flatMap { indexDefsIterator ⇒
-          val indexDefs = indexDefsIterator.toSeq
-          FutureUtils.serial(itemSegments.toSeq) { itemSegment ⇒
-            // todo: cache content
-            db.selectContent(task.documentUri, itemSegment) flatMap { contentOption ⇒
-              if (log.isDebugEnabled) {
-                log.debug(s"Indexing content $contentOption for $indexDefs")
-              }
-              FutureUtils.serial(indexDefs) { indexDef ⇒
-                contentOption match {
-                  case Some(item) ⇒
-                    indexItem(indexDef, item)
-
-                  case None ⇒
-                    // todo: delete only if filter is true!
-                    db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemSegment)
-                }
-              } map (_.size)
-            }
+        // todo: move to other method
+        val updateIndexFuture: Future[Unit] = if (ContentLogic.isCollectionUri(content.documentUri)) {
+          val isCollectionDelete = incompleteTransactions.exists { transaction ⇒
+            transaction.itemSegment.isEmpty && DynamicRequest(transaction.body).method == Method.FEED_DELETE
           }
 
+          if (isCollectionDelete) {
+            // todo: cache index meta
+            db.selectIndexDefs(task.documentUri).flatMap { indexDefsIterator ⇒
+              val indexDefs = indexDefsIterator.toSeq
+              FutureUtils.serial(indexDefs) { indexDef ⇒
+                log.debug(s"Removing index $indexDef")
+                deleteIndexDefAndData(indexDef)
+              } map (_ ⇒ {})
+            }
+          }
+          else {
+            val itemSegments = incompleteTransactions.collect {
+              case it if it.itemSegment.nonEmpty ⇒ it.itemSegment
+            }.toSet
 
+            // todo: cache index meta
+            db.selectIndexDefs(task.documentUri).flatMap { indexDefsIterator ⇒
+              val indexDefs = indexDefsIterator.toSeq
+              FutureUtils.serial(itemSegments.toSeq) { itemSegment ⇒
+                // todo: cache content
+                db.selectContent(task.documentUri, itemSegment) flatMap { contentOption ⇒
+                  if (log.isDebugEnabled) {
+                    log.debug(s"Indexing content $contentOption for $indexDefs")
+                  }
+                  FutureUtils.serial(indexDefs) { indexDef ⇒
+                    contentOption match {
+                      case Some(item) ⇒
+                        indexItem(indexDef, item)
+
+                      case None ⇒
+                        // todo: delete only if filter is true!
+                        db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemSegment)
+                    }
+                  }
+                }
+              } map (_ ⇒ {})
+            }
+          }
+        } else {
+          Future.successful()
         }
 
-        updateIndexFuture.flatMap { indexSeq ⇒
+        updateIndexFuture.flatMap { _ ⇒
           FutureUtils.serial(incompleteTransactions) { transaction ⇒
-            val event = DynamicRequest(transaction.body)
+            val event = DynamicRequest(transaction.body) // todo: do something with deserialization!
             hyperbus <| event flatMap { publishResult ⇒
               if (log.isDebugEnabled) {
                 log.debug(s"Event $event is published with result $publishResult")
@@ -205,6 +223,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
   }
 
+  // todo: rename
   def createNewIndex(task: BackgroundTaskTrait, owner: ActorRef, post: HyperStorageIndexPost): Unit = {
     implicit val mcx = post
     val indexId = post.body.indexId.getOrElse(
@@ -252,6 +271,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
   }
 
+  // todo: rename (this only starts)
   def deleteIndex(task: BackgroundTaskTrait, owner: ActorRef, delete: HyperStorageIndexDelete): Unit = {
     /*
       1. fetch indexes (404)
@@ -289,6 +309,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
     }
   }
 
+  // todo: rename
   def executeIndexContentTask(owner: ActorRef, task: IndexContentTask): Unit = {
     Try {
       validateCollectionUri(task.key)
@@ -331,14 +352,8 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
             Future.successful(IndexContentTaskResult(None, task.processId))
 
           case IndexDef.STATUS_DELETING ⇒
-            db.deleteIndex(indexDef.tableName, indexDef.documentUri, indexDef.indexId) flatMap { _ ⇒
-              db.deleteIndexDef(indexDef.documentUri, indexDef.indexId) flatMap { _ ⇒
-                db.deletePendingIndex(
-                  TransactionLogic.partitionFromUri(indexDef.documentUri), indexDef.documentUri, indexDef.indexId, indexDef.defTransactionId
-                ) map { _ ⇒
-                  IndexContentTaskResult(None, task.processId)
-                }
-              }
+            deleteIndexDefAndData(indexDef) map { _ ⇒
+              IndexContentTaskResult(None, task.processId)
             }
         }
 
@@ -357,6 +372,16 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
       case NonFatal(e) ⇒
         log.error(e, s"Can't execute index task: $task")
         owner ! ShardTaskComplete(task, hyperbusException(e))
+    }
+  }
+
+  def deleteIndexDefAndData(indexDef: IndexDef): Future[Unit] = {
+    db.deleteIndex(indexDef.tableName, indexDef.documentUri, indexDef.indexId) flatMap { _ ⇒
+      db.deleteIndexDef(indexDef.documentUri, indexDef.indexId) flatMap { _ ⇒
+        db.deletePendingIndex(
+          TransactionLogic.partitionFromUri(indexDef.documentUri), indexDef.documentUri, indexDef.indexId, indexDef.defTransactionId
+        )
+      }
     }
   }
 
