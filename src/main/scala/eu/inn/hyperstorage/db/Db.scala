@@ -114,13 +114,22 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       where document_uri=$documentUri and item_segment=$itemSegment
     """.oneOption[Content]
 
-  def selectContentCollection(documentUri: String, limit: Int): Future[Iterator[Content]] = cql"""
+  def selectContentCollection(documentUri: String, limit: Int, fromId: Option[String], ascending: Boolean = true): Future[Iterator[Content]] = {
+    val orderClause = if(ascending) {
+      Dynamic("order by item_segment asc")
+    }
+    else {
+      Dynamic("order by item_segment desc")
+    }
+    cql"""
       select document_uri,item_segment,revision,transaction_list,is_deleted,body,created_at,modified_at from content
-      where document_uri=$documentUri and item_segment > ''
+      where document_uri=$documentUri and item_segment > ${fromId.getOrElse("")}
+      $orderClause
       limit $limit
     """.all[Content]
+  }
 
-  def selectContentCollectionFrom(documentUri: String, fromId: String, limit: Int): Future[Iterator[Content]] = cql"""
+  /*def selectContentCollectionFrom(documentUri: String, fromId: String, limit: Int): Future[Iterator[Content]] = cql"""
       select document_uri,item_segment,revision,transaction_list,is_deleted,body,created_at,modified_at from content
       where document_uri=$documentUri and item_segment > $fromId
       limit $limit
@@ -138,7 +147,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       where document_uri=$documentUri and item_segment < $fromId
       order by item_segment desc
       limit $limit
-    """.all[Content]
+    """.all[Content]*/
 
   def selectContentStatic(documentUri: String): Future[Option[ContentStatic]] = cql"""
       select document_uri,revision,transaction_list,is_deleted from content

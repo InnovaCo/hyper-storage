@@ -296,11 +296,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
           case IndexDef.STATUS_INDEXING ⇒
             val bucketSize = 1 // todo: move to config, or make adaptive, or per index
 
-            task.lastItemSegment.map { s ⇒
-              db.selectContentCollectionFrom(task.indexDefTransaction.documentUri, s, bucketSize)
-            } getOrElse {
-              db.selectContentCollection(task.indexDefTransaction.documentUri, bucketSize)
-            } flatMap { collectionItems ⇒
+            db.selectContentCollection(task.indexDefTransaction.documentUri, bucketSize, task.lastItemSegment) flatMap { collectionItems ⇒
               FutureUtils.serial(collectionItems.toSeq) { item ⇒
                 indexItem(indexDef, item)
               } flatMap { insertedItemSegments ⇒
