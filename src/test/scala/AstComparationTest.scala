@@ -1,11 +1,11 @@
 import eu.inn.binders.{value ⇒ bn}
+import eu.inn.hyperstorage.indexing.AstComparator
 import eu.inn.parser.HParser
-import eu.inn.parser.ast.{AstComparation, AstComparator}
 import org.scalatest.{FreeSpec, Matchers}
+import eu.inn.hyperstorage.indexing.AstComparation._
 
 class AstComparationTest extends FreeSpec with Matchers {
 
-  import AstComparation._
 
   "AstComparation" - {
     "Expression can be equal" in {

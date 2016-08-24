@@ -54,7 +54,7 @@ object IndexLogic {
     }
 
     sortBy.zipWithIndex.map { case (sortItem, index) ⇒
-      val fieldName = tableFieldType(sortItem) + index.toString
+      val fieldName = tableFieldName(sortItem, index)
       val fieldValue = HParser(sortItem.fieldName) match {
         case Success(identifier: Identifier) if valueContext.identifier.isDefinedAt(identifier) ⇒
           valueContext.identifier(identifier)
@@ -62,6 +62,10 @@ object IndexLogic {
       }
       (fieldName, fieldValue)
     }
+  }
+
+  def tableFieldName(sortItem: HyperStorageIndexSortItem, index: Int) = {
+    tableFieldType(sortItem) + index.toString
   }
 
   def validateFilterExpression(expression: String): Try[Boolean] = {

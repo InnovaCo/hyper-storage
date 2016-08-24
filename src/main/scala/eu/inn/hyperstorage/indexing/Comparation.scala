@@ -1,7 +1,8 @@
-package eu.inn.parser.ast
+package eu.inn.hyperstorage.indexing
 
 import eu.inn.binders.{value ⇒ bn}
 import eu.inn.parser.HEval
+import eu.inn.parser.ast._
 import eu.inn.parser.eval.EvaluatorEngine
 
 object AstComparation extends Enumeration {
@@ -128,7 +129,7 @@ object AstComparator {
     }
   }
 
-  private def isConstantExpression(expression: Expression): Boolean = {
+  def isConstantExpression(expression: Expression): Boolean = {
     expression match {
       case _: Constant ⇒ true
       case _: Identifier ⇒ false
