@@ -1057,7 +1057,7 @@ class HyperStorageSpec extends FreeSpec
         }
 
         eventually {
-          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
           indexContent.head.itemSegment shouldBe "item1"
@@ -1069,7 +1069,7 @@ class HyperStorageSpec extends FreeSpec
         f3.futureValue.statusCode should equal(Status.CREATED)
 
         eventually {
-          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 2
           indexContent(1).documentUri shouldBe "collection-1~"
           indexContent(1).itemSegment shouldBe "item2"
@@ -1101,7 +1101,7 @@ class HyperStorageSpec extends FreeSpec
         }
 
         eventually {
-          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
           indexContent.head.itemSegment shouldBe "item1"
@@ -1117,7 +1117,7 @@ class HyperStorageSpec extends FreeSpec
         f3.futureValue.statusCode should equal(Status.CREATED)
 
         eventually {
-          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 2
           indexContent(1).documentUri shouldBe "collection-1~"
           indexContent(1).itemSegment shouldBe "item3"
@@ -1150,7 +1150,7 @@ class HyperStorageSpec extends FreeSpec
         }
 
         eventually {
-          val indexContent = db.selectIndexCollection("index_content_da0", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content_da0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
           indexContent.head.itemSegment shouldBe "item1"
@@ -1166,7 +1166,7 @@ class HyperStorageSpec extends FreeSpec
         f3.futureValue.statusCode should equal(Status.CREATED)
 
         eventually {
-          val indexContent = db.selectIndexCollection("index_content_da0", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content_da0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 2
           indexContent(0).documentUri shouldBe "collection-1~"
           indexContent(0).itemSegment shouldBe "item3"
@@ -1203,7 +1203,7 @@ class HyperStorageSpec extends FreeSpec
         }
 
         eventually {
-          val indexContent = db.selectIndexCollection("index_content_dd0", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content_dd0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
           indexContent.head.itemSegment shouldBe "item1"
@@ -1219,7 +1219,7 @@ class HyperStorageSpec extends FreeSpec
         f3.futureValue.statusCode should equal(Status.CREATED)
 
         eventually {
-          val indexContent = db.selectIndexCollection("index_content_dd0", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content_dd0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 2
           indexContent(0).documentUri shouldBe "collection-1~"
           indexContent(0).itemSegment shouldBe "item1"
@@ -1256,7 +1256,7 @@ class HyperStorageSpec extends FreeSpec
         }
 
         eventually {
-          val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
           indexContent.head.itemSegment shouldBe "item1"
@@ -1272,7 +1272,7 @@ class HyperStorageSpec extends FreeSpec
         f3.futureValue.statusCode should equal(Status.CREATED)
 
         eventually {
-          val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 2
           indexContent(0).documentUri shouldBe "collection-1~"
           indexContent(0).itemSegment shouldBe "item1"
@@ -1309,7 +1309,7 @@ class HyperStorageSpec extends FreeSpec
         }
 
         eventually {
-          val indexContent = db.selectIndexCollection("index_content_td0", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content_td0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
           indexContent.head.itemSegment shouldBe "item1"
@@ -1325,7 +1325,7 @@ class HyperStorageSpec extends FreeSpec
         f3.futureValue.statusCode should equal(Status.CREATED)
 
         eventually {
-          val indexContent = db.selectIndexCollection("index_content_td0", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content_td0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 2
           indexContent(0).documentUri shouldBe "collection-1~"
           indexContent(0).itemSegment shouldBe "item3"
@@ -1358,7 +1358,7 @@ class HyperStorageSpec extends FreeSpec
           val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
           indexDefUp shouldBe defined
           indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
-          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
           indexContent.head.itemSegment shouldBe "item1"
@@ -1371,7 +1371,7 @@ class HyperStorageSpec extends FreeSpec
         eventually {
           val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
           indexDefUp shouldBe None
-          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent shouldBe empty
         }
       }
@@ -1397,7 +1397,7 @@ class HyperStorageSpec extends FreeSpec
           val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
           indexDefUp shouldBe defined
           indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
-          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
           indexContent.head.itemSegment shouldBe "item1"
@@ -1410,7 +1410,7 @@ class HyperStorageSpec extends FreeSpec
         eventually {
           val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
           indexDefUp shouldBe None
-          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, None, 10).futureValue.toSeq
+          val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent shouldBe empty
         }
       }

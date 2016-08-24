@@ -86,6 +86,15 @@ object IndexDef {
   val STATUS_NORMAL = 2
 }
 
+sealed trait FilterOperator
+case object FilterEq extends FilterOperator
+case object FilterGt extends FilterOperator
+case object FilterGtEq extends FilterOperator
+case object FilterLt extends FilterOperator
+case object FilterLtEq extends FilterOperator
+case class SortField(name: String, ascending: Boolean)
+case class FieldFilter(name: String, value: Value, op: FilterOperator)
+
 private[db] case class CheckPoint(lastQuantum: Long)
 
 class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
@@ -121,33 +130,28 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     else {
       Dynamic("order by item_segment desc")
     }
-    cql"""
+    val itemSegmentFilter = fromId.map { id ⇒
+      if(ascending) {
+        Dynamic(" and item_segment > ?")
+      }
+      else {
+        Dynamic(" and item_segment < ?")
+      }
+    } getOrElse {Dynamic("")}
+    val c = cql"""
       select document_uri,item_segment,revision,transaction_list,is_deleted,body,created_at,modified_at from content
-      where document_uri=$documentUri and item_segment > ${fromId.getOrElse("")}
+      where document_uri=? $itemSegmentFilter
       $orderClause
-      limit $limit
-    """.all[Content]
+      limit ?
+    """
+    if (fromId.isDefined) {
+      c.bindArgs(documentUri, fromId.get, limit)
+    }
+    else {
+      c.bindArgs(documentUri, limit)
+    }
+    c.all[Content]
   }
-
-  /*def selectContentCollectionFrom(documentUri: String, fromId: String, limit: Int): Future[Iterator[Content]] = cql"""
-      select document_uri,item_segment,revision,transaction_list,is_deleted,body,created_at,modified_at from content
-      where document_uri=$documentUri and item_segment > $fromId
-      limit $limit
-    """.all[Content]
-
-  def selectContentCollectionDesc(documentUri: String, limit: Int): Future[Iterator[Content]] = cql"""
-      select document_uri,item_segment,revision,transaction_list,is_deleted,body,created_at,modified_at from content
-      where document_uri=$documentUri
-      order by item_segment desc
-      limit $limit
-    """.all[Content]
-
-  def selectContentCollectionDescFrom(documentUri: String, fromId: String, limit: Int): Future[Iterator[Content]] = cql"""
-      select document_uri,item_segment,revision,transaction_list,is_deleted,body,created_at,modified_at from content
-      where document_uri=$documentUri and item_segment < $fromId
-      order by item_segment desc
-      limit $limit
-    """.all[Content]*/
 
   def selectContentStatic(documentUri: String): Future[Option[ContentStatic]] = cql"""
       select document_uri,revision,transaction_list,is_deleted from content
@@ -290,32 +294,49 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     cql.execute()
   }
 
-  // todo: think about sort from field name!!! for get / rest // aawwwhhh
   def selectIndexCollection(indexTable: String, documentUri: String, indexId: String,
-                            startSortFields: Seq[(String, Value)],
-                            startItemSegment: Option[String], limit: Int): Future[Iterator[IndexContent]] = {
+                            filter: Seq[FieldFilter],
+                            orderByFields: Seq[SortField],
+                            limit: Int): Future[Iterator[IndexContent]] = {
 
     val tableName = Dynamic(indexTable)
-    val startSortFieldsFilter = if (startSortFields.isEmpty) Dynamic("")
-    else Dynamic(
-      startSortFields.map {
-        case (name, Text(s)) ⇒ s"$name > '$s'" // todo: safety escaping! IMPORTANT!!!! also '
-        case (name, Number(n)) ⇒ s"$name > $n"
-        case (name, v) ⇒ throw new IllegalArgumentException(s"Can't bind $name value $v") // todo: do something
-      } mkString("and ", " and ", "")
-    )
+    val filterEqualFields = if (filter.isEmpty)
+      Dynamic("")
+    else
+      Dynamic {
+        filter.map {
+          case FieldFilter(name, _, FilterEq) ⇒ s"$name = ?"
+          case FieldFilter(name, _, FilterGt) ⇒ s"$name > ?"
+          case FieldFilter(name, _, FilterGtEq) ⇒ s"$name >= ?"
+          case FieldFilter(name, _, FilterLt) ⇒ s"$name < ?"
+          case FieldFilter(name, _, FilterLtEq) ⇒ s"$name <= ?"
+        } mkString("and ", " and ", "")
+      }
 
-    val itemSegmentFilter = Dynamic(startItemSegment.map { s ⇒
-      s"and item_segment > $startItemSegment" // todo: safety escaping!
-    } getOrElse {
-      ""
-    })
+    val orderByDynamic = if (orderByFields.isEmpty)
+      Dynamic("")
+    else
+      Dynamic(orderByFields.map {
+        case SortField(name, true) ⇒ s"$name asc"
+        case SortField(name, false) ⇒ s"$name desc"
+      } mkString ("order by ", ",", ""))
 
-    cql"""
+    val c = cql"""
       select document_uri,index_id,item_segment,revision,body,created_at,modified_at from $tableName
-      where document_uri=$documentUri and index_id=$indexId $startSortFieldsFilter $itemSegmentFilter
-      limit $limit
-    """.all[IndexContent]
+      where document_uri=? and index_id=? $filterEqualFields
+      $orderByDynamic
+      limit ?
+    """
+
+    c.bindArgs(documentUri, indexId)
+    filter foreach {
+      case FieldFilter(name, Text(s), _) ⇒ c.bindArgs(s)
+      case FieldFilter(name, Number(n), _) ⇒ c.bindArgs(n)
+      case FieldFilter(name, other, _) ⇒ throw new IllegalArgumentException(s"Can't bind $name value $other") // todo: do something
+    }
+
+    c.bindArgs(limit)
+    c.all[IndexContent]
   }
 
   def deleteIndexItem(indexTable: String, documentUri: String, indexId: String, itemSegment: String): Future[Unit] = {
