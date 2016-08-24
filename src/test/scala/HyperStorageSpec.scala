@@ -524,7 +524,7 @@ class HyperStorageSpec extends FreeSpec
         val worker = TestActorRef(ForegroundWorker.props(hyperbus, db, tracker, 10.seconds))
 
         val path = "collection-1~/test-resource-" + UUID.randomUUID().toString
-        val ResourcePath(documentUri, itemSegment) = ContentLogic.splitPath(path)
+        val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(path)
 
         val taskPutStr = StringSerializer.serializeToString(HyperStorageContentPut(path,
           DynamicBody(ObjV("text1" → "abc", "text2" → "klmn"))
@@ -548,11 +548,11 @@ class HyperStorageSpec extends FreeSpec
           }
         }
 
-        whenReady(db.selectContent(documentUri, itemSegment)) { result =>
-          result.get.body should equal(Some(s"""{"text1":"efg","id":"$itemSegment","text3":"zzz"}"""))
+        whenReady(db.selectContent(documentUri, itemId)) { result =>
+          result.get.body should equal(Some(s"""{"text1":"efg","id":"$itemId","text3":"zzz"}"""))
           result.get.modifiedAt shouldNot be(None)
           result.get.documentUri should equal(documentUri)
-          result.get.itemSegment should equal(itemSegment)
+          result.get.itemId should equal(itemId)
         }
 
         // delete element
@@ -581,7 +581,7 @@ class HyperStorageSpec extends FreeSpec
         val worker = TestActorRef(ForegroundWorker.props(hyperbus, db, tracker, 10.seconds))
 
         val path = "collection-1~/test-resource-" + UUID.randomUUID().toString
-        val ResourcePath(documentUri, itemSegment) = ContentLogic.splitPath(path)
+        val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(path)
 
         val taskPutStr = StringSerializer.serializeToString(HyperStorageContentPut(path,
           DynamicBody(ObjV("text1" → "abc", "text2" → "klmn"))
@@ -603,7 +603,7 @@ class HyperStorageSpec extends FreeSpec
           }
         }
 
-        db.selectContent(documentUri, itemSegment).futureValue shouldBe None
+        db.selectContent(documentUri, itemId).futureValue shouldBe None
       }
 
       "Delete collection" in {
@@ -614,7 +614,7 @@ class HyperStorageSpec extends FreeSpec
         val worker = TestActorRef(ForegroundWorker.props(hyperbus, db, tracker, 10.seconds))
 
         val path = UUID.randomUUID().toString + "~/el1"
-        val ResourcePath(documentUri, itemSegment) = ContentLogic.splitPath(path)
+        val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(path)
 
         val taskPutStr = StringSerializer.serializeToString(HyperStorageContentPut(path,
           DynamicBody(ObjV("text1" → "abc", "text2" → "klmn"))
@@ -636,7 +636,7 @@ class HyperStorageSpec extends FreeSpec
           }
         }
 
-        db.selectContent(documentUri, itemSegment).futureValue.get.isDeleted shouldBe true
+        db.selectContent(documentUri, itemId).futureValue.get.isDeleted shouldBe true
         db.selectContent(documentUri, "").futureValue.get.isDeleted shouldBe true
       }
     }
@@ -1060,7 +1060,7 @@ class HyperStorageSpec extends FreeSpec
           val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
-          indexContent.head.itemSegment shouldBe "item1"
+          indexContent.head.itemId shouldBe "item1"
           indexContent.head.body.get should include("\"item1\"")
         }
 
@@ -1072,7 +1072,7 @@ class HyperStorageSpec extends FreeSpec
           val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 2
           indexContent(1).documentUri shouldBe "collection-1~"
-          indexContent(1).itemSegment shouldBe "item2"
+          indexContent(1).itemId shouldBe "item2"
           indexContent(1).body.get should include("\"item2\"")
         }
       }
@@ -1104,7 +1104,7 @@ class HyperStorageSpec extends FreeSpec
           val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
-          indexContent.head.itemSegment shouldBe "item1"
+          indexContent.head.itemId shouldBe "item1"
           indexContent.head.body.get should include("\"item1\"")
         }
 
@@ -1120,7 +1120,7 @@ class HyperStorageSpec extends FreeSpec
           val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 2
           indexContent(1).documentUri shouldBe "collection-1~"
-          indexContent(1).itemSegment shouldBe "item3"
+          indexContent(1).itemId shouldBe "item3"
           indexContent(1).body.get should include("\"item3\"")
         }
       }
@@ -1153,7 +1153,7 @@ class HyperStorageSpec extends FreeSpec
           val indexContent = db.selectIndexCollection("index_content_da0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
-          indexContent.head.itemSegment shouldBe "item1"
+          indexContent.head.itemId shouldBe "item1"
           indexContent.head.body.get should include("\"item1\"")
         }
 
@@ -1169,11 +1169,11 @@ class HyperStorageSpec extends FreeSpec
           val indexContent = db.selectIndexCollection("index_content_da0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 2
           indexContent(0).documentUri shouldBe "collection-1~"
-          indexContent(0).itemSegment shouldBe "item3"
+          indexContent(0).itemId shouldBe "item3"
           indexContent(0).body.get should include("\"item3\"")
 
           indexContent(1).documentUri shouldBe "collection-1~"
-          indexContent(1).itemSegment shouldBe "item1"
+          indexContent(1).itemId shouldBe "item1"
           indexContent(1).body.get should include("\"item1\"")
         }
       }
@@ -1206,7 +1206,7 @@ class HyperStorageSpec extends FreeSpec
           val indexContent = db.selectIndexCollection("index_content_dd0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
-          indexContent.head.itemSegment shouldBe "item1"
+          indexContent.head.itemId shouldBe "item1"
           indexContent.head.body.get should include("\"item1\"")
         }
 
@@ -1222,11 +1222,11 @@ class HyperStorageSpec extends FreeSpec
           val indexContent = db.selectIndexCollection("index_content_dd0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 2
           indexContent(0).documentUri shouldBe "collection-1~"
-          indexContent(0).itemSegment shouldBe "item1"
+          indexContent(0).itemId shouldBe "item1"
           indexContent(0).body.get should include("\"item1\"")
 
           indexContent(1).documentUri shouldBe "collection-1~"
-          indexContent(1).itemSegment shouldBe "item3"
+          indexContent(1).itemId shouldBe "item3"
           indexContent(1).body.get should include("\"item3\"")
         }
       }
@@ -1259,7 +1259,7 @@ class HyperStorageSpec extends FreeSpec
           val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
-          indexContent.head.itemSegment shouldBe "item1"
+          indexContent.head.itemId shouldBe "item1"
           indexContent.head.body.get should include("\"item1\"")
         }
 
@@ -1275,11 +1275,11 @@ class HyperStorageSpec extends FreeSpec
           val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 2
           indexContent(0).documentUri shouldBe "collection-1~"
-          indexContent(0).itemSegment shouldBe "item1"
+          indexContent(0).itemId shouldBe "item1"
           indexContent(0).body.get should include("\"item1\"")
 
           indexContent(1).documentUri shouldBe "collection-1~"
-          indexContent(1).itemSegment shouldBe "item3"
+          indexContent(1).itemId shouldBe "item3"
           indexContent(1).body.get should include("\"item3\"")
         }
       }
@@ -1312,7 +1312,7 @@ class HyperStorageSpec extends FreeSpec
           val indexContent = db.selectIndexCollection("index_content_td0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
-          indexContent.head.itemSegment shouldBe "item1"
+          indexContent.head.itemId shouldBe "item1"
           indexContent.head.body.get should include("\"item1\"")
         }
 
@@ -1328,11 +1328,11 @@ class HyperStorageSpec extends FreeSpec
           val indexContent = db.selectIndexCollection("index_content_td0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 2
           indexContent(0).documentUri shouldBe "collection-1~"
-          indexContent(0).itemSegment shouldBe "item3"
+          indexContent(0).itemId shouldBe "item3"
           indexContent(0).body.get should include("\"item3\"")
 
           indexContent(1).documentUri shouldBe "collection-1~"
-          indexContent(1).itemSegment shouldBe "item1"
+          indexContent(1).itemId shouldBe "item1"
           indexContent(1).body.get should include("\"item1\"")
         }
       }
@@ -1361,7 +1361,7 @@ class HyperStorageSpec extends FreeSpec
           val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
-          indexContent.head.itemSegment shouldBe "item1"
+          indexContent.head.itemId shouldBe "item1"
           indexContent.head.body.get should include("\"item1\"")
         }
 
@@ -1400,7 +1400,7 @@ class HyperStorageSpec extends FreeSpec
           val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
           indexContent.size shouldBe 1
           indexContent.head.documentUri shouldBe "collection-1~"
-          indexContent.head.itemSegment shouldBe "item1"
+          indexContent.head.itemId shouldBe "item1"
           indexContent.head.body.get should include("\"item1\"")
         }
 

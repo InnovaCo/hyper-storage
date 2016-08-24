@@ -47,7 +47,7 @@ trait BackgroundTaskTrait extends ShardTask {
   }
 }
 
-@SerialVersionUID(1L) case class IndexNextBucketTask(ttl: Long, indexDefTransaction: IndexDefTransaction, lastItemSegment: Option[String], processId: Long) extends BackgroundTaskTrait {
+@SerialVersionUID(1L) case class IndexNextBucketTask(ttl: Long, indexDefTransaction: IndexDefTransaction, lastItemId: Option[String], processId: Long) extends BackgroundTaskTrait {
   def key = indexDefTransaction.documentUri
 }
 
@@ -78,8 +78,8 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
   }
 
   def executeBackgroundTask(owner: ActorRef, task: BackgroundTask): Unit = {
-    val ResourcePath(documentUri, itemSegment) = ContentLogic.splitPath(task.documentUri)
-    if (!itemSegment.isEmpty) {
+    val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(task.documentUri)
+    if (!itemId.isEmpty) {
       // todo: is this have to be a success?
       owner ! Status.Success {
         val e = new IllegalArgumentException(s"Background task key ${task.key} doesn't correspond to $documentUri")
@@ -111,7 +111,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
   def updateIndexes(content: ContentStatic, incompleteTransactions: Seq[UnwrappedTransaction]): Future[Unit] = {
     if (ContentLogic.isCollectionUri(content.documentUri)) {
       val isCollectionDelete = incompleteTransactions.exists { it ⇒
-        it.transaction.itemSegment.isEmpty && it.unwrappedBody.method == Method.FEED_DELETE
+        it.transaction.itemId.isEmpty && it.unwrappedBody.method == Method.FEED_DELETE
       }
       if (isCollectionDelete) {
         // todo: cache index meta
@@ -124,16 +124,16 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
         }
       }
       else {
-        val itemSegments = incompleteTransactions.collect {
-          case it if it.transaction.itemSegment.nonEmpty ⇒ it.transaction.itemSegment
+        val itemIds = incompleteTransactions.collect {
+          case it if it.transaction.itemId.nonEmpty ⇒ it.transaction.itemId
         }.toSet
 
         // todo: cache index meta
         db.selectIndexDefs(content.documentUri).flatMap { indexDefsIterator ⇒
           val indexDefs = indexDefsIterator.toSeq
-          FutureUtils.serial(itemSegments.toSeq) { itemSegment ⇒
+          FutureUtils.serial(itemIds.toSeq) { itemId ⇒
             // todo: cache content
-            db.selectContent(content.documentUri, itemSegment) flatMap { contentOption ⇒
+            db.selectContent(content.documentUri, itemId) flatMap { contentOption ⇒
               if (log.isDebugEnabled) {
                 log.debug(s"Indexing content $contentOption for $indexDefs")
               }
@@ -144,7 +144,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
 
                   case None ⇒
                     // todo: delete only if filter is true!
-                    db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemSegment)
+                    db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemId)
                 }
               }
             }
@@ -296,12 +296,12 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
           case IndexDef.STATUS_INDEXING ⇒
             val bucketSize = 1 // todo: move to config, or make adaptive, or per index
 
-            db.selectContentCollection(task.indexDefTransaction.documentUri, bucketSize, task.lastItemSegment) flatMap { collectionItems ⇒
+            db.selectContentCollection(task.indexDefTransaction.documentUri, bucketSize, task.lastItemId) flatMap { collectionItems ⇒
               FutureUtils.serial(collectionItems.toSeq) { item ⇒
                 indexItem(indexDef, item)
-              } flatMap { insertedItemSegments ⇒
+              } flatMap { insertedItemIds ⇒
 
-                if (insertedItemSegments.isEmpty) {
+                if (insertedItemIds.isEmpty) {
                   // indexing is finished
                   // todo: fix code format
                   db.updateIndexDefStatus(task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, IndexDef.STATUS_NORMAL, task.indexDefTransaction.defTransactionId) flatMap { _ ⇒
@@ -310,8 +310,8 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
                     }
                   }
                 } else {
-                  val last = insertedItemSegments.last
-                  db.updatePendingIndexLastItemSegment(TransactionLogic.partitionFromUri(task.indexDefTransaction.documentUri), task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, task.indexDefTransaction.defTransactionId, last) map { _ ⇒
+                  val last = insertedItemIds.last
+                  db.updatePendingIndexLastItemId(TransactionLogic.partitionFromUri(task.indexDefTransaction.documentUri), task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, task.indexDefTransaction.defTransactionId, last) map { _ ⇒
                     IndexContentTaskResult(Some(last), task.processId)
                   }
                 }
@@ -355,8 +355,8 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
   }
 
   def validateCollectionUri(uri: String) = {
-    val ResourcePath(documentUri, itemSegment) = splitPath(uri)
-    if (!ContentLogic.isCollectionUri(uri) || !itemSegment.isEmpty) {
+    val ResourcePath(documentUri, itemId) = splitPath(uri)
+    if (!ContentLogic.isCollectionUri(uri) || !itemId.isEmpty) {
       throw new IllegalArgumentException(s"Task key '$uri' isn't a collection URI.")
     }
     if (documentUri != uri) {
@@ -400,14 +400,14 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
 
     if (write) {
       val indexContent = IndexContent(
-        item.documentUri, indexDef.indexId, item.itemSegment, item.revision, item.body, item.createdAt, item.modifiedAt
+        item.documentUri, indexDef.indexId, item.itemId, item.revision, item.body, item.createdAt, item.modifiedAt
       )
       db.insertIndexItem(indexDef.tableName, sortBy, indexContent) map { _ ⇒
-        item.itemSegment
+        item.itemId
       }
     }
     else {
-      Future.successful(item.itemSegment)
+      Future.successful(item.itemId)
     }
   }
 

@@ -1,20 +1,20 @@
 create table content (
 	document_uri text,
-	item_segment text,
+	item_id text,
 	revision bigint static,
 	transaction_list list<timeuuid> static,
 	is_deleted boolean static,
 	body text,
 	created_at timestamp,
 	modified_at timestamp,
-	primary key (document_uri, item_segment)
+	primary key (document_uri, item_id)
 );
 
 create table transaction (
 	dt_quantum bigint,
 	partition int,
 	document_uri text,
-	item_segment text,
+	item_id text,
 	uuid timeuuid,
 	revision bigint,
 	body text,
@@ -42,7 +42,7 @@ create table pending_index(
     partition int,
     document_uri text,
     index_id text,
-    last_item_segment text,
+    last_item_id text,
     def_transaction_id timeuuid,
     primary key (partition, document_uri, index_id, def_transaction_id)
 );
@@ -50,59 +50,59 @@ create table pending_index(
 create table index_content(
     document_uri text,
     index_id text,
-    item_segment text,
+    item_id text,
     revision bigint static,
     body text,
     created_at timestamp,
     modified_at timestamp,
-    primary key ((document_uri, index_id), item_segment)
+    primary key ((document_uri, index_id), item_id)
 );
 
 create table index_content_ta0(
     document_uri text,
     index_id text,
     t0 text,
-    item_segment text,
+    item_id text,
     revision bigint static,
     body text,
     created_at timestamp,
     modified_at timestamp,
-    primary key ((document_uri, index_id), t0, item_segment)
+    primary key ((document_uri, index_id), t0, item_id)
 );
 
 create table index_content_da0(
     document_uri text,
     index_id text,
     d0 decimal,
-    item_segment text,
+    item_id text,
     revision bigint static,
     body text,
     created_at timestamp,
     modified_at timestamp,
-    primary key ((document_uri, index_id), d0, item_segment)
+    primary key ((document_uri, index_id), d0, item_id)
 );
 
 create table index_content_td0(
     document_uri text,
     index_id text,
     t0 text,
-    item_segment text,
+    item_id text,
     revision bigint static,
     body text,
     created_at timestamp,
     modified_at timestamp,
-    primary key ((document_uri, index_id), t0, item_segment)
+    primary key ((document_uri, index_id), t0, item_id)
 ) with clustering order by (t0 desc);
 
 create table index_content_dd0(
     document_uri text,
     index_id text,
     d0 decimal,
-    item_segment text,
+    item_id text,
     revision bigint static,
     body text,
     created_at timestamp,
     modified_at timestamp,
-    primary key ((document_uri, index_id), d0, item_segment)
+    primary key ((document_uri, index_id), d0, item_id)
 ) with clustering order by (d0 desc);
 

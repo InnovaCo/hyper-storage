@@ -21,6 +21,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
 
   val COLLECTION_TOKEN_FIELD_NAME = "from"
   val COLLECTION_SIZE_FIELD_NAME = "size"
+  val MAX_SKIPPED_ROWS = 10000
 
   def receive = AkkaHyperService.dispatch(this)
 
@@ -28,7 +29,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     tracker.timeOfFuture(Metrics.RETRIEVE_TIME) {
       val resourcePath = ContentLogic.splitPath(request.path)
       val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
-      if (ContentLogic.isCollectionUri(resourcePath.documentUri) && resourcePath.itemSegment.isEmpty) {
+      if (ContentLogic.isCollectionUri(resourcePath.documentUri) && resourcePath.itemId.isEmpty) {
         queryCollection(resourcePath, request)
       }
       else {
@@ -91,7 +92,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
         val stream = collection.toStream
         val result = Obj(Map("_embedded" →
           Obj(Map("els" →
-            Lst(stream.filterNot(s ⇒ s.itemSegment.isEmpty || s.isDeleted).map { item ⇒
+            Lst(stream.filterNot(s ⇒ s.itemId.isEmpty || s.isDeleted).map { item ⇒
               StringDeserializer.dynamicBody(item.body).content
             })
           ))))
@@ -108,7 +109,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
 
   private def queryDocument(resourcePath: ResourcePath, request: HyperStorageContentGet) = {
     val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
-    db.selectContent(resourcePath.documentUri, resourcePath.itemSegment) map {
+    db.selectContent(resourcePath.documentUri, resourcePath.itemId) map {
       case None ⇒
         notFound
       case Some(content) ⇒

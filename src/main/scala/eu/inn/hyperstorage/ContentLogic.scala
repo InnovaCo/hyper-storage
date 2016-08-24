@@ -2,7 +2,7 @@ package eu.inn.hyperstorage
 
 import eu.inn.hyperstorage.db.{Content, ContentStatic}
 
-case class ResourcePath(documentUri: String, itemSegment: String)
+case class ResourcePath(documentUri: String, itemId: String)
 
 object ContentLogic {
 
@@ -27,8 +27,8 @@ object ContentLogic {
       val a = r(1)
       if (isCollectionUri(a)) {
         val documentUri = r.tail.reverse.mkString("/")
-        val itemSegment = r.head
-        ResourcePath(documentUri, itemSegment)
+        val itemId = r.head
+        ResourcePath(documentUri, itemId)
       }
       else {
         ResourcePath(path, "")
@@ -43,10 +43,10 @@ object ContentLogic {
 
   implicit class ContentWrapper(val content: Content) {
     def uri = {
-      if (content.itemSegment.isEmpty)
+      if (content.itemId.isEmpty)
         content.documentUri
       else
-        content.documentUri + "/" + content.itemSegment
+        content.documentUri + "/" + content.itemId
     }
 
     def partition = TransactionLogic.partitionFromUri(content.documentUri)

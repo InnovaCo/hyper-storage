@@ -14,7 +14,7 @@ case object StartPendingIndexWorker
 
 case object CompletePendingIndex
 
-case class BeginIndexing(indexDef: IndexDef, lastItemSegment: Option[String])
+case class BeginIndexing(indexDef: IndexDef, lastItemId: Option[String])
 
 case class WaitForIndexDef(pendingIndex: PendingIndex)
 
@@ -45,8 +45,8 @@ class PendingIndexWorker(cluster: ActorRef, indexKey: IndexDefTransaction, hyper
       context.parent ! IndexManager.IndexingComplete(indexKey)
       context.stop(self)
 
-    case BeginIndexing(indexDef, lastItemSegment) ⇒
-      indexNextBatch(0, indexDef, lastItemSegment)
+    case BeginIndexing(indexDef, lastItemId) ⇒
+      indexNextBatch(0, indexDef, lastItemId)
   }
 
   def waitingForIndexDef: Receive = starOrStop orElse {
@@ -55,12 +55,12 @@ class PendingIndexWorker(cluster: ActorRef, indexKey: IndexDefTransaction, hyper
       IndexWorkerImpl.deletePendingIndex(context.self, pendingIndex, db)
   }
 
-  def indexing(processId: Long, indexDef: IndexDef, lastItemSegment: Option[String]): Receive = {
+  def indexing(processId: Long, indexDef: IndexDef, lastItemId: Option[String]): Receive = {
     case IndexNextBatchTimeout(p) if p == processId ⇒
-      indexNextBatch(processId + 1, indexDef, lastItemSegment)
+      indexNextBatch(processId + 1, indexDef, lastItemId)
 
-    case IndexContentTaskResult(Some(newLastItemSegment), p) if p == processId ⇒
-      indexNextBatch(processId + 1, indexDef, Some(newLastItemSegment))
+    case IndexContentTaskResult(Some(latestItemId), p) if p == processId ⇒
+      indexNextBatch(processId + 1, indexDef, Some(latestItemId))
 
     case IndexContentTaskResult(None, p) if p == processId ⇒
       context.parent ! IndexManager.IndexingComplete(indexKey)
@@ -73,12 +73,12 @@ class PendingIndexWorker(cluster: ActorRef, indexKey: IndexDefTransaction, hyper
       IndexWorkerImpl.selectPendingIndex(context.self, indexKey, db)
   }
 
-  def indexNextBatch(processId: Long, indexDef: IndexDef, lastItemSegment: Option[String]): Unit = {
+  def indexNextBatch(processId: Long, indexDef: IndexDef, lastItemId: Option[String]): Unit = {
     import context.dispatcher
-    context.become(indexing(processId, indexDef, lastItemSegment))
+    context.become(indexing(processId, indexDef, lastItemId))
     cluster ! IndexNextBucketTask(System.currentTimeMillis() + IndexWorkerImpl.RETRY_PERIOD.toMillis,
       IndexDefTransaction(indexDef.documentUri, indexDef.indexId, indexDef.defTransactionId),
-      lastItemSegment, processId)
+      lastItemId, processId)
     context.system.scheduler.scheduleOnce(IndexWorkerImpl.RETRY_PERIOD * 2, self, IndexNextBatchTimeout(processId))
   }
 }
@@ -102,7 +102,7 @@ private[indexing] object IndexWorkerImpl {
       case Some(pendingIndex) ⇒
         db.selectIndexDef(indexKey.documentUri, indexKey.indexId) map {
           case Some(indexDef) if indexDef.defTransactionId == pendingIndex.defTransactionId ⇒
-            notifyActor ! BeginIndexing(indexDef, pendingIndex.lastItemSegment)
+            notifyActor ! BeginIndexing(indexDef, pendingIndex.lastItemId)
           case _ ⇒
             actorSystem.scheduler.scheduleOnce(RETRY_PERIOD, notifyActor, WaitForIndexDef(pendingIndex))
         }

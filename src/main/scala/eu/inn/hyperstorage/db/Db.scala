@@ -24,7 +24,7 @@ trait ContentBase {
 
 case class Content(
                     documentUri: String,
-                    itemSegment: String,
+                    itemId: String,
                     revision: Long,
                     transactionList: List[UUID],
                     body: Option[String],
@@ -45,7 +45,7 @@ case class Transaction(
                         dtQuantum: Long,
                         partition: Int,
                         documentUri: String,
-                        itemSegment: String,
+                        itemId: String,
                         uuid: UUID,
                         revision: Long,
                         body: String,
@@ -56,7 +56,7 @@ case class PendingIndex(
                          partition: Int,
                          documentUri: String,
                          indexId: String,
-                         lastItemSegment: Option[String], // todo: rename
+                         lastItemId: Option[String],
                          defTransactionId: UUID
                        )
 
@@ -73,7 +73,7 @@ case class IndexDef(
 case class IndexContent(
                          documentUri: String,
                          indexId: String,
-                         itemSegment: String,
+                         itemId: String,
                          revision: Long,
                          body: Option[String],
                          createdAt: Date,
@@ -118,29 +118,29 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     }
   }
 
-  def selectContent(documentUri: String, itemSegment: String): Future[Option[Content]] = cql"""
-      select document_uri,item_segment,revision,transaction_list,is_deleted,body,created_at,modified_at from content
-      where document_uri=$documentUri and item_segment=$itemSegment
+  def selectContent(documentUri: String, itemId: String): Future[Option[Content]] = cql"""
+      select document_uri,item_id,revision,transaction_list,is_deleted,body,created_at,modified_at from content
+      where document_uri=$documentUri and item_id=$itemId
     """.oneOption[Content]
 
   def selectContentCollection(documentUri: String, limit: Int, fromId: Option[String], ascending: Boolean = true): Future[Iterator[Content]] = {
     val orderClause = if(ascending) {
-      Dynamic("order by item_segment asc")
+      Dynamic("order by item_id asc")
     }
     else {
-      Dynamic("order by item_segment desc")
+      Dynamic("order by item_id desc")
     }
-    val itemSegmentFilter = fromId.map { id ⇒
+    val itemIdFilter = fromId.map { id ⇒
       if(ascending) {
-        Dynamic(" and item_segment > ?")
+        Dynamic(" and item_id > ?")
       }
       else {
-        Dynamic(" and item_segment < ?")
+        Dynamic(" and item_id < ?")
       }
     } getOrElse {Dynamic("")}
     val c = cql"""
-      select document_uri,item_segment,revision,transaction_list,is_deleted,body,created_at,modified_at from content
-      where document_uri=? $itemSegmentFilter
+      select document_uri,item_id,revision,transaction_list,is_deleted,body,created_at,modified_at from content
+      where document_uri=? $itemIdFilter
       $orderClause
       limit ?
     """
@@ -160,32 +160,32 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     """.oneOption[ContentStatic]
 
   def insertContent(content: Content): Future[Unit] = cql"""
-      insert into content(document_uri,item_segment,revision,transaction_list,is_deleted,body,created_at,modified_at)
+      insert into content(document_uri,item_id,revision,transaction_list,is_deleted,body,created_at,modified_at)
       values(?,?,?,?,?,?,?,?)
     """.bind(content).execute()
 
-  def deleteContentItem(content: ContentBase, itemSegment: String): Future[Unit] = cql"""
+  def deleteContentItem(content: ContentBase, itemId: String): Future[Unit] = cql"""
       begin batch
         update content
         set transaction_list = ${content.transactionList}, revision = ${content.revision}
         where document_uri = ${content.documentUri};
         delete from content
-        where document_uri = ${content.documentUri} and item_segment = $itemSegment;
+        where document_uri = ${content.documentUri} and item_id = $itemId;
       apply batch;
     """.execute()
 
   def selectTransaction(dtQuantum: Long, partition: Int, documentUri: String, uuid: UUID): Future[Option[Transaction]] = cql"""
-      select dt_quantum,partition,document_uri,item_segment,uuid,revision,body,completed_at from transaction
+      select dt_quantum,partition,document_uri,item_id,uuid,revision,body,completed_at from transaction
       where dt_quantum=$dtQuantum and partition=$partition and document_uri=$documentUri and uuid=$uuid
     """.oneOption[Transaction]
 
   def selectPartitionTransactions(dtQuantum: Long, partition: Int): Future[Iterator[Transaction]] = cql"""
-      select dt_quantum,partition,document_uri,item_segment,uuid,revision,body,completed_at from transaction
+      select dt_quantum,partition,document_uri,item_id,uuid,revision,body,completed_at from transaction
       where dt_quantum=$dtQuantum and partition=$partition
     """.all[Transaction]
 
   def insertTransaction(transaction: Transaction): Future[Unit] = cql"""
-      insert into transaction(dt_quantum,partition,document_uri,item_segment,uuid,revision,body,completed_at)
+      insert into transaction(dt_quantum,partition,document_uri,item_id,uuid,revision,body,completed_at)
       values(?,?,?,?,?,?,?,?)
     """.bind(transaction).execute()
 
@@ -220,14 +220,14 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     """.execute()
 
   def selectPendingIndexes(partition: Int, limit: Int): Future[Iterator[PendingIndex]] = cql"""
-      select partition, document_uri, index_id, last_item_segment, def_transaction_id
+      select partition, document_uri, index_id, last_item_id, def_transaction_id
       from pending_index
       where partition=$partition
       limit $limit
     """.all[PendingIndex]
 
   def selectPendingIndex(partition: Int, documentId: String, indexId: String, defTransactionId: UUID): Future[Option[PendingIndex]] = cql"""
-      select partition, document_uri, index_id, last_item_segment, def_transaction_id
+      select partition, document_uri, index_id, last_item_id, def_transaction_id
       from pending_index
       where partition=$partition and document_uri=$documentId and index_id=$indexId and def_transaction_id=$defTransactionId
     """.oneOption[PendingIndex]
@@ -238,14 +238,14 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       where partition=$partition and document_uri=$documentId and index_id=$indexId and def_transaction_id=$defTransactionId
     """.execute()
 
-  def updatePendingIndexLastItemSegment(partition: Int, documentId: String, indexId: String, defTransactionId: UUID, lastItemSegment: String) = cql"""
+  def updatePendingIndexLastItemId(partition: Int, documentId: String, indexId: String, defTransactionId: UUID, lastItemId: String) = cql"""
       update pending_index
-      set last_item_segment = $lastItemSegment
+      set last_item_id = $lastItemId
       where partition=$partition and document_uri=$documentId and index_id=$indexId and def_transaction_id=$defTransactionId
     """.execute()
 
   def insertPendingIndex(pendingIndex: PendingIndex): Future[Unit] = cql"""
-      insert into pending_index(partition, document_uri, index_id, last_item_segment, def_transaction_id)
+      insert into pending_index(partition, document_uri, index_id, last_item_id, def_transaction_id)
       values (?,?,?,?,?)
     """.bind(pendingIndex).execute()
 
@@ -282,7 +282,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     val sortFieldNames = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_._1).mkString(",", ",", ""))
     val sortFieldPlaces = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_ ⇒ "?").mkString(",", ",", ""))
     val cql = cql"""
-      insert into $tableName(document_uri,index_id,item_segment,revision,body,created_at,modified_at$sortFieldNames)
+      insert into $tableName(document_uri,index_id,item_id,revision,body,created_at,modified_at$sortFieldNames)
       values(?,?,?,?,?,?,?$sortFieldPlaces)
     """.bindPartial(indexContent)
 
@@ -322,7 +322,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       } mkString ("order by ", ",", ""))
 
     val c = cql"""
-      select document_uri,index_id,item_segment,revision,body,created_at,modified_at from $tableName
+      select document_uri,index_id,item_id,revision,body,created_at,modified_at from $tableName
       where document_uri=? and index_id=? $filterEqualFields
       $orderByDynamic
       limit ?
@@ -339,11 +339,11 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     c.all[IndexContent]
   }
 
-  def deleteIndexItem(indexTable: String, documentUri: String, indexId: String, itemSegment: String): Future[Unit] = {
+  def deleteIndexItem(indexTable: String, documentUri: String, indexId: String, itemId: String): Future[Unit] = {
     val tableName = Dynamic(indexTable)
     cql"""
       delete from $tableName
-      where document_uri=$documentUri and index_id=$indexId and item_segment = $itemSegment
+      where document_uri=$documentUri and index_id=$indexId and item_id = $itemId
     """.execute()
   }
 

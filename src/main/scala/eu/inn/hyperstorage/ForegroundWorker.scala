@@ -66,15 +66,15 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
 
     Try {
       val request = DynamicRequest(task.content)
-      val ResourcePath(documentUri, itemSegment) = splitPath(request.path)
+      val ResourcePath(documentUri, itemId) = splitPath(request.path)
       if (documentUri != task.key) {
         throw new IllegalArgumentException(s"Task key ${task.key} doesn't correspond to $documentUri")
       }
-      val (updatedItemSegment, updatedRequest) = request.method match {
+      val (updatedItemId, updatedRequest) = request.method match {
         case Method.POST ⇒
           // posting new item into collection, converting post to put
           val id = IdGenerator.create()
-          if (ContentLogic.isCollectionUri(documentUri) && itemSegment.isEmpty) {
+          if (ContentLogic.isCollectionUri(documentUri) && itemId.isEmpty) {
             (id, request.copy(
               uri = Uri(request.uri.pattern, request.uri.args + "path" → Specific(request.path + "/" + id)),
               headers = new HeadersBuilder(request.headers) withMethod Method.PUT result(), // POST becomes PUT with auto Id
@@ -87,20 +87,20 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
           }
 
         case Method.PUT ⇒
-          if (itemSegment.isEmpty)
-            (itemSegment, request.copy(body = filterNulls(request.body)))
+          if (itemId.isEmpty)
+            (itemId, request.copy(body = filterNulls(request.body)))
           else
-            (itemSegment, request.copy(body = appendId(filterNulls(request.body), itemSegment)))
+            (itemId, request.copy(body = appendId(filterNulls(request.body), itemId)))
         case _ ⇒
-          (itemSegment, request)
+          (itemId, request)
       }
-      (documentUri, updatedItemSegment, updatedRequest)
+      (documentUri, updatedItemId, updatedRequest)
     } map {
-      case (documentUri: String, itemSegment: String, request: DynamicRequest) ⇒
+      case (documentUri: String, itemId: String, request: DynamicRequest) ⇒
         become(taskWaitResult(owner, task, request, trackProcessTime)(request))
 
         // fetch and complete existing content
-        executeResourceUpdateTask(owner, documentUri, itemSegment, task, request)
+        executeResourceUpdateTask(owner, documentUri, itemId, task, request)
     } recover {
       case NonFatal(e) ⇒
         log.error(e, s"Can't deserialize and split path for: $task")
@@ -108,15 +108,15 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
     }
   }
 
-  def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemSegment: String, task: ForegroundTask, request: DynamicRequest) = {
-    db.selectContent(documentUri, itemSegment) flatMap { existingContent ⇒
+  def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemId: String, task: ForegroundTask, request: DynamicRequest) = {
+    db.selectContent(documentUri, itemId) flatMap { existingContent ⇒
       val f: Future[Option[ContentBase]] = existingContent match {
         case Some(content) ⇒ Future.successful(Some(content))
         case None ⇒ db.selectContentStatic(documentUri)
       }
 
       f flatMap { existingContentStatic ⇒
-        updateResource(documentUri, itemSegment, request, existingContent, existingContentStatic) map { newTransaction ⇒
+        updateResource(documentUri, itemId, request, existingContent, existingContentStatic) map { newTransaction ⇒
           ForegroundWorkerTaskCompleted(task, newTransaction, existingContent.isEmpty && request.method != Method.DELETE)
         }
       }
@@ -127,16 +127,16 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
   }
 
   private def updateResource(documentUri: String,
-                             itemSegment: String,
+                             itemId: String,
                              request: DynamicRequest,
                              existingContent: Option[Content],
                              existingContentStatic: Option[ContentBase]): Future[Transaction] = {
-    val newTransaction = createNewTransaction(documentUri, itemSegment, request, existingContentStatic)
-    val newContent = updateContent(documentUri, itemSegment, newTransaction, request, existingContent, existingContentStatic)
+    val newTransaction = createNewTransaction(documentUri, itemId, request, existingContentStatic)
+    val newContent = updateContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
     db.insertTransaction(newTransaction) flatMap { _ ⇒ {
-      if (!itemSegment.isEmpty && newContent.isDeleted) {
+      if (!itemId.isEmpty && newContent.isDeleted) {
         // deleting item
-        db.deleteContentItem(newContent, itemSegment)
+        db.deleteContentItem(newContent, itemId)
       }
       else {
         db.insertContent(newContent)
@@ -147,12 +147,12 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
     }
   }
 
-  private def createNewTransaction(documentUri: String, itemSegment: String, request: DynamicRequest, existingContent: Option[ContentBase]): Transaction = {
+  private def createNewTransaction(documentUri: String, itemId: String, request: DynamicRequest, existingContent: Option[ContentBase]): Transaction = {
     val revision = existingContent match {
       case None ⇒ 1
       case Some(content) ⇒ content.revision + 1
     }
-    TransactionLogic.newTransaction(documentUri, itemSegment, revision, request.copy(
+    TransactionLogic.newTransaction(documentUri, itemId, revision, request.copy(
       headers = Headers.plain(request.headers +
         (Header.REVISION → Seq(revision.toString)) +
         (Header.METHOD → Seq("feed:" + request.method)))
@@ -160,30 +160,30 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
   }
 
   private def updateContent(documentUri: String,
-                            itemSegment: String,
+                            itemId: String,
                             newTransaction: Transaction,
                             request: DynamicRequest,
                             existingContent: Option[Content],
                             existingContentStatic: Option[ContentBase]): Content =
     request.method match {
-      case Method.PUT ⇒ putContent(documentUri, itemSegment, newTransaction, request, existingContent, existingContentStatic)
-      case Method.PATCH ⇒ patchContent(documentUri, itemSegment, newTransaction, request, existingContent)
-      case Method.DELETE ⇒ deleteContent(documentUri, itemSegment, newTransaction, request, existingContent, existingContentStatic)
+      case Method.PUT ⇒ putContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
+      case Method.PATCH ⇒ patchContent(documentUri, itemId, newTransaction, request, existingContent)
+      case Method.DELETE ⇒ deleteContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
     }
 
   private def putContent(documentUri: String,
-                         itemSegment: String,
+                         itemId: String,
                          newTransaction: Transaction,
                          request: DynamicRequest,
                          existingContent: Option[Content],
                          existingContentStatic: Option[ContentBase]): Content = {
-    if (ContentLogic.isCollectionUri(documentUri) && itemSegment.isEmpty) {
+    if (ContentLogic.isCollectionUri(documentUri) && itemId.isEmpty) {
       throw Conflict(ErrorBody("collection-put-not-implemented", Some(s"Currently you can't put the whole collection")))
     }
 
     existingContentStatic match {
       case None ⇒
-        Content(documentUri, itemSegment, newTransaction.revision,
+        Content(documentUri, itemId, newTransaction.revision,
           transactionList = List(newTransaction.uuid),
           body = Some(request.body.serializeToString()),
           isDeleted = false,
@@ -192,7 +192,7 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
         )
 
       case Some(static) ⇒
-        Content(documentUri, itemSegment, newTransaction.revision,
+        Content(documentUri, itemId, newTransaction.revision,
           transactionList = newTransaction.uuid +: static.transactionList,
           body = Some(request.body.serializeToString()),
           isDeleted = false,
@@ -203,17 +203,17 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
   }
 
   private def patchContent(documentUri: String,
-                           itemSegment: String,
+                           itemId: String,
                            newTransaction: Transaction,
                            request: DynamicRequest,
                            existingContent: Option[Content]): Content = {
-    if (ContentLogic.isCollectionUri(documentUri) && itemSegment.isEmpty) {
+    if (ContentLogic.isCollectionUri(documentUri) && itemId.isEmpty) {
       throw new IllegalArgumentException(s"PATCH is not allowed for a collection~")
     }
 
     existingContent match {
       case Some(content) if !content.isDeleted ⇒
-        Content(documentUri, itemSegment, newTransaction.revision,
+        Content(documentUri, itemId, newTransaction.revision,
           transactionList = newTransaction.uuid +: content.transactionList,
           body = Some(mergeBody(StringDeserializer.dynamicBody(content.body), request.body).serializeToString()),
           isDeleted = false,
@@ -236,7 +236,7 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
   }
 
   private def deleteContent(documentUri: String,
-                            itemSegment: String,
+                            itemId: String,
                             newTransaction: Transaction,
                             request: DynamicRequest,
                             existingContent: Option[Content],
@@ -246,7 +246,7 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
       throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
 
     case Some(content) ⇒
-      Content(documentUri, itemSegment, newTransaction.revision,
+      Content(documentUri, itemId, newTransaction.revision,
         transactionList = newTransaction.uuid +: content.transactionList,
         body = None,
         isDeleted = true,
