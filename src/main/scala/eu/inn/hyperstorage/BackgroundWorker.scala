@@ -235,7 +235,7 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
 
       import eu.inn.binders.json._
       val indexDef = IndexDef(post.path, indexId, IndexDef.STATUS_INDEXING,
-        if (post.body.sortBy.nonEmpty) Some(post.body.sortBy.toJson) else None, post.body.filterBy, tableName, defTransactionId = UUIDs.timeBased()
+        IndexLogic.serializeSortByFields(post.body.sortBy), post.body.filterBy, tableName, defTransactionId = UUIDs.timeBased()
       )
       val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(post.path), post.path, indexId, None, indexDef.defTransactionId)
 
@@ -380,8 +380,8 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
 
     // todo: cache this
     val sortBy = indexDef.sortBy.map { sortString ⇒
-      val sortBy = sortString.parseJson[Seq[HyperStorageIndexSortItem]]
-      IndexLogic.extractSortFields(sortBy, contentValue)
+      val sortBy = IndexLogic.deserializeSortByFields(sortString)
+      IndexLogic.extractSortFieldValues(sortBy, contentValue)
     } getOrElse {
       Seq.empty
     }

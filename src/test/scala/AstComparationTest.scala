@@ -1,6 +1,5 @@
-package eu.inn.parser
-
 import eu.inn.binders.{value ⇒ bn}
+import eu.inn.parser.HParser
 import eu.inn.parser.ast.{AstComparation, AstComparator}
 import org.scalatest.{FreeSpec, Matchers}
 

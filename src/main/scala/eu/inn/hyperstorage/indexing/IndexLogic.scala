@@ -37,7 +37,17 @@ object IndexLogic {
     }
   }
 
-  def extractSortFields(sortBy: Seq[HyperStorageIndexSortItem], value: Value): Seq[(String, Value)] = {
+  def deserializeSortByFields(sortBy: String): Seq[HyperStorageIndexSortItem] = {
+    import eu.inn.binders.json._
+    sortBy.parseJson[Seq[HyperStorageIndexSortItem]]
+  }
+
+  def serializeSortByFields(sortBy: Seq[HyperStorageIndexSortItem]): Option[String] = {
+    import eu.inn.binders.json._
+    if (sortBy.nonEmpty) Some(sortBy.toJson) else None
+  }
+
+  def extractSortFieldValues(sortBy: Seq[HyperStorageIndexSortItem], value: Value): Seq[(String, Value)] = {
     val valueContext = value match {
       case obj: Obj ⇒ ValueContext(obj)
       case _ ⇒ ValueContext(Obj.empty)

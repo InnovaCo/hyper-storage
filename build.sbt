@@ -64,4 +64,5 @@ libraryDependencies ++= Seq(
 
 testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports", "-oDS")
 
+parallelExecution in Test := false
 
