@@ -2,26 +2,31 @@ package eu.inn.hyperstorage
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.ask
-import eu.inn.binders.value.{Lst, Obj}
+import eu.inn.binders.value.{Lst, Null, Obj, Value}
 import eu.inn.hyperbus.akkaservice.AkkaHyperService
 import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.model.utils.SortBy
 import eu.inn.hyperbus.model.utils.Sort._
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
-import eu.inn.hyperstorage.db.Db
+import eu.inn.hyperstorage.db.{CollectionContent, Db, IndexDef}
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.metrics.MetricsTracker
-import eu.inn.hyperstorage.api._
+import eu.inn.hyperstorage.api.{HyperStorageIndexSortItem, _}
+import eu.inn.hyperstorage.indexing.{FieldFiltersExtractor, IndexLogic}
+import eu.inn.parser.HParser
 
+import scala.concurrent.Future
 import scala.concurrent.duration._
 
 class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsTracker, requestTimeout: FiniteDuration) extends Actor with ActorLogging {
 
   import context._
 
-  val COLLECTION_TOKEN_FIELD_NAME = "from"
+  //val COLLECTION_TOKEN_FIELD_NAME = "from"
+  val COLLECTION_FILTER_NAME = "filter"
   val COLLECTION_SIZE_FIELD_NAME = "size"
   val MAX_SKIPPED_ROWS = 10000
+  val DEFAULT_PAGE_SIZE = 100
 
   def receive = AkkaHyperService.dispatch(this)
 
@@ -76,23 +81,33 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
 
   private def queryCollection(resourcePath: ResourcePath, request: HyperStorageContentGet) = {
     val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
-    // collection
-    val sortByDesc = request.body.sortBy.exists(_.contains(SortBy("id", descending = true)))
-    val pageFrom = request.body.content.asMap.get(COLLECTION_TOKEN_FIELD_NAME).map(_.asString)
-    val pageSize = request.body.content.asMap(COLLECTION_SIZE_FIELD_NAME).asInt
-    // (if (pageFrom.isEmpty && !sortByDesc) 1 else 0) + request.body.pageSize.map(_.asInt).getOrElse(50)
 
-    val selectResult = db.selectContentCollection(resourcePath.documentUri, pageSize, pageFrom, !sortByDesc)
+    val f = request.body.content.selectDynamic(COLLECTION_FILTER_NAME)
+    val filter = if (f.asString == "") None else Some(f.asString)
+    val sortBy = request.body.sortBy.getOrElse(Seq.empty)
+
+    val indexDefsFuture = if (filter.isEmpty && sortBy.isEmpty) {
+      Future.successful(Iterator.empty)
+    } else {
+      db.selectIndexDefs(resourcePath.documentUri)
+    }
+
+    val pageSize = request.body.content.selectDynamic(COLLECTION_SIZE_FIELD_NAME) match {
+      case Null ⇒ DEFAULT_PAGE_SIZE
+      case other: Value ⇒ other.asInt
+    }
+    // val selectResult = db.selectContentCollection(resourcePath.documentUri, pageSize, pageFrom, !sortByDesc)
 
     for {
       contentStatic ← db.selectContentStatic(resourcePath.documentUri)
-      collection ← selectResult
+      indexDefs ← indexDefsFuture
+      collection ← selectCollection(resourcePath.documentUri, indexDefs, filter, sortBy, pageSize)
     } yield {
-      if (contentStatic.isDefined) {
+      if (contentStatic.isDefined && contentStatic.forall(!_.isDeleted)) {
         val stream = collection.toStream
         val result = Obj(Map("_embedded" →
           Obj(Map("els" →
-            Lst(stream.filterNot(s ⇒ s.itemId.isEmpty || s.isDeleted).map { item ⇒
+            Lst(stream.filterNot(s ⇒ s.itemId.isEmpty).map { item ⇒
               StringDeserializer.dynamicBody(item.body).content
             })
           ))))
@@ -104,6 +119,50 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
       else {
         notFound
       }
+    }
+  }
+
+  private def selectCollection(documentUri: String,
+                               indexDefs: Iterator[IndexDef],
+                               queryFilter: Option[String],
+                               querySortBy: Seq[SortBy], pageSize: Int): Future[Iterator[CollectionContent]] = {
+
+    val queryFilterExpression = queryFilter.map(HParser(_).get)
+
+    val defIdSort = HyperStorageIndexSortItem("id", Some(HyperStorageIndexSortFieldType.DECIMAL), Some(HyperStorageIndexSortOrder.ASC))
+
+    // todo: this should be cached, heavy operations here
+    val sources = indexDefs.map { indexDef ⇒
+      val filterAST = indexDef.filterBy.map(HParser(_).get)
+      val indexSortBy = indexDef.sortBy.map(IndexLogic.deserializeSortByFields).getOrElse(Seq.empty) :+ defIdSort
+      (IndexLogic.weighIndex(queryFilterExpression, querySortBy, filterAST, indexSortBy), indexSortBy, Some(indexDef))
+    }.toSeq :+
+      (IndexLogic.weighIndex(queryFilterExpression, querySortBy, None, Seq(defIdSort)), Seq(defIdSort), None)
+
+    val source = sources.reduceLeft((left,right) ⇒ if (left._1 > right._1) left else right)
+
+    val skipMax = Math.min(MAX_SKIPPED_ROWS, pageSize)
+    val ffe = new FieldFiltersExtractor(source._2)
+    val queryFilterFields = queryFilterExpression.map(ffe.extract).getOrElse(Seq.empty)
+
+    source._3 match {
+      case None ⇒ {
+        db.selectContentCollection(documentUri,
+          pageSize,
+          queryFilterFields.headOption.map(_.value.asString),
+          source._2.find(_.fieldName == "id").forall(!_.order.contains(HyperStorageIndexSortOrder.DESC))
+        )
+      }
+
+      case Some(indexDef) ⇒
+        db.selectIndexCollection(
+          indexDef.tableName,
+          documentUri,
+          indexDef.indexId,
+          queryFilterFields,
+          Seq.empty, // todo: define extractor
+          pageSize
+        )
     }
   }
 

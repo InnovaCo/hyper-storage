@@ -22,6 +22,15 @@ trait ContentBase {
   def isDeleted: Boolean
 }
 
+trait CollectionContent {
+  def documentUri: String
+  def itemId: String
+  def revision: Long
+  def body: Option[String]
+  def createdAt: Date
+  def modifiedAt: Option[Date]
+}
+
 case class Content(
                     documentUri: String,
                     itemId: String,
@@ -31,8 +40,7 @@ case class Content(
                     isDeleted: Boolean,
                     createdAt: Date,
                     modifiedAt: Option[Date]
-                  ) extends ContentBase {
-}
+                  ) extends ContentBase with CollectionContent
 
 case class ContentStatic(
                           documentUri: String,
@@ -78,7 +86,7 @@ case class IndexContent(
                          body: Option[String],
                          createdAt: Date,
                          modifiedAt: Option[Date]
-                       )
+                       ) extends CollectionContent
 
 object IndexDef {
   val STATUS_INDEXING = 0
