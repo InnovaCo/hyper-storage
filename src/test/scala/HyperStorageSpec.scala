@@ -779,7 +779,7 @@ class HyperStorageSpec extends FreeSpec
         Thread.sleep(2000)
 
         val c1 = ObjV("a" → "hello", "b" → 100500)
-        val c2 = ObjV("a" → "good by", "b" → 654321)
+        val c2 = ObjV("a" → "goodbye", "b" → 654321)
         val c1x = Obj(c1.asMap + "id" → "item1")
         val c2x = Obj(c2.asMap + "id" → "item2")
 
@@ -864,7 +864,7 @@ class HyperStorageSpec extends FreeSpec
         Thread.sleep(2000)
 
         val c1 = ObjV("a" → "hello", "b" → Number(100500))
-        val c2 = ObjV("a" → "good by", "b" → Number(654321))
+        val c2 = ObjV("a" → "goodbye", "b" → Number(654321))
 
         val path = "collection-2~"
         val f = hyperbus <~ HyperStorageContentPost(path, DynamicBody(c1))
@@ -911,11 +911,11 @@ class HyperStorageSpec extends FreeSpec
         import Sort._
 
         val f5 = hyperbus <~ HyperStorageContentGet("collection-2~",
-          body = new QueryBuilder() add("size", 50) sortBy (Seq(SortBy("id", true))) result())
+          body = new QueryBuilder() add("size", 50) sortBy (Seq(SortBy("id", false))) result())
         whenReady(f5) { response ⇒
           response.statusCode should equal(Status.OK)
           response.body.content should equal(
-            ObjV("_embedded" -> ObjV("els" → LstV(c2x, c1x)))
+            ObjV("_embedded" -> ObjV("els" → LstV(c1x,c2x)))
           )
         }
       }

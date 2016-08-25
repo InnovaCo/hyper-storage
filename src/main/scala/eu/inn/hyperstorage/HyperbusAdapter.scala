@@ -139,18 +139,24 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     }.toSeq :+
       (IndexLogic.weighIndex(queryFilterExpression, querySortBy, None, Seq(defIdSort)), Seq(defIdSort), None)
 
-    val source = sources.reduceLeft((left,right) ⇒ if (left._1 > right._1) left else right)
+    val (weight,indexSortFields,indexDefOpt) = sources.reduceLeft((left,right) ⇒ if (left._1 > right._1) left else right)
 
     val skipMax = Math.min(MAX_SKIPPED_ROWS, pageSize)
-    val ffe = new FieldFiltersExtractor(source._2)
+    val ffe = new FieldFiltersExtractor(indexSortFields)
     val queryFilterFields = queryFilterExpression.map(ffe.extract).getOrElse(Seq.empty)
+    val m = queryFilterFields.map(_.name).toSet
+    // todo: need to detect exact match! val isExactMatch = source._1 == 30 || (queryFilter.isEmpty && querySortBy.isEmpty) ||
 
-    source._3 match {
+    // todo: s1 extract sort fields and order
+    // todo: s2 increment(ck)
+    // todo: s3 scan until page is fetched
+
+    indexDefOpt match {
       case None ⇒ {
         db.selectContentCollection(documentUri,
           pageSize,
           queryFilterFields.headOption.map(_.value.asString),
-          source._2.find(_.fieldName == "id").forall(!_.order.contains(HyperStorageIndexSortOrder.DESC))
+          querySortBy.find(_.fieldName == "id").forall(!_.descending)
         )
       }
 
