@@ -50,7 +50,7 @@ libraryDependencies ++= Seq(
   "eu.inn" %% "binders-core" % "0.12.93",
   "eu.inn" %% "binders-json" % "0.12.47",
   "eu.inn" %% "binders-cassandra" % "0.13.50",
-  "eu.inn" %% "expression-parser" % "0.1.22",
+  "eu.inn" %% "expression-parser" % "0.1.29",
   "com.datastax.cassandra" % "cassandra-driver-core" % "2.1.9",
   "org.slf4j" % "slf4j-api" % "1.7.12",
   "ch.qos.logback" % "logback-classic" % "1.1.3",
