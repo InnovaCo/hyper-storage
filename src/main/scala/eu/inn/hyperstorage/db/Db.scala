@@ -100,7 +100,7 @@ case object FilterGt extends FilterOperator
 case object FilterGtEq extends FilterOperator
 case object FilterLt extends FilterOperator
 case object FilterLtEq extends FilterOperator
-case class SortField(name: String, ascending: Boolean)
+case class CkField(name: String, ascending: Boolean)
 case class FieldFilter(name: String, value: Value, op: FilterOperator)
 
 private[db] case class CheckPoint(lastQuantum: Long)
@@ -304,7 +304,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
 
   def selectIndexCollection(indexTable: String, documentUri: String, indexId: String,
                             filter: Seq[FieldFilter],
-                            orderByFields: Seq[SortField],
+                            orderByFields: Seq[CkField],
                             limit: Int): Future[Iterator[IndexContent]] = {
 
     val tableName = Dynamic(indexTable)
@@ -325,8 +325,8 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       Dynamic("")
     else
       Dynamic(orderByFields.map {
-        case SortField(name, true) ⇒ s"$name asc"
-        case SortField(name, false) ⇒ s"$name desc"
+        case CkField(name, true) ⇒ s"$name asc"
+        case CkField(name, false) ⇒ s"$name desc"
       } mkString ("order by ", ",", ""))
 
     val c = cql"""

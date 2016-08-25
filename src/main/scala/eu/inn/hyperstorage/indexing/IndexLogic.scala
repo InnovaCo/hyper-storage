@@ -102,6 +102,6 @@ object IndexLogic {
         }
     }
 
-    OrderWeigher.weighOrdering(querySortOrder, indexSortOrder) + filterWeigh
+    OrderFieldsLogic.weighOrdering(querySortOrder, indexSortOrder) + filterWeigh
   }
 }

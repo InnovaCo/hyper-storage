@@ -122,6 +122,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     }
   }
 
+  // todo: refactor this method
   private def selectCollection(documentUri: String,
                                indexDefs: Iterator[IndexDef],
                                queryFilter: Option[String],
@@ -132,10 +133,15 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     val defIdSort = HyperStorageIndexSortItem("id", Some(HyperStorageIndexSortFieldType.DECIMAL), Some(HyperStorageIndexSortOrder.ASC))
 
     // todo: this should be cached, heavy operations here
-    val sources = indexDefs.map { indexDef ⇒
-      val filterAST = indexDef.filterBy.map(HParser(_).get)
-      val indexSortBy = indexDef.sortBy.map(IndexLogic.deserializeSortByFields).getOrElse(Seq.empty) :+ defIdSort
-      (IndexLogic.weighIndex(queryFilterExpression, querySortBy, filterAST, indexSortBy), indexSortBy, Some(indexDef))
+    val sources = indexDefs.flatMap { indexDef ⇒
+      if (indexDef.status == IndexDef.STATUS_NORMAL) Some {
+        val filterAST = indexDef.filterBy.map(HParser(_).get)
+        val indexSortBy = indexDef.sortBy.map(IndexLogic.deserializeSortByFields).getOrElse(Seq.empty) :+ defIdSort
+        (IndexLogic.weighIndex(queryFilterExpression, querySortBy, filterAST, indexSortBy), indexSortBy, Some(indexDef))
+      }
+      else {
+        None
+      }
     }.toSeq :+
       (IndexLogic.weighIndex(queryFilterExpression, querySortBy, None, Seq(defIdSort)), Seq(defIdSort), None)
 
@@ -148,6 +154,12 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     // todo: need to detect exact match! val isExactMatch = source._1 == 30 || (queryFilter.isEmpty && querySortBy.isEmpty) ||
 
     // todo: s1 extract sort fields and order
+
+
+
+
+
+
     // todo: s2 increment(ck)
     // todo: s3 scan until page is fetched
 

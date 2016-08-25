@@ -21,14 +21,14 @@ class DbSpec extends FreeSpec with Matchers with CassandraFixture
         "test~", "x1", "i3", 1l, Some("{}"), new Date(), None
       ))
       val ca = db.selectIndexCollection("index_content", "test~", "x1", Seq.empty,
-        Seq(SortField("item_id", ascending = true)), 10).futureValue.toSeq
+        Seq(CkField("item_id", ascending = true)), 10).futureValue.toSeq
       ca(0).itemId shouldBe "i1"
       ca(1).itemId shouldBe "i2"
       ca(2).itemId shouldBe "i3"
 
       val cd = db.selectIndexCollection("index_content", "test~", "x1",
         Seq.empty,
-        Seq(SortField("item_id", ascending = false)),
+        Seq(CkField("item_id", ascending = false)),
         10).futureValue.toSeq
       cd(0).itemId shouldBe "i3"
       cd(1).itemId shouldBe "i2"
@@ -36,7 +36,7 @@ class DbSpec extends FreeSpec with Matchers with CassandraFixture
 
       val ca2 = db.selectIndexCollection("index_content", "test~", "x1",
         Seq(FieldFilter("item_id", Text("i1"), FilterGt)),
-        Seq(SortField("item_id", ascending = true)),
+        Seq(CkField("item_id", ascending = true)),
         10).futureValue.toSeq
       ca2(0).itemId shouldBe "i2"
       ca2(1).itemId shouldBe "i3"
@@ -44,7 +44,7 @@ class DbSpec extends FreeSpec with Matchers with CassandraFixture
 
       val cd2 = db.selectIndexCollection("index_content", "test~", "x1",
         Seq(FieldFilter("item_id", Text("i3"), FilterLt)),
-        Seq(SortField("item_id", ascending = false)),
+        Seq(CkField("item_id", ascending = false)),
         10).futureValue.toSeq
       cd2(0).itemId shouldBe "i2"
       cd2(1).itemId shouldBe "i1"
@@ -73,7 +73,7 @@ class DbSpec extends FreeSpec with Matchers with CassandraFixture
 
       val cd = db.selectIndexCollection("index_content_ta0", "test~", "x1",
         Seq.empty,
-        Seq(SortField("t0", ascending = false)),
+        Seq(CkField("t0", ascending = false)),
         10).futureValue.toSeq
       cd(0).itemId shouldBe "i4"
       cd(1).itemId shouldBe "i3"
@@ -82,7 +82,7 @@ class DbSpec extends FreeSpec with Matchers with CassandraFixture
 
       val ca2 = db.selectIndexCollection("index_content_ta0", "test~", "x1",
         Seq(FieldFilter("t0", Text("aa00"), FilterGt)),
-        Seq(SortField("t0", ascending = true)),
+        Seq(CkField("t0", ascending = true)),
         10).futureValue.toSeq
       ca2(0).itemId shouldBe "i2"
       ca2(1).itemId shouldBe "i3"
@@ -91,7 +91,7 @@ class DbSpec extends FreeSpec with Matchers with CassandraFixture
 
       val cd2 = db.selectIndexCollection("index_content_ta0", "test~", "x1",
         Seq(FieldFilter("t0", Text("aa02"), FilterLt)),
-        Seq(SortField("t0", ascending = false)),
+        Seq(CkField("t0", ascending = false)),
         10).futureValue.toSeq
       cd2(0).itemId shouldBe "i2"
       cd2(1).itemId shouldBe "i1"
@@ -99,14 +99,14 @@ class DbSpec extends FreeSpec with Matchers with CassandraFixture
 
       val ca3 = db.selectIndexCollection("index_content_ta0", "test~", "x1",
         Seq(FieldFilter("t0", Text("aa02"), FilterEq), FieldFilter("item_id", Text("i3"), FilterGt)),
-        Seq(SortField("t0", ascending = true), SortField("item_id", ascending = true)),
+        Seq(CkField("t0", ascending = true), CkField("item_id", ascending = true)),
         10).futureValue.toSeq
       ca3(0).itemId shouldBe "i4"
       ca3.size shouldBe 1
 
       val cd3 = db.selectIndexCollection("index_content_ta0", "test~", "x1",
         Seq(FieldFilter("t0", Text("aa02"), FilterEq), FieldFilter("item_id", Text("i4"), FilterLt)),
-        Seq(SortField("t0", ascending = false), SortField("item_id", ascending = false)),
+        Seq(CkField("t0", ascending = false), CkField("item_id", ascending = false)),
         10).futureValue.toSeq
       cd3(0).itemId shouldBe "i3"
       cd3.size shouldBe 1
