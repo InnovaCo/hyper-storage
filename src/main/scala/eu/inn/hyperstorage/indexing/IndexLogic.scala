@@ -1,7 +1,8 @@
 package eu.inn.hyperstorage.indexing
 
 import eu.inn.binders.value.{Null, Obj, Value}
-import eu.inn.parser.ast.Identifier
+import eu.inn.hyperbus.model.utils.SortBy
+import eu.inn.parser.ast.{Expression, Identifier}
 import eu.inn.parser.eval.{EvalIdentifierNotFound, ValueContext}
 import eu.inn.parser.{HEval, HParser}
 import eu.inn.hyperstorage.api._
@@ -84,5 +85,23 @@ object IndexLogic {
       case _ ⇒ Obj.empty
     }
     HEval(expression, v).map(_.asBoolean)
+  }
+
+  def weighIndex(queryExpression: Option[Expression], querySortOrder: Seq[SortBy],
+                 indexFilterExpression: Option[Expression], indexSortOrder: Seq[HyperStorageIndexSortItem]): Int = {
+
+    val filterWeigh = (queryExpression, indexFilterExpression) match {
+      case (None, Some(_)) ⇒ -1000000
+      case (Some(_), None) ⇒ -30
+      case (None, None) ⇒ 0
+      case (Some(q), Some(i)) ⇒
+        AstComparator.compare(q,i) match {
+          case AstComparation.Equal ⇒ 20
+          case AstComparation.Wider ⇒ 10
+          case AstComparation.NotEqual ⇒ -1000000
+        }
+    }
+
+    OrderWeigher.weighOrdering(querySortOrder, indexSortOrder) + filterWeigh
   }
 }
