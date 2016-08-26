@@ -200,7 +200,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
       case None ⇒
         db.selectContentCollection(ops.documentUri,
           ops.limit,
-          ops.filterFields.find(_.name == "item_id").map(_.value.asString).orElse(Some("")),
+          ops.filterFields.find(_.name == "item_id").map(_.value.asString),
           ops.ckFields.find(_.name == "item_id").forall(_.ascending)
         )
 
