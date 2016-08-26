@@ -158,7 +158,9 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     else {
       c.bindArgs(documentUri, limit)
     }
-    c.all[Content]
+    c.stmt.execute.map(rows => rows.iterator.flatMap{it ⇒
+      if(it.row.isNull("item_id")) None else Some(it.unbind[Content])
+    })
   }
 
   def selectContentStatic(documentUri: String): Future[Option[ContentStatic]] = cql"""
