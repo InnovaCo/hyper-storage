@@ -8,15 +8,18 @@ import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.model.utils.SortBy
 import eu.inn.hyperbus.model.utils.Sort._
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
-import eu.inn.hyperstorage.db.{CollectionContent, Db, IndexDef}
+import eu.inn.hyperstorage.db._
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.metrics.MetricsTracker
 import eu.inn.hyperstorage.api.{HyperStorageIndexSortItem, _}
-import eu.inn.hyperstorage.indexing.{FieldFiltersExtractor, IndexLogic}
-import eu.inn.parser.HParser
+import eu.inn.hyperstorage.indexing.{FieldFiltersExtractor, IndexLogic, OrderFieldsLogic}
+import eu.inn.parser.{HEval, HParser}
+import eu.inn.parser.ast.Expression
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
+import scala.util.Success
+import scala.util.control.NonFatal
 
 class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsTracker, requestTimeout: FiniteDuration) extends Actor with ActorLogging {
 
@@ -26,6 +29,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
   val COLLECTION_FILTER_NAME = "filter"
   val COLLECTION_SIZE_FIELD_NAME = "size"
   val MAX_SKIPPED_ROWS = 10000
+  val MAX_COLLECTION_SELECTS = 500
   val DEFAULT_PAGE_SIZE = 100
 
   def receive = AkkaHyperService.dispatch(this)
@@ -147,17 +151,28 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
 
     val (weight,indexSortFields,indexDefOpt) = sources.reduceLeft((left,right) ⇒ if (left._1 > right._1) left else right)
 
-    val skipMax = Math.min(MAX_SKIPPED_ROWS, pageSize)
+    //val skipMax = Math.min(MAX_SKIPPED_ROWS, pageSize) + 1
     val ffe = new FieldFiltersExtractor(indexSortFields)
     val queryFilterFields = queryFilterExpression.map(ffe.extract).getOrElse(Seq.empty)
-    val m = queryFilterFields.map(_.name).toSet
-    // todo: need to detect exact match! val isExactMatch = source._1 == 30 || (queryFilter.isEmpty && querySortBy.isEmpty) ||
+    //val m = queryFilterFields.map(_.name).toSet
+    // todo: detect filter exact match
 
     // todo: s1 extract sort fields and order
+    val ckFields = OrderFieldsLogic.extractIndexSortFields(querySortBy, indexSortFields)
+    val sortMatchIsExact = ckFields.size == querySortBy.size
+
+    if (sortMatchIsExact) {
+      q(documentUri, indexDefOpt, pageSize, queryFilterFields, ckFields) flatMap { rows ⇒
 
 
+        Future(???)
+      }
 
 
+    }
+    else {
+
+    }
 
 
     // todo: s2 increment(ck)
@@ -181,6 +196,95 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
           Seq.empty, // todo: define extractor
           pageSize
         )
+    }
+  }
+
+  def q(documentUri: String,
+        indexDefOpt: Option[IndexDef],
+        limit: Int,
+        filterFields: Seq[FieldFilter],
+        ckFields: Seq[CkField],
+        queryFilterExpression: Option[Expression]): Future[(Stream[(CollectionContent, Value)], Int, Int, Option[Value])] = {
+
+    val f: Future[Iterator[CollectionContent]] = indexDefOpt match {
+      case None ⇒ {
+        db.selectContentCollection(documentUri,
+          limit,
+          filterFields.find(_.name == "id").map(_.value.asString),
+          ckFields.find(_.name == "id").forall(_.ascending)
+        )
+      }
+
+      case Some(indexDef) ⇒
+        db.selectIndexCollection(
+          indexDef.tableName,
+          documentUri,
+          indexDef.indexId,
+          filterFields,
+          ckFields,
+          limit
+        )
+    }
+
+    f.map { iterator ⇒
+      var totalFetched = 0
+      var totalAccepted = 0
+      var lastValue: Option[Value] = None
+      val acceptedStream = iterator.flatMap { c ⇒
+        totalFetched += 1
+        val v = StringDeserializer.dynamicBody(c.body).content
+        lastValue = Some(v)
+        val accepted = queryFilterExpression.forall { qfe ⇒
+          v match {
+            case o: Obj ⇒ try {
+              new HEval(o).eval(qfe).asBoolean
+            } catch {
+              case NonFatal(e) ⇒ false
+            }
+            case _ ⇒ false
+          }
+        }
+        if(accepted) {
+          totalAccepted += 1
+          Some((c, v))
+        } else {
+          None
+        }
+      }.toStream
+
+      (acceptedStream,totalAccepted,totalFetched,lastValue)
+    }
+  }
+
+  def q2(documentUri: String,
+         indexDefOpt: Option[IndexDef],
+         limit: Int,
+         filterFields: Seq[FieldFilter],
+         ckFields: Seq[CkField],
+         queryFilterExpression: Option[Expression],
+         leastSortItem: Option[HyperStorageIndexSortItem],
+         leastSortItemValue: Option[FilterF i e l d],
+         recursionCounter: Int,
+         endTimeInMillis: Long
+        ): Future[Stream[(CollectionContent,Value)]] = {
+    if (recursionCounter > MAX_COLLECTION_SELECTS)
+      Future.failed(GatewayTimeout(ErrorBody("query-limit-reached", Some(s"Maximum query count is reached: $recursionCounter"))))
+    else if (System.currentTimeMillis < endTimeInMillis)
+      Future.failed(GatewayTimeout(ErrorBody("query-timed-out", Some(s"Timed out with query count: $recursionCounter"))))
+    else {
+      val ckf = ckFields ++ leastSortItemValue <--- wrong
+      q(documentUri,indexDefOpt,limit,filterFields,ckf,queryFilterExpression) flatMap {
+        case(stream,totalAccepted,totalFetched,lastValueOpt) ⇒
+          if (totalAccepted >= limit || totalFetched < limit || leastSortItem.isEmpty) Future.successful(stream)
+          else {
+            val siv = lastValueOpt.flatMap { v ⇒
+              IndexLogic.extractSortFieldValues(leastSortItem.toSeq, v).headOption
+            }
+            if (siv.isEmpty) Future.successful(stream) else {
+              Future(???)
+            }
+          }
+      }
     }
   }
 
