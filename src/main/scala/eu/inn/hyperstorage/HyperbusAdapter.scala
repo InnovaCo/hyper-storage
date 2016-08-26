@@ -200,7 +200,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
       case None ⇒
         db.selectContentCollection(ops.documentUri,
           ops.limit,
-          ops.filterFields.find(_.name == "item_id").map(_.value.asString),
+          ops.filterFields.find(_.name == "item_id").map(_.value.asString).orElse(Some("")),
           ops.ckFields.find(_.name == "item_id").forall(_.ascending)
         )
 
@@ -325,7 +325,7 @@ class CollectionOrdering(querySortBy: Seq[SortBy]) extends Ordering[Value] {
         val xv = extract(x, identifier)
         val yv = extract(y, identifier)
         cmp(xv,yv)
-      }.takeWhile(_ == 0).last
+      }.find(_ != 0).getOrElse(0)
     }
   }
 

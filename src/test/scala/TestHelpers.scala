@@ -8,6 +8,8 @@ import com.codahale.metrics.ScheduledReporter
 import com.datastax.driver.core.utils.UUIDs
 import com.typesafe.config.ConfigFactory
 import eu.inn.hyperbus.Hyperbus
+import eu.inn.hyperbus.model.{DynamicBody, Response}
+import eu.inn.hyperbus.serialization.StringDeserializer
 import eu.inn.hyperbus.transport.ActorSystemRegistry
 import eu.inn.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
 import eu.inn.hyperstorage.db.{Db, Transaction}
@@ -155,6 +157,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     def processorPath = t.asInstanceOf[TestShardTask].processActorPath getOrElse ""
   }
 
+  def response(content: String): Response[DynamicBody] = StringDeserializer.dynamicResponse(content).asInstanceOf[Response[DynamicBody]]
 }
 
 case class TestShardTask(key: String, value: String,

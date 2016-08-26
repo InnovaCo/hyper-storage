@@ -1,4 +1,6 @@
 import com.datastax.driver.core.Session
+import eu.inn.binders.cassandra.GuavaSessionQueryCache
+import eu.inn.binders.naming.CamelCaseToSnakeCaseConverter
 import eu.inn.hyperstorage.CassandraConnector
 import eu.inn.hyperstorage.db.Db
 import org.cassandraunit.CassandraCQLUnit
@@ -12,8 +14,9 @@ import scala.concurrent.ExecutionContext
 trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures {
   this: Suite =>
   private[this] val log = LoggerFactory.getLogger(getClass)
-  var session: Session = null
-  var db: Db = null
+  //var session: Session = _
+  var db: Db = _
+  implicit var sessionQueryCache: GuavaSessionQueryCache[CamelCaseToSnakeCaseConverter] = _
 
   implicit def executionContext: ExecutionContext
 
@@ -23,11 +26,12 @@ trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures {
       override def connect(): Session = Cassandra.session
     }
     db = new Db(connector)
+    sessionQueryCache = new GuavaSessionQueryCache[CamelCaseToSnakeCaseConverter](Cassandra.session)
   }
 
   override def afterAll() {
-    session = null
     db = null
+    sessionQueryCache = null
     //EmbeddedCassandraServerHelper.cleanEmbeddedCassandra()
   }
 
@@ -37,6 +41,10 @@ trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures {
     val cleanDs = new ClassPathCQLDataSet("cleanup.cql", "hyper_storage_test")
     cleanDs.getCQLStatements.foreach(c ⇒ Cassandra.session.execute(c))
   }
+
+  import eu.inn.binders.cassandra._
+  def removeContent(documentUri: String) = cql"delete from content where document_uri=$documentUri".execute()
+  def removeContent(documentUri: String, itemId: String) = cql"delete from content where document_uri=$documentUri and item_id=$itemId".execute()
 }
 
 object Cassandra extends CassandraCQLUnit(
