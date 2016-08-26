@@ -105,19 +105,17 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     for {
       contentStatic ← db.selectContentStatic(resourcePath.documentUri)
       indexDefs ← indexDefsFuture
-      collection ← selectCollection(resourcePath.documentUri, indexDefs, filter, sortBy, pageSize)
+      collectionStream ← selectCollection(resourcePath.documentUri, indexDefs, filter, sortBy, pageSize)
     } yield {
       if (contentStatic.isDefined && contentStatic.forall(!_.isDeleted)) {
-        val stream = collection.toStream
         val result = Obj(Map("_embedded" →
           Obj(Map("els" →
-            Lst(stream.filterNot(s ⇒ s.itemId.isEmpty).map { item ⇒
-              StringDeserializer.dynamicBody(item.body).content
-            })
+            Lst(collectionStream)
           ))))
 
+        // todo: detect revision, is this possible for a index?
         Ok(DynamicBody(result), Headers(
-          stream.headOption.map(h ⇒ Header.REVISION → Seq(h.revision.toString)).toMap
+          contentStat.headOption.map(h ⇒ Header.REVISION → Seq(h.revision.toString)).toMap
         ))
       }
       else {
@@ -130,7 +128,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
   private def selectCollection(documentUri: String,
                                indexDefs: Iterator[IndexDef],
                                queryFilter: Option[String],
-                               querySortBy: Seq[SortBy], pageSize: Int): Future[Iterator[CollectionContent]] = {
+                               querySortBy: Seq[SortBy], pageSize: Int): Future[Stream[Value]] = {
 
     val queryFilterExpression = queryFilter.map(HParser(_).get)
 
@@ -160,42 +158,14 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     // todo: s1 extract sort fields and order
     val ckFields = OrderFieldsLogic.extractIndexSortFields(querySortBy, indexSortFields)
     val sortMatchIsExact = ckFields.size == querySortBy.size
+    val endOfTime = System.currentTimeMillis() + requestTimeout.toMillis
 
     if (sortMatchIsExact) {
-      q(documentUri, indexDefOpt, pageSize, queryFilterFields, ckFields) flatMap { rows ⇒
-
-
-        Future(???)
-      }
-
-
+      q2(documentUri, indexDefOpt, pageSize, queryFilterFields, ckFields, queryFilterExpression, indexSortFields.lastOption, None,0,endOfTime,0)
     }
     else {
-
-    }
-
-
-    // todo: s2 increment(ck)
-    // todo: s3 scan until page is fetched
-
-    indexDefOpt match {
-      case None ⇒ {
-        db.selectContentCollection(documentUri,
-          pageSize,
-          queryFilterFields.headOption.map(_.value.asString),
-          querySortBy.find(_.fieldName == "id").forall(!_.descending)
-        )
-      }
-
-      case Some(indexDef) ⇒
-        db.selectIndexCollection(
-          indexDef.tableName,
-          documentUri,
-          indexDef.indexId,
-          queryFilterFields,
-          Seq.empty, // todo: define extractor
-          pageSize
-        )
+      // todo: fullscan here
+      q2(documentUri, indexDefOpt, pageSize, queryFilterFields, ckFields, queryFilterExpression, indexSortFields.lastOption, None,0,endOfTime,0)
     }
   }
 
@@ -204,16 +174,15 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
         limit: Int,
         filterFields: Seq[FieldFilter],
         ckFields: Seq[CkField],
-        queryFilterExpression: Option[Expression]): Future[(Stream[(CollectionContent, Value)], Int, Int, Option[Value])] = {
+        queryFilterExpression: Option[Expression]): Future[(Stream[Value], Int, Int, Option[Value])] = {
 
     val f: Future[Iterator[CollectionContent]] = indexDefOpt match {
-      case None ⇒ {
+      case None ⇒
         db.selectContentCollection(documentUri,
           limit,
           filterFields.find(_.name == "id").map(_.value.asString),
           ckFields.find(_.name == "id").forall(_.ascending)
         )
-      }
 
       case Some(indexDef) ⇒
         db.selectIndexCollection(
@@ -231,22 +200,26 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
       var totalAccepted = 0
       var lastValue: Option[Value] = None
       val acceptedStream = iterator.flatMap { c ⇒
-        totalFetched += 1
-        val v = StringDeserializer.dynamicBody(c.body).content
-        lastValue = Some(v)
-        val accepted = queryFilterExpression.forall { qfe ⇒
-          v match {
-            case o: Obj ⇒ try {
-              new HEval(o).eval(qfe).asBoolean
-            } catch {
-              case NonFatal(e) ⇒ false
+        if (!c.itemId.isEmpty) {
+          totalFetched += 1
+          val v = StringDeserializer.dynamicBody(c.body).content
+          lastValue = Some(v)
+          val accepted = queryFilterExpression.forall { qfe ⇒
+            v match {
+              case o: Obj ⇒ try {
+                new HEval(o).eval(qfe).asBoolean
+              } catch {
+                case NonFatal(e) ⇒ false
+              }
+              case _ ⇒ false
             }
-            case _ ⇒ false
           }
-        }
-        if(accepted) {
-          totalAccepted += 1
-          Some((c, v))
+          if (accepted) {
+            totalAccepted += 1
+            Some(v)
+          } else {
+            None
+          }
         } else {
           None
         }
@@ -263,17 +236,19 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
          ckFields: Seq[CkField],
          queryFilterExpression: Option[Expression],
          leastSortItem: Option[HyperStorageIndexSortItem],
-         leastSortItemValue: Option[FilterF i e l d],
+         leastFieldFilter: Option[FieldFilter],
          recursionCounter: Int,
-         endTimeInMillis: Long
-        ): Future[Stream[(CollectionContent,Value)]] = {
+         endTimeInMillis: Long,
+         skippedRows: Int
+        ): Future[Stream[Value]] = {
     if (recursionCounter > MAX_COLLECTION_SELECTS)
       Future.failed(GatewayTimeout(ErrorBody("query-limit-reached", Some(s"Maximum query count is reached: $recursionCounter"))))
     else if (System.currentTimeMillis < endTimeInMillis)
       Future.failed(GatewayTimeout(ErrorBody("query-timed-out", Some(s"Timed out with query count: $recursionCounter"))))
+    else if (skippedRows > MAX_SKIPPED_ROWS)
+      Future.failed(GatewayTimeout(ErrorBody("query-skipped-rows-limit-reached", Some(s"Maximum skipped row limit is reached: $skippedRows"))))
     else {
-      val ckf = ckFields ++ leastSortItemValue <--- wrong
-      q(documentUri,indexDefOpt,limit,filterFields,ckf,queryFilterExpression) flatMap {
+      q(documentUri,indexDefOpt,limit,filterFields ++ leastFieldFilter,ckFields,queryFilterExpression) flatMap {
         case(stream,totalAccepted,totalFetched,lastValueOpt) ⇒
           if (totalAccepted >= limit || totalFetched < limit || leastSortItem.isEmpty) Future.successful(stream)
           else {
@@ -281,7 +256,10 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
               IndexLogic.extractSortFieldValues(leastSortItem.toSeq, v).headOption
             }
             if (siv.isEmpty) Future.successful(stream) else {
-              Future(???)
+              val op = if (leastSortItem.forall(_.order.forall(_ == HyperStorageIndexSortOrder.ASC))) FilterGt else FilterLt
+              val nextLeastFieldFilter = FieldFilter(siv.get._1, siv.get._2, op)
+
+              q2(documentUri, indexDefOpt, limit, filterFields, ckFields, queryFilterExpression, leastSortItem, Some(nextLeastFieldFilter), recursionCounter+1, endTimeInMillis, skippedRows + totalFetched - totalAccepted)
             }
           }
       }
