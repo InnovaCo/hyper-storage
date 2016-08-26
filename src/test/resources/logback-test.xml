@@ -6,7 +6,7 @@
         </encoder>
     </appender>
     <logger name="eu.inn.binders.cassandra">
-        <level value="trace" />
+        <level value="info" />
     </logger>
     <logger name="org.apache.cassandra">
         <level value="warn" />

@@ -1,9 +1,8 @@
 import eu.inn.binders.value.{Number, Text}
 import eu.inn.hyperstorage.api.{HyperStorageIndexSortFieldType, HyperStorageIndexSortItem, HyperStorageIndexSortOrder}
 import eu.inn.hyperstorage.db._
-import eu.inn.hyperstorage.indexing.{AstComparation, AstComparator, FieldFiltersExtractor, IndexLogic}
-import eu.inn.parser.{HEval, HParser}
-import eu.inn.parser.ast.{BinaryOperation, Expression, Identifier}
+import eu.inn.hyperstorage.indexing.FieldFiltersExtractor
+import eu.inn.parser.HParser
 import org.scalatest.{FreeSpec, Matchers}
 
 
@@ -14,56 +13,56 @@ class FilterFieldsExtractorTest extends FreeSpec with Matchers {
       val expression = HParser(s""" id > "10" """).get
       val sortByFields =  Seq(HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)))
       val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
-      ff shouldBe Seq(FieldFilter("t0", Text("10"), FilterGt))
+      ff shouldBe Seq(FieldFilter("item_id", Text("10"), FilterGt))
     }
 
     "single lt filter field" in {
       val expression = HParser(s""" id < "10" """).get
       val sortByFields =  Seq(HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)))
       val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
-      ff shouldBe Seq(FieldFilter("t0", Text("10"), FilterLt))
+      ff shouldBe Seq(FieldFilter("item_id", Text("10"), FilterLt))
     }
 
     "single gteq filter field" in {
       val expression = HParser(s""" id >= "10" """).get
       val sortByFields =  Seq(HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)))
       val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
-      ff shouldBe Seq(FieldFilter("t0", Text("10"), FilterGtEq))
+      ff shouldBe Seq(FieldFilter("item_id", Text("10"), FilterGtEq))
     }
 
     "single lteq filter field" in {
       val expression = HParser(s""" id <= "10" """).get
       val sortByFields =  Seq(HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)))
       val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
-      ff shouldBe Seq(FieldFilter("t0", Text("10"), FilterLtEq))
+      ff shouldBe Seq(FieldFilter("item_id", Text("10"), FilterLtEq))
     }
 
     "single eq filter field" in {
       val expression = HParser(s""" id = "10" """).get
       val sortByFields =  Seq(HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)))
       val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
-      ff shouldBe Seq(FieldFilter("t0", Text("10"), FilterEq))
+      ff shouldBe Seq(FieldFilter("item_id", Text("10"), FilterEq))
     }
 
     "single gt reversed filter field" in {
       val expression = HParser(s""" "10" < id """).get
       val sortByFields =  Seq(HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)))
       val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
-      ff shouldBe Seq(FieldFilter("t0", Text("10"), FilterGt))
+      ff shouldBe Seq(FieldFilter("item_id", Text("10"), FilterGt))
     }
 
     "gt filter field with some other field" in {
       val expression = HParser(s""" id > "10" and x < 5 """).get
       val sortByFields =  Seq(HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)))
       val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
-      ff shouldBe Seq(FieldFilter("t0", Text("10"), FilterGt))
+      ff shouldBe Seq(FieldFilter("item_id", Text("10"), FilterGt))
     }
 
     "eq filter field with some other fields" in {
       val expression = HParser(s""" id = "10" and x < 5 and z*3 > 24""").get
       val sortByFields =  Seq(HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)))
       val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
-      ff shouldBe Seq(FieldFilter("t0", Text("10"), FilterEq))
+      ff shouldBe Seq(FieldFilter("item_id", Text("10"), FilterEq))
     }
 
     "eq filter multiple fields with some other fields" in {
