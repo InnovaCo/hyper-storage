@@ -334,8 +334,10 @@ class CollectionOrdering(querySortBy: Seq[SortBy]) extends Ordering[Value] {
       case obj: Obj ⇒ ValueContext(obj)
       case _ ⇒ ValueContext(Obj.empty)
     }
-    valueContext.identifier.applyOrElse(identifier, _ ⇒ Null)
+    valueContext.identifier.applyOrElse(identifier, emptyValue)
   }
+
+  private def emptyValue(i: Identifier) = Null
 
   private def cmp(x: Value, y: Value): Int = {
     (x,y) match {
