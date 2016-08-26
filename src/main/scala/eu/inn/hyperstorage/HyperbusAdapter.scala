@@ -2,23 +2,23 @@ package eu.inn.hyperstorage
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.ask
-import eu.inn.binders.value.{Lst, Null, Obj, Value}
+import eu.inn.binders.value.{Lst, Null, Number, Obj, Value}
 import eu.inn.hyperbus.akkaservice.AkkaHyperService
 import eu.inn.hyperbus.model._
-import eu.inn.hyperbus.model.utils.SortBy
 import eu.inn.hyperbus.model.utils.Sort._
+import eu.inn.hyperbus.model.utils.SortBy
 import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
+import eu.inn.hyperstorage.api.{HyperStorageIndexSortItem, _}
 import eu.inn.hyperstorage.db._
+import eu.inn.hyperstorage.indexing.{FieldFiltersExtractor, IndexLogic, OrderFieldsLogic}
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.metrics.MetricsTracker
-import eu.inn.hyperstorage.api.{HyperStorageIndexSortItem, _}
-import eu.inn.hyperstorage.indexing.{FieldFiltersExtractor, IndexLogic, OrderFieldsLogic}
+import eu.inn.parser.ast.{Expression, Identifier}
+import eu.inn.parser.eval.ValueContext
 import eu.inn.parser.{HEval, HParser}
-import eu.inn.parser.ast.Expression
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
-import scala.util.Success
 import scala.util.control.NonFatal
 
 class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsTracker, requestTimeout: FiniteDuration) extends Actor with ActorLogging {
@@ -175,11 +175,22 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
       )
     }
     else {
-      // todo: fullscan here
       queryUntilFetched(
-        CollectionQueryOptions(documentUri, indexDefOpt, pageSize, skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression),
+        CollectionQueryOptions(documentUri, indexDefOpt, pageSize + skipMax, skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression),
         indexSortFields.lastOption, None,0,0
-      )
+      ) map { case (stream, revisionOpt) ⇒
+        if (stream.size==(pageSize+skipMax)) {
+          throw GatewayTimeout(ErrorBody("query-skipped-rows-limited", Some(s"Maximum skipped row limit is reached: $skipMax")))
+        } else {
+          if (querySortBy.nonEmpty) {
+            import eu.inn.hyperstorage.utils.SortUtils._
+            implicit val ordering = new CollectionOrdering(querySortBy)
+            (stream.sortedTop(pageSize, v ⇒ v), revisionOpt)
+          }
+          else
+            (stream.take(pageSize), revisionOpt)
+        }
+      }
     }
   }
 
@@ -301,6 +312,38 @@ case class CollectionQueryOptions(documentUri: String,
                                   filterFields: Seq[FieldFilter],
                                   ckFields: Seq[CkField],
                                   queryFilterExpression: Option[Expression])
+
+class CollectionOrdering(querySortBy: Seq[SortBy]) extends Ordering[Value] {
+  private val sortIdentifiersStream = querySortBy.map { sb ⇒
+    new HParser(sb.fieldName).Ident.run().get → sb.descending
+  }.toStream
+
+
+  override def compare(x: Value, y: Value): Int = {
+    if (querySortBy.isEmpty) throw new UnsupportedOperationException("sort fields are required to compare collection items") else {
+      sortIdentifiersStream.map { case (identifier,descending) ⇒
+        val xv = extract(x, identifier)
+        val yv = extract(y, identifier)
+        cmp(xv,yv)
+      }.takeWhile(_ == 0).last
+    }
+  }
+
+  private def extract(v: Value, identifier: Identifier): Value = {
+    val valueContext = v match {
+      case obj: Obj ⇒ ValueContext(obj)
+      case _ ⇒ ValueContext(Obj.empty)
+    }
+    valueContext.identifier.applyOrElse(identifier, _ ⇒ Null)
+  }
+
+  private def cmp(x: Value, y: Value): Int = {
+    (x,y) match {
+      case (Number(xn),Number(yn)) ⇒ xn.compare(yn)
+      case (xs,ys) ⇒ xs.asString.compareTo(ys.asString)
+    }
+  }
+}
 
 object HyperbusAdapter {
   def props(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsTracker, requestTimeout: FiniteDuration) = Props(
