@@ -25,12 +25,12 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
 
   import context._
 
-  val COLLECTION_FILTER_NAME = "filter"
-  val COLLECTION_SIZE_FIELD_NAME = "size"
-  val COLLECTION_SKIP_MAX_FIELD_NAME = "skipMax"
-  val DEFAULT_MAX_SKIPPED_ROWS = 10000
-  val MAX_COLLECTION_SELECTS = 500
-  val DEFAULT_PAGE_SIZE = 100
+  final val COLLECTION_FILTER_NAME = "filter"
+  final val COLLECTION_SIZE_FIELD_NAME = "size"
+  final val COLLECTION_SKIP_MAX_FIELD_NAME = "skipMax"
+  final val DEFAULT_MAX_SKIPPED_ROWS = 10000
+  final val MAX_COLLECTION_SELECTS = 500
+  final val DEFAULT_PAGE_SIZE = 100
 
   def receive = AkkaHyperService.dispatch(this)
 

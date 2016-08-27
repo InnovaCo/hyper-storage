@@ -93,18 +93,19 @@ object IndexLogic {
   def weighIndex(queryExpression: Option[Expression], querySortOrder: Seq[SortBy],
                  indexFilterExpression: Option[Expression], indexSortOrder: Seq[HyperStorageIndexSortItem]): Int = {
 
-    val filterWeigh = (queryExpression, indexFilterExpression) match {
+    val filterWeight = (queryExpression, indexFilterExpression) match {
       case (None, Some(_)) ⇒ -1000000
       case (Some(_), None) ⇒ -30
       case (None, None) ⇒ 0
       case (Some(q), Some(i)) ⇒
-        AstComparator.compare(q,i) match {
+        AstComparator.compare(i,q) match {
           case AstComparation.Equal ⇒ 20
           case AstComparation.Wider ⇒ 10
-          case AstComparation.NotEqual ⇒ -1000000
+          case AstComparation.NotEqual ⇒ -1000001
         }
     }
 
-    OrderFieldsLogic.weighOrdering(querySortOrder, indexSortOrder) + filterWeigh
+    val orderWeight = OrderFieldsLogic.weighOrdering(querySortOrder, indexSortOrder)
+    orderWeight + filterWeight
   }
 }
