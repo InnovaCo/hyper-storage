@@ -49,23 +49,27 @@ class QueryCollectionsSpec extends FreeSpec
         HyperStorageIndexNew(Some("index1"), Seq.empty, Some("b > 10"))))
         .futureValue.statusCode should equal(Status.CREATED)
 
+      eventually {
+        val indexDefUp1 = db.selectIndexDef("collection-1~", "index1").futureValue
+        indexDefUp1 shouldBe defined
+        indexDefUp1.get.status shouldBe IndexDef.STATUS_NORMAL
+      }
+
       (hyperbus <~ HyperStorageIndexPost("collection-1~",
         HyperStorageIndexNew(Some("index2"), Seq(HyperStorageIndexSortItem("a", order = Some("asc"), fieldType = Some("text"))), Some("b > 10"))))
         .futureValue.statusCode should equal(Status.CREATED)
+
+      eventually {
+        val indexDefUp2 = db.selectIndexDef("collection-1~", "index2").futureValue
+        indexDefUp2 shouldBe defined
+        indexDefUp2.get.status shouldBe IndexDef.STATUS_NORMAL
+      }
 
       (hyperbus <~ HyperStorageIndexPost("collection-1~",
         HyperStorageIndexNew(Some("index3"), Seq(HyperStorageIndexSortItem("a", order = Some("asc"), fieldType = Some("text"))), None)))
         .futureValue.statusCode should equal(Status.CREATED)
 
       eventually {
-        val indexDefUp1 = db.selectIndexDef("collection-1~", "index1").futureValue
-        indexDefUp1 shouldBe defined
-        indexDefUp1.get.status shouldBe IndexDef.STATUS_NORMAL
-
-        val indexDefUp2 = db.selectIndexDef("collection-1~", "index2").futureValue
-        indexDefUp2 shouldBe defined
-        indexDefUp2.get.status shouldBe IndexDef.STATUS_NORMAL
-
         val indexDefUp3 = db.selectIndexDef("collection-1~", "index3").futureValue
         indexDefUp3 shouldBe defined
         indexDefUp3.get.status shouldBe IndexDef.STATUS_NORMAL
@@ -235,9 +239,9 @@ class QueryCollectionsSpec extends FreeSpec
         body = new QueryBuilder() sortBy Seq(SortBy("a")) add("size", 2) add("filter", "b < 50") result()
       )).futureValue
       res.statusCode shouldBe Status.OK
-      res.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c2x,c3x)))
       verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq.empty, Seq(CkField("t0",true)), 2)
       verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterGt)), Seq(CkField("t0",true)), 3)
+      res.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c2x,c3x)))
     }
   }
 }
