@@ -20,7 +20,7 @@ import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 
-class HyperStorageIntegratedSpec extends FreeSpec
+class IntegratedSpec extends FreeSpec
   with Matchers
   with ScalaFutures
   with CassandraFixture

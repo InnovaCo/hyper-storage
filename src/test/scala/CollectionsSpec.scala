@@ -16,7 +16,7 @@ import org.scalatest.{FreeSpec, Matchers}
 
 import scala.concurrent.duration._
 
-class HyperStorageCollectionsSpec extends FreeSpec
+class CollectionsSpec extends FreeSpec
   with Matchers
   with ScalaFutures
   with CassandraFixture
@@ -222,76 +222,6 @@ class HyperStorageCollectionsSpec extends FreeSpec
 
       db.selectContent(documentUri, itemId).futureValue.get.isDeleted shouldBe true
       db.selectContent(documentUri, "").futureValue.get.isDeleted shouldBe true
-    }
-
-    "Query collection" - {
-      val c1 = ObjV("a" → "hello", "b" → 100500)
-      val c1x = Obj(c1.asMap + "id" → "item1")
-      val c2 = ObjV("a" → "goodbye", "b" → 1)
-      val c2x = Obj(c2.asMap + "id" → "item2")
-      val c3 = ObjV("a" → "way way", "b" → 12)
-      val c3x = Obj(c3.asMap + "id" → "item3")
-      import Sort._
-
-      def createCollection(hyperbus: Hyperbus) = {
-        val f1 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c1))
-        f1.futureValue.statusCode shouldBe Status.CREATED
-
-        val f2 = hyperbus <~ HyperStorageContentPut("collection-1~/item2", DynamicBody(c2))
-        f2.futureValue.statusCode shouldBe Status.CREATED
-
-        val f3 = hyperbus <~ HyperStorageContentPut("collection-1~/item3", DynamicBody(c3))
-        f3.futureValue.statusCode shouldBe Status.CREATED
-      }
-
-      "Query by id asc" in {
-        cleanUpCassandra()
-        val hyperbus = integratedHyperbus(db)
-        createCollection(hyperbus)
-
-        // query by id asc
-        val rc1 = (hyperbus <~ HyperStorageContentGet("collection-1~",
-          body = new QueryBuilder() sortBy Seq(SortBy("id")) add("size", 50) result()
-        )).futureValue
-        rc1.statusCode shouldBe Status.OK
-        rc1.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c1x, c2x, c3x)))
-      }
-
-      "Query by id desc" in {
-        cleanUpCassandra()
-        val hyperbus = integratedHyperbus(db)
-        createCollection(hyperbus)
-
-        val rc2 = (hyperbus <~ HyperStorageContentGet("collection-1~",
-          body = new QueryBuilder() sortBy Seq(SortBy("id", descending = true)) add("size", 50) result()
-        )).futureValue
-        rc2.statusCode shouldBe Status.OK
-        rc2.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c3x, c2x, c1x)))
-      }
-
-      "Query by id asc and filter by id" in {
-        cleanUpCassandra()
-        val hyperbus = integratedHyperbus(db)
-        createCollection(hyperbus)
-
-        val rc3 = (hyperbus <~ HyperStorageContentGet("collection-1~",
-          body = new QueryBuilder() sortBy Seq(SortBy("id")) add("size", 50) add("filter", "id >\"item1\"") result()
-        )).futureValue
-        rc3.statusCode shouldBe Status.OK
-        rc3.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c2x, c3x)))
-      }
-
-      "Query by id desc and filter by id" in {
-        cleanUpCassandra()
-        val hyperbus = integratedHyperbus(db)
-        createCollection(hyperbus)
-
-        val rc4 = (hyperbus <~ HyperStorageContentGet("collection-1~",
-          body = new QueryBuilder() sortBy Seq(SortBy("id", descending = true)) add("size", 50) add("filter", "id <\"item3\"") result()
-        )).futureValue
-        rc4.statusCode shouldBe Status.OK
-        rc4.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c2x, c1x)))
-      }
     }
   }
 }

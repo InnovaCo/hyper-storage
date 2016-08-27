@@ -8,7 +8,7 @@ import org.cassandraunit.dataset.cql.ClassPathCQLDataSet
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{BeforeAndAfterAll, Suite}
 import org.slf4j.LoggerFactory
-
+import org.mockito.Mockito._
 import scala.concurrent.ExecutionContext
 
 trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures {
@@ -16,6 +16,7 @@ trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures {
   private[this] val log = LoggerFactory.getLogger(getClass)
   //var session: Session = _
   var db: Db = _
+  var dbOriginal: Db = _
   implicit var sessionQueryCache: GuavaSessionQueryCache[CamelCaseToSnakeCaseConverter] = _
 
   implicit def executionContext: ExecutionContext
@@ -25,12 +26,14 @@ trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures {
     val connector = new CassandraConnector {
       override def connect(): Session = Cassandra.session
     }
-    db = new Db(connector)
+    dbOriginal = new Db(connector)
+    db = spy(dbOriginal)
     sessionQueryCache = new GuavaSessionQueryCache[CamelCaseToSnakeCaseConverter](Cassandra.session)
   }
 
   override def afterAll() {
     db = null
+    dbOriginal = null
     sessionQueryCache = null
     //EmbeddedCassandraServerHelper.cleanEmbeddedCassandra()
   }
