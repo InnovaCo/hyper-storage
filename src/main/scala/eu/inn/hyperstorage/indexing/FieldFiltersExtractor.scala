@@ -6,10 +6,10 @@ import eu.inn.parser.ast.{BinaryOperation, Expression, Identifier}
 import eu.inn.parser.{HEval, HParser}
 
 class FieldFiltersExtractor(sortByFields: Seq[HyperStorageIndexSortItem]) {
-  private final val lastIndex = sortByFields.size-1
+  private final val size = sortByFields.size
   private final val sortByFieldsMap = sortByFields.zipWithIndex.map{
     case (s,index) ⇒ (parseIdentifier(s.fieldName), (s,index,
-        if(index == lastIndex && s.fieldName == "id") "item_id" else IndexLogic.tableFieldName(s, index)
+        IndexLogic.tableFieldName(s, size, index)
       ))
   }.toMap
   final val compareOps = Set(">", ">=", "<", "<=", "=").map(Identifier(_))

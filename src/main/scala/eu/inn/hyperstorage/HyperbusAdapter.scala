@@ -158,14 +158,8 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     val queryFilterFields = queryFilterExpression.map(ffe.extract).getOrElse(Seq.empty)
     // todo: detect filter exact match
 
-    val ckFields1 = OrderFieldsLogic.extractIndexSortFields(querySortBy, indexSortFields)
-    val sortMatchIsExact = ckFields1.size == querySortBy.size
-    val ckFields = if (sortMatchIsExact && ckFields1.nonEmpty) {
-      ckFields1.reverse.tail.reverse :+ CkField("item_id", ckFields1.last.ascending)
-    }
-    else {
-      ckFields1
-    }
+    val ckFields = OrderFieldsLogic.extractIndexSortFields(querySortBy, indexSortFields)
+    val sortMatchIsExact = ckFields.size == querySortBy.size
     val endOfTime = System.currentTimeMillis + requestTimeout.toMillis
 
     if (sortMatchIsExact) {
@@ -260,14 +254,14 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
                         skippedRows: Int
         ): Future[(Stream[Value], Option[Long])] = {
   //todo exception context
-    if (recursionCounter > MAX_COLLECTION_SELECTS)
+    if (recursionCounter >= MAX_COLLECTION_SELECTS)
       Future.failed(GatewayTimeout(ErrorBody("query-count-limited", Some(s"Maximum query count is reached: $recursionCounter"))))
-    else if (ops.endTimeInMillis < System.currentTimeMillis)
+    else if (ops.endTimeInMillis <= System.currentTimeMillis)
       Future.failed(GatewayTimeout(ErrorBody("query-timeout", Some(s"Timed out performing query #$recursionCounter"))))
-    else if (skippedRows > ops.skipRowsLimit)
+    else if (skippedRows >= ops.skipRowsLimit)
       Future.failed(GatewayTimeout(ErrorBody("query-skipped-rows-limited", Some(s"Maximum skipped row limit is reached: $skippedRows"))))
     else {
-      queryAndFilterRows(ops) flatMap {
+      queryAndFilterRows(ops.copy(filterFields=ops.filterFields ++ leastFieldFilter)) flatMap {
         case(stream,totalAccepted,totalFetched,lastValueOpt,revisionOpt) ⇒
           if (totalAccepted >= ops.limit || totalFetched < ops.limit || leastSortItem.isEmpty) Future.successful((stream,revisionOpt))
           else {
