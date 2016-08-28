@@ -43,11 +43,11 @@ object OrderFieldsLogic {
     }
   }
 
-  def extractIndexSortFields(querySortBy: Seq[SortBy], indexSortedBy: Seq[HyperStorageIndexSortItem]): Seq[CkField] = {
+  def extractIndexSortFields(querySortBy: Seq[SortBy], indexSortedBy: Seq[HyperStorageIndexSortItem]): (Seq[CkField], Boolean) = {
     val v = indexSortedBy.toVector
     var reversed = false
     val size = querySortBy.size
-    querySortBy.zipWithIndex.map { case(q,index) ⇒
+    val fields = querySortBy.zipWithIndex.map { case(q,index) ⇒
       if (v.size > index) {
         val is = indexSortedBy(index)
         if (is.fieldName == q.fieldName) {
@@ -76,5 +76,6 @@ object OrderFieldsLogic {
         None
       }
     }.takeWhile(_.isDefined).flatten
+    (fields, reversed)
   }
 }

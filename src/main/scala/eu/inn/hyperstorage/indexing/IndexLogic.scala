@@ -6,6 +6,7 @@ import eu.inn.parser.ast.{Expression, Identifier}
 import eu.inn.parser.eval.{EvalIdentifierNotFound, ValueContext}
 import eu.inn.parser.{HEval, HParser}
 import eu.inn.hyperstorage.api._
+import eu.inn.hyperstorage.db.{FieldFilter, FilterEq, FilterGt, FilterLt}
 
 import scala.util.{Success, Try}
 
@@ -107,5 +108,45 @@ object IndexLogic {
 
     val orderWeight = OrderFieldsLogic.weighOrdering(querySortOrder, indexSortOrder)
     orderWeight + filterWeight
+  }
+
+  // todo: implement least for > < existing last filter
+  def leastRowsFilterFields(indexSortedBy: Seq[HyperStorageIndexSortItem],
+                            queryFilterFields: Seq[FieldFilter],
+                            prevFilterFieldsSize: Int,
+                            value: Obj,
+                            reversed: Boolean): Seq[FieldFilter] = {
+
+    val valueContext = ValueContext(value)
+    val size = indexSortedBy.size
+    val isbIdx = indexSortedBy.zipWithIndex.map {
+      case (sortItem, index) ⇒
+        val fieldName = tableFieldName(sortItem, size, index)
+        val fieldValue = HParser(sortItem.fieldName) match {
+          case Success(identifier: Identifier) if valueContext.identifier.isDefinedAt(identifier) ⇒
+            valueContext.identifier(identifier)
+          case _ ⇒ Null
+        }
+        (fieldName, fieldValue, sortItem.order.forall(_ == HyperStorageIndexSortOrder.ASC), index)
+    }
+
+    val startIndex = isbIdx.lastIndexWhere(isb ⇒ queryFilterFields.exists(qf ⇒ qf.name == isb._1)) + 1
+    val lastIndex = (if(prevFilterFieldsSize == 0) size else prevFilterFieldsSize) - 1
+
+    isbIdx.flatMap {
+      case(fieldName, fieldValue, fieldAscending, index) if index >= startIndex ⇒
+        if (index == lastIndex) {
+          val op = if (reversed ^ fieldAscending)
+            FilterGt
+          else
+            FilterLt
+          Some(FieldFilter(fieldName, fieldValue, op))
+        } else if (index <= lastIndex) {
+          Some(FieldFilter(fieldName, fieldValue, FilterEq))
+        } else {
+          None
+        }
+      case _ ⇒ None
+    }
   }
 }

@@ -309,6 +309,8 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
                             orderByFields: Seq[CkField],
                             limit: Int): Future[Iterator[IndexContent]] = {
 
+    println(s"selectIndexCollection($indexTable, $documentUri, $indexId, $filter, $orderByFields, $limit)")
+
     val tableName = Dynamic(indexTable)
     val filterEqualFields = if (filter.isEmpty)
       Dynamic("")

@@ -5,10 +5,11 @@ import eu.inn.hyperstorage.CassandraConnector
 import eu.inn.hyperstorage.db.Db
 import org.cassandraunit.CassandraCQLUnit
 import org.cassandraunit.dataset.cql.ClassPathCQLDataSet
+import org.mockito.Mockito._
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{BeforeAndAfterAll, Suite}
 import org.slf4j.LoggerFactory
-import org.mockito.Mockito._
+
 import scala.concurrent.ExecutionContext
 
 trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures {
@@ -51,9 +52,9 @@ trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures {
 }
 
 object Cassandra extends CassandraCQLUnit(
-  new ClassPathCQLDataSet("schema.cql", "hyper_storage_test")
+  new ClassPathCQLDataSet("schema.cql", "hyper_storage_test"), null, 60000l
 ) {
-  this.startupTimeoutMillis = 60000l
+  //this.startupTimeoutMillis = 60000l
   lazy val start = {
     before()
   }
