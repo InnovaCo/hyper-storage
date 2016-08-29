@@ -280,7 +280,8 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
           // todo: made this not lazy
           println(stream.reverse.headOption)
           val l = newLastValueOpt().orElse(lastValueOpt)
-          if (totalAccepted() >= ops.limit || (leastFieldFilter.isEmpty && totalFetched() < ops.limit) || l.isEmpty) {
+          if (totalAccepted() >= ops.limit ||
+            ((leastFieldFilter.isEmpty || (leastFieldFilter.size==1 && leastFieldFilter.head.op != FilterEq)) && totalFetched() < ops.limit) || l.isEmpty) {
             Future.successful((stream, revisionOpt()))
           }
           else {

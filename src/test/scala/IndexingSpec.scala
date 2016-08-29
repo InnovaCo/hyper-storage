@@ -15,7 +15,7 @@ class IndexingSpec extends FreeSpec
   with TestHelpers
   with Eventually {
 
-  override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(10000, Millis)))
+  override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(20000, Millis)))
 
   "IndexingSpec" - {
     "Create index without sorting or filtering" in {

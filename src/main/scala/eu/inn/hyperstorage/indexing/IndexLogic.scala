@@ -131,7 +131,11 @@ object IndexLogic {
     }
 
     val startIndex = isbIdx.lastIndexWhere(isb ⇒ queryFilterFields.exists(qf ⇒ qf.name == isb._1)) + 1
-    val lastIndex = (if(prevFilterFieldsSize == 0) size else prevFilterFieldsSize) - 1
+    val lastIndex = if(prevFilterFieldsSize == 0) {
+      size - 1
+    } else {
+      prevFilterFieldsSize - 2
+    }
 
     isbIdx.flatMap {
       case(fieldName, fieldValue, fieldAscending, index) if index >= startIndex ⇒

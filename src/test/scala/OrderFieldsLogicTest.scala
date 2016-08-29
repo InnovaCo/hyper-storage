@@ -44,33 +44,33 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
 
     "extractIndexSortFields" - {
       "equal orders should be extracted totally" in {
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = false)), Seq(HyperStorageIndexSortItem("a", None, None))) shouldBe Seq(CkField("t0", ascending = true))
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = false)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe Seq(CkField("t0", ascending = true))
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, None), HyperStorageIndexSortItem("b", Some(HyperStorageIndexSortFieldType.DECIMAL), Some(HyperStorageIndexSortOrder.DESC)))) shouldBe Seq(CkField("t0", ascending = true), CkField("d1", ascending = false))
+        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = false)), Seq(HyperStorageIndexSortItem("a", None, None))) shouldBe (Seq(CkField("t0", ascending = true)), false)
+        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = false)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe (Seq(CkField("t0", ascending = true)), false)
+        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, None), HyperStorageIndexSortItem("b", Some(HyperStorageIndexSortFieldType.DECIMAL), Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq(CkField("t0", ascending = true), CkField("d1", ascending = false)), false)
       }
 
       "empty query orders should be Seq.empty" in {
-        OrderFieldsLogic.extractIndexSortFields(Seq.empty, Seq(HyperStorageIndexSortItem("a", None, None))) shouldBe Seq.empty
+        OrderFieldsLogic.extractIndexSortFields(Seq.empty, Seq(HyperStorageIndexSortItem("a", None, None))) shouldBe (Seq.empty, false)
       }
 
       "reverse index order be extracted totally" in {
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = true)), Seq(HyperStorageIndexSortItem("a", None, None))) shouldBe Seq(CkField("t0", ascending = false))
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe Seq(CkField("t0", ascending = false))
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = true), SortBy("b")), Seq(HyperStorageIndexSortItem("a", None, None), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe Seq(CkField("t0", ascending = false), CkField("t1", ascending = true))
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a")), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe Seq(CkField("t0", ascending = true))
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe Seq(CkField("t0", ascending = true), CkField("t1", ascending = false))
+        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = true)), Seq(HyperStorageIndexSortItem("a", None, None))) shouldBe (Seq(CkField("t0", ascending = false)), true)
+        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe (Seq(CkField("t0", ascending = false)), true)
+        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = true), SortBy("b")), Seq(HyperStorageIndexSortItem("a", None, None), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq(CkField("t0", ascending = false), CkField("t1", ascending = true)), true)
+        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a")), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq(CkField("t0", ascending = true)), true)
+        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe (Seq(CkField("t0", ascending = true), CkField("t1", ascending = false)), true)
       }
 
       "partially equal order should be extracted partially" in {
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = true), SortBy("b")), Seq(HyperStorageIndexSortItem("a", None, None), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe Seq(CkField("t0", ascending = false))
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe Seq(CkField("t0", ascending = true))
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe Seq(CkField("t0", ascending = true))
+        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = true), SortBy("b")), Seq(HyperStorageIndexSortItem("a", None, None), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe (Seq(CkField("t0", ascending = false)),true)
+        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq(CkField("t0", ascending = true)), true)
+        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq(CkField("t0", ascending = true)), true)
       }
 
       "unequal order should extract Seq.empty" in {
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("z", descending = false)), Seq(HyperStorageIndexSortItem("a", None, None))) shouldBe Seq.empty
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("x", descending = true), SortBy("b")), Seq(HyperStorageIndexSortItem("a", None, None), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe Seq.empty
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("y"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe Seq.empty
+        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("z", descending = false)), Seq(HyperStorageIndexSortItem("a", None, None))) shouldBe (Seq.empty, false)
+        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("x", descending = true), SortBy("b")), Seq(HyperStorageIndexSortItem("a", None, None), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe (Seq.empty, false)
+        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("y"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq.empty, false)
       }
     }
 
@@ -155,7 +155,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
         )
         val previousValue = None
         val currentValue = ObjV("a" → 18, "b" → 1, "c" → 2, "d" → 2)
-        val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 3, currentValue, false)
+        val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 4, currentValue, false)
         res shouldBe Seq(
           FieldFilter("t1", Number(1), FilterEq),
           FieldFilter("t2", Number(2), FilterGt)

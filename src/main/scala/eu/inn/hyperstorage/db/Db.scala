@@ -132,6 +132,8 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     """.oneOption[Content]
 
   def selectContentCollection(documentUri: String, limit: Int, fromId: Option[String], ascending: Boolean = true): Future[Iterator[Content]] = {
+    println(s"selectContentCollection($documentUri, $limit, $fromId, $ascending)")
+
     val orderClause = if(ascending) {
       Dynamic("order by item_id asc")
     }
