@@ -132,8 +132,6 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     """.oneOption[Content]
 
   def selectContentCollection(documentUri: String, limit: Int, fromId: Option[String], ascending: Boolean = true): Future[Iterator[Content]] = {
-    println(s"selectContentCollection($documentUri, $limit, $fromId, $ascending)")
-
     val orderClause = if(ascending) {
       Dynamic("order by item_id asc")
     }
@@ -310,9 +308,6 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
                             filter: Seq[FieldFilter],
                             orderByFields: Seq[CkField],
                             limit: Int): Future[Iterator[IndexContent]] = {
-
-    println(s"selectIndexCollection($indexTable, $documentUri, $indexId, $filter, $orderByFields, $limit)")
-
     val tableName = Dynamic(indexTable)
     val filterEqualFields = if (filter.isEmpty)
       Dynamic("")

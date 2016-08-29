@@ -135,7 +135,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
                                queryFilter: Option[String],
                                querySortBy: Seq[SortBy],
                                pageSize: Int,
-                               skipMax: Int): Future[(Stream[Value], Option[Long])] = {
+                               skipMax: Int): Future[(List[Value], Option[Long])] = {
 
     val queryFilterExpression = queryFilter.map(HParser(_).get)
 
@@ -174,23 +174,23 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
       queryUntilFetched(
         CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize + skipMax, skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression),
         Seq.empty,0,0,None
-      ) map { case (stream, revisionOpt) ⇒
-        if (stream.size==(pageSize+skipMax)) {
+      ) map { case (list, revisionOpt) ⇒
+        if (list.size==(pageSize+skipMax)) {
           throw GatewayTimeout(ErrorBody("query-skipped-rows-limited", Some(s"Maximum skipped row limit is reached: $skipMax")))
         } else {
           if (querySortBy.nonEmpty) {
             import eu.inn.hyperstorage.utils.SortUtils._
             implicit val ordering = new CollectionOrdering(querySortBy)
-            (stream.sortedTop(pageSize, v ⇒ v), revisionOpt)
+            (list.sortedTop(pageSize, v ⇒ v).toList, revisionOpt)
           }
           else
-            (stream.take(pageSize), revisionOpt)
+            (list.take(pageSize), revisionOpt)
         }
       }
     }
   }
 
-  private def queryAndFilterRows(ops: CollectionQueryOptions): Future[(Stream[Value], () ⇒ Int, () ⇒ Int, () ⇒ Option[Obj], () ⇒ Option[Long])] = {
+  private def queryAndFilterRows(ops: CollectionQueryOptions): Future[(List[Value], Int, Int, Option[Obj], Option[Long])] = {
 
     val f: Future[Iterator[CollectionContent]] = ops.indexDefOpt match {
       case None ⇒
@@ -217,11 +217,8 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
       var lastValue: Option[Obj] = None
       var revision: Option[Long] = None
 
-      val uuid = UUID.randomUUID()
-
       val acceptedStream = iterator.flatMap { c ⇒
         if (!c.itemId.isEmpty) {
-          //println(s"fetched-$uuid: $c, $totalFetched")
           totalFetched += 1
           val optVal = StringDeserializer.dynamicBody(c.body).content match {
             case o: Obj ⇒ Some(o)
@@ -253,10 +250,8 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
         } else {
           None
         }
-      }.toStream
-
-      //println(s"returning: $acceptedStream, $totalAccepted, $totalFetched, $lastValue, $revision")
-      (acceptedStream,() ⇒ totalAccepted,() ⇒totalFetched,() ⇒lastValue,() ⇒revision)
+      }.toList
+      (acceptedStream, totalAccepted, totalFetched, lastValue, revision)
     }
   }
 
@@ -265,7 +260,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
                                 recursionCounter: Int,
                                 skippedRows: Int,
                                 lastValueOpt: Option[Obj]
-        ): Future[(Stream[Value], Option[Long])] = {
+        ): Future[(List[Value], Option[Long])] = {
   //todo exception context
     if (recursionCounter >= MAX_COLLECTION_SELECTS)
       Future.failed(GatewayTimeout(ErrorBody("query-count-limited", Some(s"Maximum query count is reached: $recursionCounter"))))
@@ -274,23 +269,24 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     else if (skippedRows >= ops.skipRowsLimit)
       Future.failed(GatewayTimeout(ErrorBody("query-skipped-rows-limited", Some(s"Maximum skipped row limit is reached: $skippedRows"))))
     else {
-      queryAndFilterRows(ops.copy(filterFields=ops.filterFields ++ leastFieldFilter)) flatMap {
+      queryAndFilterRows(ops.copy(filterFields=IndexLogic.mergeLeastQueryFilterFields(ops.filterFields, leastFieldFilter))) flatMap {
         case(stream,totalAccepted,totalFetched,newLastValueOpt,revisionOpt) ⇒
-
-          // todo: made this not lazy
-          println(stream.reverse.headOption)
-          val l = newLastValueOpt().orElse(lastValueOpt)
-          if (totalAccepted() >= ops.limit ||
-            ((leastFieldFilter.isEmpty || (leastFieldFilter.size==1 && leastFieldFilter.head.op != FilterEq)) && totalFetched() < ops.limit) || l.isEmpty) {
-            Future.successful((stream, revisionOpt()))
+          val taken = stream.take(ops.limit)
+          if (totalAccepted >= ops.limit ||
+            ((leastFieldFilter.isEmpty || (leastFieldFilter.size==1 && leastFieldFilter.head.op != FilterEq)) && totalFetched < ops.limit)) {
+            Future.successful((stream, revisionOpt))
           }
           else {
-            //if (totalFetched() < ops.limit || leastSortItem.isEmpty
-            val nextLeastFieldFilter = IndexLogic.leastRowsFilterFields(ops.indexSortBy, ops.filterFields, leastFieldFilter.size, l.get, ops.reversed)
-            if (nextLeastFieldFilter.isEmpty) Future.successful((stream,revisionOpt())) else {
-              queryUntilFetched(ops, nextLeastFieldFilter, recursionCounter+1, skippedRows + totalFetched() - totalAccepted(), l) map {
-                case (newStream, newRevisionOpt) ⇒
-                  (stream ++ newStream, revisionOpt().flatMap(a ⇒ newRevisionOpt.map(b ⇒ Math.min(a,b))))
+            val l = newLastValueOpt.orElse(lastValueOpt)
+            if (l.isEmpty) Future.successful((stream, revisionOpt))
+            else {
+              val nextLeastFieldFilter = IndexLogic.leastRowsFilterFields(ops.indexSortBy, ops.filterFields, leastFieldFilter.size, l.get, ops.reversed)
+              if (nextLeastFieldFilter.isEmpty) Future.successful((stream, revisionOpt))
+              else {
+                queryUntilFetched(ops, nextLeastFieldFilter, recursionCounter + 1, skippedRows + totalFetched - totalAccepted, l) map {
+                  case (newStream, newRevisionOpt) ⇒
+                    (stream ++ newStream, revisionOpt.flatMap(a ⇒ newRevisionOpt.map(b ⇒ Math.min(a, b))))
+                }
               }
             }
           }

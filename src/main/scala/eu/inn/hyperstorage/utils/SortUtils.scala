@@ -5,13 +5,10 @@ object SortUtils {
   implicit def iterExt[A](iter: Iterable[A]) = new {
     def sortedTop[B](n: Int, f: A => B)(implicit ord: Ordering[B]): Stream[A] = {
       def updateSofar (sofar: Stream [A], el: A): Stream [A] = {
-        //println (el + " - " + sofar)
-
         if (ord.compare(f(el), f(sofar.head)) > 0)
           (el +: sofar.tail).sortBy (f)
         else sofar
       }
-
       val (sofar, rest) = iter.splitAt(n)
       (sofar.toStream.sortBy (f) /: rest) (updateSofar).reverse
     }

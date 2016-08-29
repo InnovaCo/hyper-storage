@@ -239,9 +239,35 @@ class QueryCollectionsSpec extends FreeSpec
         body = new QueryBuilder() sortBy Seq(SortBy("a")) add("size", 2) add("filter", "b < 50") result()
       )).futureValue
       res.statusCode shouldBe Status.OK
-      //verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq.empty, Seq(CkField("t0",true)), 2)
-      //verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterGt)), Seq(CkField("t0",true)), 2)
       res.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c2x,c3x)))
+      verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq.empty, Seq(CkField("t0",true)), 2)
+      verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterGt)), Seq(CkField("t0",true)), 2)
+    }
+
+    "Query when sort order matches with CK fields (skipping unmatched to the filter) with query-filter-ck-fields" in {
+      val hyperbus = setup()
+      setupIndexes(hyperbus)
+
+      val res = (hyperbus <~ HyperStorageContentGet("collection-1~",
+        body = new QueryBuilder() sortBy Seq(SortBy("a")) add("size", 2) add("filter", "b < 50 and a < \"zzz\" ") result()
+      )).futureValue
+      res.statusCode shouldBe Status.OK
+      res.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c2x,c3x)))
+      verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("zzz"), FilterLt)), Seq(CkField("t0",true)), 2)
+      verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterEq),FieldFilter("item_id", Text("item1"), FilterGt)), Seq(CkField("t0",true)), 2)
+    }
+
+    "Query when sort order matches with CK fields (skipping unmatched to the filter) with query-filter-ck-fields / reversed" in {
+      val hyperbus = setup()
+      setupIndexes(hyperbus)
+
+      val res = (hyperbus <~ HyperStorageContentGet("collection-1~",
+        body = new QueryBuilder() sortBy Seq(SortBy("a", descending = true)) add("size", 2) add("filter", "b < 50 and a > \"aaa\" ") result()
+      )).futureValue
+      res.statusCode shouldBe Status.OK
+      res.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c3x,c2x)))
+      verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("aaa"), FilterGt)), Seq(CkField("t0",false)), 2)
+      verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterEq),FieldFilter("item_id", Text("item1"), FilterLt)), Seq(CkField("t0",false)), 2)
     }
   }
 }

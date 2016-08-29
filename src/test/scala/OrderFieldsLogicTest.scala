@@ -161,6 +161,110 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
           FieldFilter("t2", Number(2), FilterGt)
         )
       }
+
+      "Least rows filter with existing filter(gt)" in {
+        val indexSortedBy = Seq(
+          HyperStorageIndexSortItem("a", None, None),
+          HyperStorageIndexSortItem("b", None, None),
+          HyperStorageIndexSortItem("c", None, None),
+          HyperStorageIndexSortItem("d", None, None)
+        )
+        val filterFields = Seq(
+          FieldFilter("t0", Number(5), FilterEq),
+          FieldFilter("t1", Number(0), FilterGt)
+        )
+        val previousValue = None
+        val currentValue = ObjV("a" → 5, "b" → 1, "c" → 2, "d" → 2)
+        val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 0, currentValue, false)
+        res shouldBe Seq(
+          FieldFilter("t1", Number(1), FilterEq),
+          FieldFilter("t2", Number(2), FilterEq),
+          FieldFilter("t3", Number(2), FilterGt)
+        )
+
+        IndexLogic.mergeLeastQueryFilterFields(filterFields, res) shouldBe Seq(
+          FieldFilter("t0", Number(5), FilterEq),
+          FieldFilter("t1", Number(1), FilterEq),
+          FieldFilter("t2", Number(2), FilterEq),
+          FieldFilter("t3", Number(2), FilterGt)
+        )
+      }
+
+      "Least rows filter with existing filter(gt) + previous" in {
+        val indexSortedBy = Seq(
+          HyperStorageIndexSortItem("a", None, None),
+          HyperStorageIndexSortItem("b", None, None),
+          HyperStorageIndexSortItem("c", None, None),
+          HyperStorageIndexSortItem("d", None, None)
+        )
+        val filterFields = Seq(
+          FieldFilter("t0", Number(5), FilterEq),
+          FieldFilter("t1", Number(0), FilterGt)
+        )
+        val previousValue = None
+        val currentValue = ObjV("a" → 5, "b" → 1, "c" → 2, "d" → 2)
+        val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 4, currentValue, false)
+        res shouldBe Seq(
+          FieldFilter("t1", Number(1), FilterEq),
+          FieldFilter("t2", Number(2), FilterGt)
+        )
+
+        IndexLogic.mergeLeastQueryFilterFields(filterFields, res) shouldBe Seq(
+          FieldFilter("t0", Number(5), FilterEq),
+          FieldFilter("t1", Number(1), FilterEq),
+          FieldFilter("t2", Number(2), FilterGt)
+        )
+      }
+
+      "Least rows filter with existing filter(gt) + previous reversed" in {
+        val indexSortedBy = Seq(
+          HyperStorageIndexSortItem("a", None, None),
+          HyperStorageIndexSortItem("b", None, None),
+          HyperStorageIndexSortItem("c", None, None),
+          HyperStorageIndexSortItem("d", None, None)
+        )
+        val filterFields = Seq(
+          FieldFilter("t0", Number(5), FilterEq),
+          FieldFilter("t1", Number(3), FilterLt)
+        )
+        val previousValue = None
+        val currentValue = ObjV("a" → 5, "b" → 2, "c" → 2, "d" → 2)
+        val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 4, currentValue, true)
+        res shouldBe Seq(
+          FieldFilter("t1", Number(2), FilterEq),
+          FieldFilter("t2", Number(2), FilterLt)
+        )
+
+        IndexLogic.mergeLeastQueryFilterFields(filterFields, res) shouldBe Seq(
+          FieldFilter("t0", Number(5), FilterEq),
+          FieldFilter("t1", Number(2), FilterEq),
+          FieldFilter("t2", Number(2), FilterLt)
+        )
+      }
+
+      "Least rows filter with existing filter(gt) should-be empty for non-range matching value" in {
+        val indexSortedBy = Seq(
+          HyperStorageIndexSortItem("a", None, None),
+          HyperStorageIndexSortItem("b", None, None),
+          HyperStorageIndexSortItem("c", None, None),
+          HyperStorageIndexSortItem("d", None, None)
+        )
+        val filterFields = Seq(
+          FieldFilter("t0", Number(5), FilterEq),
+          FieldFilter("t1", Number(1), FilterLt)
+        )
+        val currentValue = ObjV("a" → 5, "b" → 2, "c" → 1, "d" → 1)
+        val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 0, currentValue, false)
+        res shouldBe Seq.empty
+
+        val filterFields2 = Seq(
+          FieldFilter("t0", Number(5), FilterEq),
+          FieldFilter("t1", Number(3), FilterLt)
+        )
+        val currentValue2 = ObjV("a" → 5, "b" → 2, "c" → 1, "d" → 1)
+        val res2 = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 0, currentValue, true)
+        res2 shouldBe Seq.empty
+      }
     }
   }
 }
