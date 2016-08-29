@@ -43,14 +43,11 @@ trait BackgroundTaskTrait extends ShardTask {
 
 @SerialVersionUID(1L) case class BackgroundTaskResult(documentUri: String, transactions: Seq[UUID])
 
-// todo: request -> string as for the Foreground (strictly Hyperbus OR akka serialization)
-@SerialVersionUID(1L) case class IndexDefTask(ttl: Long, documentUri: String, content: String /*request: Request[Body]*/) extends BackgroundTaskTrait {
+@SerialVersionUID(1L) case class IndexDefTask(ttl: Long, documentUri: String, content: String) extends BackgroundTaskTrait {
   def key = documentUri
-  /*def key: String = request match {
-    case post: HyperStorageIndexPost ⇒ post.path
-    case delete: HyperStorageIndexDelete ⇒ delete.path
-  }*/
 }
+
+@SerialVersionUID(1L) case class IndexDefTaskTaskResult(content: String)
 
 @SerialVersionUID(1L) case class IndexNextBucketTask(ttl: Long, indexDefTransaction: IndexDefTransaction, lastItemId: Option[String], processId: Long) extends BackgroundTaskTrait {
   def key = indexDefTransaction.documentUri
