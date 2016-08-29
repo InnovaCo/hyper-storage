@@ -76,7 +76,11 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
 
   private def executeIndexRequest(request: Request[Body]) = {
     val ttl = Math.max(requestTimeout.toMillis - 100, 100)
-    val indexDefTask = IndexDefTask(System.currentTimeMillis() + ttl, request)
+    val key = request match {
+      case post: HyperStorageIndexPost ⇒ post.path
+      case delete: HyperStorageIndexDelete ⇒ delete.path
+    }
+    val indexDefTask = IndexDefTask(System.currentTimeMillis() + ttl, key, StringSerializer.serializeToString(request))
     implicit val timeout: akka.util.Timeout = requestTimeout
 
     hyperStorageProcessor ? indexDefTask map {

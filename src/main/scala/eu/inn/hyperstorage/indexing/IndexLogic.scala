@@ -110,7 +110,6 @@ object IndexLogic {
     orderWeight + filterWeight
   }
 
-  // todo: implement least for > < existing last filter
   def leastRowsFilterFields(indexSortedBy: Seq[HyperStorageIndexSortItem],
                             queryFilterFields: Seq[FieldFilter],
                             prevFilterFieldsSize: Int,

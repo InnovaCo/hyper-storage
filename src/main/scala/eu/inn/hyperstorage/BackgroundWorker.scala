@@ -6,11 +6,13 @@ import akka.actor.{Actor, ActorLogging, ActorRef, Props, Status}
 import akka.pattern.{ask, pipe}
 import akka.util.Timeout
 import com.datastax.driver.core.utils.UUIDs
+import com.fasterxml.jackson.core.JsonParser
 import eu.inn.binders.value.{Null, Value}
 import eu.inn.hyperbus.model._
+import eu.inn.hyperbus.serialization.{MessageDeserializer, RequestDeserializer, RequestHeader}
 import eu.inn.hyperbus.{Hyperbus, IdGenerator}
 import eu.inn.hyperstorage.db._
-import eu.inn.hyperstorage.api._
+import eu.inn.hyperstorage.api.{HyperStorageIndexPost, _}
 import eu.inn.hyperstorage.indexing.{IndexDefTransaction, IndexLogic, IndexManager}
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
@@ -24,6 +26,8 @@ import scala.util.{Success, Try}
 
 // todo: do we really need a ShardTaskComplete ?
 // todo: use strictly Hyperbus OR akka serialization for the internal akka-cluster
+
+// todo: we need BackgroundWorkerTaskFailed(task: ShardTask, inner: Throwable)
 
 trait BackgroundTaskTrait extends ShardTask {
   def ttl: Long
@@ -40,11 +44,12 @@ trait BackgroundTaskTrait extends ShardTask {
 @SerialVersionUID(1L) case class BackgroundTaskResult(documentUri: String, transactions: Seq[UUID])
 
 // todo: request -> string as for the Foreground (strictly Hyperbus OR akka serialization)
-@SerialVersionUID(1L) case class IndexDefTask(ttl: Long, request: Request[Body]) extends BackgroundTaskTrait {
-  def key: String = request match {
+@SerialVersionUID(1L) case class IndexDefTask(ttl: Long, documentUri: String, content: String /*request: Request[Body]*/) extends BackgroundTaskTrait {
+  def key = documentUri
+  /*def key: String = request match {
     case post: HyperStorageIndexPost ⇒ post.path
     case delete: HyperStorageIndexDelete ⇒ delete.path
-  }
+  }*/
 }
 
 @SerialVersionUID(1L) case class IndexNextBucketTask(ttl: Long, indexDefTransaction: IndexDefTransaction, lastItemId: Option[String], processId: Long) extends BackgroundTaskTrait {
@@ -208,12 +213,18 @@ class BackgroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, inde
   def executeIndexDefTask(owner: ActorRef, task: IndexDefTask): Unit = {
     Try {
       validateCollectionUri(task.key)
-      task
-    } map { task ⇒
-      task.request match {
-        case post: HyperStorageIndexPost ⇒ startCreatingNewIndex(task, owner, post)
-        case delete: HyperStorageIndexDelete ⇒ startRemovingIndex(task, owner, delete)
+      val is = new java.io.ByteArrayInputStream(task.content.getBytes("UTF-8"))
+      val deserializer: RequestDeserializer[Request[Body]] = (requestHeader: RequestHeader, jsonParser: JsonParser) ⇒ {
+        requestHeader.method match {
+          case Method.POST ⇒ HyperStorageIndexPost.apply(requestHeader, jsonParser)
+          case Method.DELETE ⇒ HyperStorageIndexDelete.apply(requestHeader, jsonParser)
+        }
       }
+
+      MessageDeserializer.deserializeRequestWith[Request[Body]](is)(deserializer)
+    }.map {
+      case post: HyperStorageIndexPost ⇒ startCreatingNewIndex(task, owner, post)
+      case delete: HyperStorageIndexDelete ⇒ startRemovingIndex(task, owner, delete)
     } recover withHyperbusException(s"Can't execute index task: $task", owner, task)
   }
 
