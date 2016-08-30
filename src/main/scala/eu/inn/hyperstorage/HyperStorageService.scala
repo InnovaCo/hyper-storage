@@ -12,6 +12,8 @@ import eu.inn.hyperstorage.indexing.IndexManager
 import eu.inn.hyperstorage.metrics.MetricsReporter
 import eu.inn.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
 import eu.inn.hyperstorage.sharding.{ShardProcessor, ShutdownProcessor, SubscribeToShardStatus}
+import eu.inn.hyperstorage.workers.primary.PrimaryWorker
+import eu.inn.hyperstorage.workers.secondary.SecondaryWorker
 import eu.inn.servicecontrol.api.{Console, Service}
 import org.slf4j.LoggerFactory
 import scaldi.{Injectable, Injector}
@@ -23,8 +25,7 @@ import scala.util.control.NonFatal
 case class HyperStorageConfig(
                                shutdownTimeout: FiniteDuration,
                                shardSyncTimeout: FiniteDuration,
-                               maxForegroundWorkers: Int,
-                               maxBackgroundWorkers: Int,
+                               maxWorkers: Int,
                                backgroundTaskTimeout: FiniteDuration,
                                requestTimeout: FiniteDuration,
                                failTimeout: FiniteDuration,
@@ -75,17 +76,17 @@ class HyperStorageService(console: Console,
       log.error(s"Can't create C* session", e)
   }
 
-  val indexManagerProps = IndexManager.props(hyperbus, db, tracker, maxBackgroundWorkers)
+  val indexManagerProps = IndexManager.props(hyperbus, db, tracker, maxWorkers)
   val indexManagerRef = actorSystem.actorOf(
     indexManagerProps, "index-manager"
   )
 
   // worker actor todo: recovery job
-  val foregroundWorkerProps = ForegroundWorker.props(hyperbus, db, tracker, backgroundTaskTimeout)
-  val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, indexManagerRef)
+  val primaryWorkerProps = PrimaryWorker.props(hyperbus, db, tracker, backgroundTaskTimeout)
+  val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, indexManagerRef)
   val workerSettings = Map(
-    "hyper-storage-foreground-worker" → (foregroundWorkerProps, maxForegroundWorkers, "fgw-"),
-    "hyper-storage-background-worker" → (backgroundWorkerProps, maxBackgroundWorkers, "bgw-")
+    "hyper-storage-primary-worker" → (primaryWorkerProps, maxWorkers, "pgw-"),
+    "hyper-storage-secondary-worker" → (secondaryWorkerProps, maxWorkers, "sgw-")
   )
 
   // shard processor actor

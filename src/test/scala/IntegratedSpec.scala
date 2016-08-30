@@ -10,6 +10,8 @@ import eu.inn.hyperstorage._
 import eu.inn.hyperstorage.api._
 import eu.inn.hyperstorage.db.IndexDef
 import eu.inn.hyperstorage.sharding._
+import eu.inn.hyperstorage.workers.primary.PrimaryWorker
+import eu.inn.hyperstorage.workers.secondary.{SecondaryWorker, SecondaryWorker$}
 import mock.FaultClientTransport
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
@@ -39,11 +41,11 @@ class IntegratedSpec extends FreeSpec
 
       cleanUpCassandra()
 
-      val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
-      val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, self)
+      val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
+      val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self)
       val workerSettings = Map(
-        "hyper-storage-foreground-worker" → (workerProps, 1, "fgw-"),
-        "hyper-storage-background-worker" → (backgroundWorkerProps, 1, "bgw-")
+        "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
+        "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
       )
 
       val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
@@ -88,11 +90,11 @@ class IntegratedSpec extends FreeSpec
 
       cleanUpCassandra()
 
-      val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
-      val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, self)
+      val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
+      val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self)
       val workerSettings = Map(
-        "hyper-storage-foreground-worker" → (workerProps, 1, "fgw-"),
-        "hyper-storage-background-worker" → (backgroundWorkerProps, 1, "bgw-")
+        "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
+        "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
       )
 
       val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
@@ -143,11 +145,11 @@ class IntegratedSpec extends FreeSpec
 
       cleanUpCassandra()
 
-      val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
-      val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, self)
+      val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
+      val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self)
       val workerSettings = Map(
-        "hyper-storage-foreground-worker" → (workerProps, 1, "fgw-"),
-        "hyper-storage-background-worker" → (backgroundWorkerProps, 1, "bgw-")
+        "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
+        "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
       )
 
       val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
@@ -228,11 +230,11 @@ class IntegratedSpec extends FreeSpec
 
       cleanUpCassandra()
 
-      val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
-      val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, self)
+      val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
+      val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self)
       val workerSettings = Map(
-        "hyper-storage-foreground-worker" → (workerProps, 1, "fgw-"),
-        "hyper-storage-background-worker" → (backgroundWorkerProps, 1, "bgw-")
+        "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
+        "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
       )
 
       val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))

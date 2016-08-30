@@ -11,6 +11,7 @@ import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.hyperstorage.sharding.ShardMemberStatus.{Active, Deactivating}
 import eu.inn.hyperstorage.sharding.{ShardedClusterData, UpdateShardStatus}
 import eu.inn.hyperstorage.utils.FutureUtils
+import eu.inn.hyperstorage.workers.secondary.{BackgroundContentTask, BackgroundContentTaskResult, BackgroundContentTaskNoSuchResourceException}
 import eu.inn.metrics.MetricsTracker
 
 import scala.concurrent.Future
@@ -145,13 +146,13 @@ abstract class RecoveryWorker[T <: WorkerState](
         val incompleteTransactions = partitionTransactions.toList.filter(_.completedAt.isEmpty).groupBy(_.documentUri)
         FutureUtils.serial(incompleteTransactions.toSeq) { case (documentUri, transactions) ⇒
           trackIncompleteMeter.mark(transactions.length)
-          val task = BackgroundTask(
+          val task = BackgroundContentTask(
             System.currentTimeMillis() + backgroundTaskTimeout.toMillis + 1000,
             documentUri
           )
           log.debug(s"Incomplete resource at $documentUri. Sending recovery task")
           shardProcessor.ask(task)(backgroundTaskTimeout) flatMap {
-            case BackgroundTaskResult(completePath, completedTransactions) ⇒
+            case BackgroundContentTaskResult(completePath, completedTransactions) ⇒
               log.debug(s"Recovery of '$completePath' completed successfully: $completedTransactions")
               if (documentUri == completePath) {
                 val set = completedTransactions.toSet
@@ -169,7 +170,7 @@ abstract class RecoveryWorker[T <: WorkerState](
                 log.error(s"Recovery result received for '$completePath' while expecting for the '$documentUri'")
                 Future.successful()
               }
-            case NoSuchResourceException(notFountPath) ⇒
+            case BackgroundContentTaskNoSuchResourceException(notFountPath) ⇒
               log.error(s"Tried to recover not existing resource: '$notFountPath'. Exception is ignored")
               Future.successful()
             case (NonFatal(e), _) ⇒

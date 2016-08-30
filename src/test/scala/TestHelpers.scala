@@ -15,7 +15,9 @@ import eu.inn.hyperbus.transport.api.{TransportConfigurationLoader, TransportMan
 import eu.inn.hyperstorage.db.{Db, Transaction}
 import eu.inn.hyperstorage.indexing.IndexManager
 import eu.inn.hyperstorage.sharding._
-import eu.inn.hyperstorage.{BackgroundWorker, ForegroundWorker, HyperbusAdapter, TransactionLogic}
+import eu.inn.hyperstorage._
+import eu.inn.hyperstorage.workers.primary.PrimaryWorker
+import eu.inn.hyperstorage.workers.secondary.{SecondaryWorker, SecondaryWorker$}
 import eu.inn.metrics.MetricsTracker
 import eu.inn.metrics.modules.ConsoleReporterModule
 import org.scalatest.concurrent.ScalaFutures
@@ -63,11 +65,11 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     import tk._
 
     val indexManager = TestActorRef(IndexManager.props(hyperbus, db, tracker, 1))
-    val workerProps = ForegroundWorker.props(hyperbus, db, tracker, 10.seconds)
-    val backgroundWorkerProps = BackgroundWorker.props(hyperbus, db, tracker, indexManager)
+    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
+    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, indexManager)
     val workerSettings = Map(
-      "hyper-storage-foreground-worker" → (workerProps, 1, "fgw-"),
-      "hyper-storage-background-worker" → (backgroundWorkerProps, 1, "bgw-")
+      "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
+      "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
     val processor = new TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor](system,

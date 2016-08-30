@@ -12,6 +12,8 @@ import eu.inn.hyperstorage.api._
 import eu.inn.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
 import eu.inn.hyperstorage.sharding.ShardMemberStatus.Active
 import eu.inn.hyperstorage.sharding._
+import eu.inn.hyperstorage.workers.primary.{PrimaryTask, PrimaryWorker}
+import eu.inn.hyperstorage.workers.secondary.{BackgroundContentTask, BackgroundContentTaskFailedException, BackgroundContentTaskResult}
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
@@ -37,13 +39,13 @@ class RecoveryWorkersSpec extends FreeSpec
 
       cleanUpCassandra()
 
-      val worker = TestActorRef(ForegroundWorker.props(hyperbus, db, tracker, 10.seconds))
+      val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
       val path = "incomplete-" + UUID.randomUUID().toString
       val taskStr1 = StringSerializer.serializeToString(HyperStorageContentPut(path,
         DynamicBody(ObjV("text" → "Test resource value", "null" → Null))
       ))
-      worker ! ForegroundTask(path, System.currentTimeMillis() + 10000, taskStr1)
-      val backgroundWorkerTask = expectMsgType[BackgroundTask]
+      worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr1)
+      val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
       expectMsgType[ShardTaskComplete]
 
       val transactionUuids = whenReady(db.selectContent(path, "")) { result =>
@@ -64,11 +66,11 @@ class RecoveryWorkersSpec extends FreeSpec
       // start recovery check
       hotWorker ! UpdateShardStatus(self, Active, shardData)
 
-      val backgroundWorkerTask2 = processorProbe.expectMsgType[BackgroundTask](max = 30.seconds)
+      val backgroundWorkerTask2 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
       backgroundWorkerTask.documentUri should equal(backgroundWorkerTask2.documentUri)
-      processorProbe.reply(BackgroundTaskFailedException(backgroundWorkerTask2.documentUri, "Testing worker behavior"))
-      val backgroundWorkerTask3 = processorProbe.expectMsgType[BackgroundTask](max = 30.seconds)
-      hotWorker ! processorProbe.reply(BackgroundTaskResult(backgroundWorkerTask2.documentUri, transactionUuids))
+      processorProbe.reply(BackgroundContentTaskFailedException(backgroundWorkerTask2.documentUri, "Testing worker behavior"))
+      val backgroundWorkerTask3 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
+      hotWorker ! processorProbe.reply(BackgroundContentTaskResult(backgroundWorkerTask2.documentUri, transactionUuids))
       gracefulStop(hotWorker, 30 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(30.seconds))
     }
 
@@ -79,14 +81,14 @@ class RecoveryWorkersSpec extends FreeSpec
 
       cleanUpCassandra()
 
-      val worker = TestActorRef(ForegroundWorker.props(hyperbus, db, tracker, 10.seconds))
+      val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
       val path = "incomplete-" + UUID.randomUUID().toString
       val taskStr1 = StringSerializer.serializeToString(HyperStorageContentPut(path,
         DynamicBody(ObjV("text" → "Test resource value", "null" → Null))
       ))
       val millis = System.currentTimeMillis()
-      worker ! ForegroundTask(path, System.currentTimeMillis() + 10000, taskStr1)
-      val backgroundWorkerTask = expectMsgType[BackgroundTask]
+      worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr1)
+      val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
       expectMsgType[ShardTaskComplete]
 
       val content = db.selectContent(path, "").futureValue.get
@@ -118,23 +120,23 @@ class RecoveryWorkersSpec extends FreeSpec
       // start recovery check
       hotWorker ! UpdateShardStatus(self, Active, shardData)
 
-      val backgroundWorkerTask2 = processorProbe.expectMsgType[BackgroundTask](max = 30.seconds)
+      val backgroundWorkerTask2 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
       backgroundWorkerTask.documentUri should equal(backgroundWorkerTask2.documentUri)
-      processorProbe.reply(BackgroundTaskFailedException(backgroundWorkerTask2.documentUri, "Testing worker behavior"))
+      processorProbe.reply(BackgroundContentTaskFailedException(backgroundWorkerTask2.documentUri, "Testing worker behavior"))
 
       eventually {
         db.selectCheckpoint(transaction.partition).futureValue shouldBe Some(newTransaction.dtQuantum - 1)
       }
 
-      val backgroundWorkerTask3 = processorProbe.expectMsgType[BackgroundTask](max = 30.seconds)
-      hotWorker ! processorProbe.reply(BackgroundTaskResult(backgroundWorkerTask2.documentUri, newContent.transactionList))
+      val backgroundWorkerTask3 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
+      hotWorker ! processorProbe.reply(BackgroundContentTaskResult(backgroundWorkerTask2.documentUri, newContent.transactionList))
 
       eventually {
         db.selectCheckpoint(transaction.partition).futureValue.get shouldBe >(newTransaction.dtQuantum)
       }
 
-      val backgroundWorkerTask4 = processorProbe.expectMsgType[BackgroundTask](max = 30.seconds) // this is abandoned
-      hotWorker ! processorProbe.reply(BackgroundTaskResult(backgroundWorkerTask4.documentUri, List()))
+      val backgroundWorkerTask4 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds) // this is abandoned
+      hotWorker ! processorProbe.reply(BackgroundContentTaskResult(backgroundWorkerTask4.documentUri, List()))
 
       gracefulStop(hotWorker, 30 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(30.seconds))
     }

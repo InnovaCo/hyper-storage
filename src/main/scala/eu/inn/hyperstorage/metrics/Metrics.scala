@@ -1,11 +1,11 @@
 package eu.inn.hyperstorage.metrics
 
 object Metrics {
-  // time of processing message by foreground worker
-  val FOREGROUND_PROCESS_TIME = "hyper-storage.foreground.process-time"
+  // time of processing message by primary worker
+  val PRIMARY_PROCESS_TIME = "hyper-storage.primary.process-time"
 
-  // time of processing message by background worker
-  val BACKGROUND_PROCESS_TIME = "hyper-storage.background.process-time"
+  // time of processing message by secondary worker
+  val SECONDARY_PROCESS_TIME = "hyper-storage.secondary.process-time"
 
   // time of retrieving data (get request)
   val RETRIEVE_TIME = "hyper-storage.retrieve-time"

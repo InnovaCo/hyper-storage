@@ -14,6 +14,8 @@ import eu.inn.hyperstorage.api.{HyperStorageIndexSortItem, _}
 import eu.inn.hyperstorage.db._
 import eu.inn.hyperstorage.indexing.{FieldFiltersExtractor, IndexLogic, OrderFieldsLogic}
 import eu.inn.hyperstorage.metrics.Metrics
+import eu.inn.hyperstorage.workers.primary.{PrimaryTask, PrimaryWorkerTaskResult}
+import eu.inn.hyperstorage.workers.secondary.IndexDefTask
 import eu.inn.metrics.MetricsTracker
 import eu.inn.parser.ast.{Expression, Identifier}
 import eu.inn.parser.eval.ValueContext
@@ -57,11 +59,11 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     val str = StringSerializer.serializeToString(request)
     val ttl = Math.max(requestTimeout.toMillis - 100, 100)
     val documentUri = ContentLogic.splitPath(uri).documentUri
-    val task = ForegroundTask(documentUri, System.currentTimeMillis() + ttl, str)
+    val task = PrimaryTask(documentUri, System.currentTimeMillis() + ttl, str)
     implicit val timeout: akka.util.Timeout = requestTimeout
 
     hyperStorageProcessor ? task map {
-      case ForegroundWorkerTaskResult(content) ⇒
+      case PrimaryWorkerTaskResult(content) ⇒
         StringDeserializer.dynamicResponse(content)
     }
   }

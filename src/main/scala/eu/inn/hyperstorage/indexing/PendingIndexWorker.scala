@@ -3,7 +3,7 @@ package eu.inn.hyperstorage.indexing
 import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Props}
 import eu.inn.hyperbus.Hyperbus
 import eu.inn.hyperstorage.db.{Db, IndexDef, PendingIndex}
-import eu.inn.hyperstorage.{IndexNextBucketTask, IndexContentTaskFailed, IndexContentTaskResult}
+import eu.inn.hyperstorage.workers.secondary.{IndexContentTaskFailed, IndexContentTaskResult, IndexContentTask}
 import eu.inn.metrics.MetricsTracker
 import org.slf4j.LoggerFactory
 
@@ -76,7 +76,7 @@ class PendingIndexWorker(cluster: ActorRef, indexKey: IndexDefTransaction, hyper
   def indexNextBatch(processId: Long, indexDef: IndexDef, lastItemId: Option[String]): Unit = {
     import context.dispatcher
     context.become(indexing(processId, indexDef, lastItemId))
-    cluster ! IndexNextBucketTask(System.currentTimeMillis() + IndexWorkerImpl.RETRY_PERIOD.toMillis,
+    cluster ! IndexContentTask(System.currentTimeMillis() + IndexWorkerImpl.RETRY_PERIOD.toMillis,
       IndexDefTransaction(indexDef.documentUri, indexDef.indexId, indexDef.defTransactionId),
       lastItemId, processId)
     context.system.scheduler.scheduleOnce(IndexWorkerImpl.RETRY_PERIOD * 2, self, IndexNextBatchTimeout(processId))

@@ -9,6 +9,8 @@ import eu.inn.hyperbus.serialization.StringSerializer
 import eu.inn.hyperstorage._
 import eu.inn.hyperstorage.api._
 import eu.inn.hyperstorage.sharding._
+import eu.inn.hyperstorage.workers.primary.{PrimaryTask, PrimaryWorker, PrimaryWorkerTaskResult}
+import eu.inn.hyperstorage.workers.secondary.{BackgroundContentTask, BackgroundContentTaskResult, SecondaryWorker, SecondaryWorker$}
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
@@ -33,7 +35,7 @@ class CollectionsSpec extends FreeSpec
 
       cleanUpCassandra()
 
-      val worker = TestActorRef(ForegroundWorker.props(hyperbus, db, tracker, 10.seconds))
+      val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
 
       val task = HyperStorageContentPut(
         path = "collection-1~/test-resource-1",
@@ -43,11 +45,11 @@ class CollectionsSpec extends FreeSpec
       db.selectContent("collection-1~", "test-resource-1").futureValue shouldBe None
 
       val taskStr = StringSerializer.serializeToString(task)
-      worker ! ForegroundTask("collection-1~", System.currentTimeMillis() + 10000, taskStr)
-      val backgroundWorkerTask = expectMsgType[BackgroundTask]
+      worker ! PrimaryTask("collection-1~", System.currentTimeMillis() + 10000, taskStr)
+      val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
       backgroundWorkerTask.documentUri should equal("collection-1~")
       val workerResult = expectMsgType[ShardTaskComplete]
-      val r = response(workerResult.result.asInstanceOf[ForegroundWorkerTaskResult].content)
+      val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
       r.statusCode should equal(Status.CREATED)
       r.correlationId should equal(task.correlationId)
 
@@ -63,11 +65,11 @@ class CollectionsSpec extends FreeSpec
         DynamicBody(ObjV("text" → "Test item value 2"))
       )
       val task2Str = StringSerializer.serializeToString(task2)
-      worker ! ForegroundTask("collection-1~", System.currentTimeMillis() + 10000, task2Str)
-      val backgroundWorkerTask2 = expectMsgType[BackgroundTask]
+      worker ! PrimaryTask("collection-1~", System.currentTimeMillis() + 10000, task2Str)
+      val backgroundWorkerTask2 = expectMsgType[BackgroundContentTask]
       backgroundWorkerTask2.documentUri should equal("collection-1~")
       val workerResult2 = expectMsgType[ShardTaskComplete]
-      val r2 = response(workerResult2.result.asInstanceOf[ForegroundWorkerTaskResult].content)
+      val r2 = response(workerResult2.result.asInstanceOf[PrimaryWorkerTaskResult].content)
       r2.statusCode should equal(Status.CREATED)
       r2.correlationId should equal(task2.correlationId)
 
@@ -85,10 +87,10 @@ class CollectionsSpec extends FreeSpec
       transactions.head.revision should equal(2)
       transactions.tail.head.revision should equal(1)
 
-      val backgroundWorker = TestActorRef(BackgroundWorker.props(hyperbus, db, tracker, self))
+      val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self))
       backgroundWorker ! backgroundWorkerTask
       val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
-      val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundTaskResult]
+      val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundContentTaskResult]
       rc.documentUri should equal("collection-1~")
       rc.transactions should equal(content2.get.transactionList.reverse)
 
@@ -105,7 +107,7 @@ class CollectionsSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(ForegroundWorker.props(hyperbus, db, tracker, 10.seconds))
+      val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
 
       val path = "collection-1~/test-resource-" + UUID.randomUUID().toString
       val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(path)
@@ -114,19 +116,19 @@ class CollectionsSpec extends FreeSpec
         DynamicBody(ObjV("text1" → "abc", "text2" → "klmn"))
       ))
 
-      worker ! ForegroundTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr)
-      expectMsgType[BackgroundTask]
+      worker ! PrimaryTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr)
+      expectMsgType[BackgroundContentTask]
       expectMsgType[ShardTaskComplete]
 
       val task = HyperStorageContentPatch(path,
         DynamicBody(ObjV("text1" → "efg", "text2" → Null, "text3" → "zzz"))
       )
       val taskPatchStr = StringSerializer.serializeToString(task)
-      worker ! ForegroundTask(documentUri, System.currentTimeMillis() + 10000, taskPatchStr)
+      worker ! PrimaryTask(documentUri, System.currentTimeMillis() + 10000, taskPatchStr)
 
-      expectMsgType[BackgroundTask]
+      expectMsgType[BackgroundContentTask]
       expectMsgPF() {
-        case ShardTaskComplete(_, result: ForegroundWorkerTaskResult) if response(result.content).statusCode == Status.OK &&
+        case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).statusCode == Status.OK &&
           response(result.content).correlationId == task.correlationId ⇒ {
           true
         }
@@ -142,15 +144,15 @@ class CollectionsSpec extends FreeSpec
       // delete element
       val deleteTask = HyperStorageContentDelete(path)
       val deleteTaskStr = StringSerializer.serializeToString(deleteTask)
-      worker ! ForegroundTask(documentUri, System.currentTimeMillis() + 10000, deleteTaskStr)
-      expectMsgType[BackgroundTask]
+      worker ! PrimaryTask(documentUri, System.currentTimeMillis() + 10000, deleteTaskStr)
+      expectMsgType[BackgroundContentTask]
       expectMsgType[ShardTaskComplete]
 
       // now patch should return 404
-      worker ! ForegroundTask(documentUri, System.currentTimeMillis() + 10000, taskPatchStr)
+      worker ! PrimaryTask(documentUri, System.currentTimeMillis() + 10000, taskPatchStr)
 
       expectMsgPF() {
-        case ShardTaskComplete(_, result: ForegroundWorkerTaskResult) if response(result.content).statusCode == Status.NOT_FOUND &&
+        case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).statusCode == Status.NOT_FOUND &&
           response(result.content).correlationId == task.correlationId ⇒ {
           true
         }
@@ -162,7 +164,7 @@ class CollectionsSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(ForegroundWorker.props(hyperbus, db, tracker, 10.seconds))
+      val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
 
       val path = "collection-1~/test-resource-" + UUID.randomUUID().toString
       val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(path)
@@ -171,17 +173,17 @@ class CollectionsSpec extends FreeSpec
         DynamicBody(ObjV("text1" → "abc", "text2" → "klmn"))
       ))
 
-      worker ! ForegroundTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr)
-      expectMsgType[BackgroundTask]
+      worker ! PrimaryTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr)
+      expectMsgType[BackgroundContentTask]
       expectMsgType[ShardTaskComplete]
 
       val task = HyperStorageContentDelete(path)
       val taskStr = StringSerializer.serializeToString(task)
-      worker ! ForegroundTask(documentUri, System.currentTimeMillis() + 10000, taskStr)
+      worker ! PrimaryTask(documentUri, System.currentTimeMillis() + 10000, taskStr)
 
-      expectMsgType[BackgroundTask]
+      expectMsgType[BackgroundContentTask]
       expectMsgPF() {
-        case ShardTaskComplete(_, result: ForegroundWorkerTaskResult) if response(result.content).statusCode == Status.OK &&
+        case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).statusCode == Status.OK &&
           response(result.content).correlationId == task.correlationId ⇒ {
           true
         }
@@ -195,7 +197,7 @@ class CollectionsSpec extends FreeSpec
       val tk = testKit()
       import tk._
 
-      val worker = TestActorRef(ForegroundWorker.props(hyperbus, db, tracker, 10.seconds))
+      val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
 
       val path = UUID.randomUUID().toString + "~/el1"
       val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(path)
@@ -204,17 +206,17 @@ class CollectionsSpec extends FreeSpec
         DynamicBody(ObjV("text1" → "abc", "text2" → "klmn"))
       ))
 
-      worker ! ForegroundTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr)
-      expectMsgType[BackgroundTask]
+      worker ! PrimaryTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr)
+      expectMsgType[BackgroundContentTask]
       expectMsgType[ShardTaskComplete]
 
       val task = HyperStorageContentDelete(documentUri)
       val taskStr = StringSerializer.serializeToString(task)
-      worker ! ForegroundTask(documentUri, System.currentTimeMillis() + 10000, taskStr)
+      worker ! PrimaryTask(documentUri, System.currentTimeMillis() + 10000, taskStr)
 
-      expectMsgType[BackgroundTask]
+      expectMsgType[BackgroundContentTask]
       expectMsgPF() {
-        case ShardTaskComplete(_, result: ForegroundWorkerTaskResult) if response(result.content).statusCode == Status.OK &&
+        case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).statusCode == Status.OK &&
           response(result.content).correlationId == task.correlationId ⇒ {
           true
         }

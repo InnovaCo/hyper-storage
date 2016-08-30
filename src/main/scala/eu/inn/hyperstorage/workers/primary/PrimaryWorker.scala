@@ -1,4 +1,4 @@
-package eu.inn.hyperstorage
+package eu.inn.hyperstorage.workers.primary
 
 import java.util.Date
 
@@ -11,10 +11,12 @@ import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import eu.inn.hyperbus.transport.api.matchers.Specific
 import eu.inn.hyperbus.transport.api.uri.Uri
 import eu.inn.hyperbus.{Hyperbus, IdGenerator}
+import eu.inn.hyperstorage._
 import eu.inn.hyperstorage.api._
 import eu.inn.hyperstorage.db._
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
+import eu.inn.hyperstorage.workers.secondary.BackgroundContentTask
 import eu.inn.metrics.MetricsTracker
 
 import scala.concurrent.Future
@@ -22,19 +24,19 @@ import scala.concurrent.duration.FiniteDuration
 import scala.util.Try
 import scala.util.control.NonFatal
 
-@SerialVersionUID(1L) case class ForegroundTask(key: String, ttl: Long, content: String) extends ShardTask {
+@SerialVersionUID(1L) case class PrimaryTask(key: String, ttl: Long, content: String) extends ShardTask {
   def isExpired = ttl < System.currentTimeMillis()
 
-  def group = "hyper-storage-foreground-worker"
+  def group = "hyper-storage-primary-worker"
 }
 
-@SerialVersionUID(1L) case class ForegroundWorkerTaskResult(content: String)
+@SerialVersionUID(1L) case class PrimaryWorkerTaskResult(content: String)
 
-case class ForegroundWorkerTaskFailed(task: ShardTask, inner: Throwable)
+case class PrimaryWorkerTaskFailed(task: ShardTask, inner: Throwable)
 
-case class ForegroundWorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
+case class PrimaryWorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
 
-class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration) extends Actor with ActorLogging {
+class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration) extends Actor with ActorLogging {
 
   import ContentLogic._
   import context._
@@ -57,12 +59,12 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
   }
 
   def receive = {
-    case task: ForegroundTask ⇒
+    case task: PrimaryTask ⇒
       executeTask(sender(), task)
   }
 
-  def executeTask(owner: ActorRef, task: ForegroundTask): Unit = {
-    val trackProcessTime = tracker.timer(Metrics.FOREGROUND_PROCESS_TIME).time()
+  def executeTask(owner: ActorRef, task: PrimaryTask): Unit = {
+    val trackProcessTime = tracker.timer(Metrics.PRIMARY_PROCESS_TIME).time()
 
     Try {
       val request = DynamicRequest(task.content)
@@ -108,7 +110,7 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
     }
   }
 
-  def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemId: String, task: ForegroundTask, request: DynamicRequest) = {
+  private def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemId: String, task: PrimaryTask, request: DynamicRequest) = {
     db.selectContent(documentUri, itemId) flatMap { existingContent ⇒
       val f: Future[Option[ContentBase]] = existingContent match {
         case Some(content) ⇒ Future.successful(Some(content))
@@ -117,12 +119,12 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
 
       f flatMap { existingContentStatic ⇒
         updateResource(documentUri, itemId, request, existingContent, existingContentStatic) map { newTransaction ⇒
-          ForegroundWorkerTaskCompleted(task, newTransaction, existingContent.isEmpty && request.method != Method.DELETE)
+          PrimaryWorkerTaskCompleted(task, newTransaction, existingContent.isEmpty && request.method != Method.DELETE)
         }
       }
     } recover {
       case NonFatal(e) ⇒
-        ForegroundWorkerTaskFailed(task, e)
+        PrimaryWorkerTaskFailed(task, e)
     } pipeTo context.self
   }
 
@@ -255,13 +257,13 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
       )
   }
 
-  private def taskWaitResult(owner: ActorRef, originalTask: ForegroundTask, request: DynamicRequest, trackProcessTime: Timer.Context)
+  private def taskWaitResult(owner: ActorRef, originalTask: PrimaryTask, request: DynamicRequest, trackProcessTime: Timer.Context)
                             (implicit mcf: MessagingContextFactory): Receive = {
-    case ForegroundWorkerTaskCompleted(task, transaction, created) if task == originalTask ⇒
+    case PrimaryWorkerTaskCompleted(task, transaction, created) if task == originalTask ⇒
       if (log.isDebugEnabled) {
-        log.debug(s"ForegroundWorker task $originalTask is completed")
+        log.debug(s"task $originalTask is completed")
       }
-      owner ! BackgroundTask(System.currentTimeMillis() + backgroundTaskTimeout.toMillis, transaction.documentUri)
+      owner ! BackgroundContentTask(System.currentTimeMillis() + backgroundTaskTimeout.toMillis, transaction.documentUri)
       val transactionId = transaction.documentUri + ":" + transaction.uuid + ":" + transaction.revision
       val result: Response[Body] = if (created) {
         Created(HyperStorageTransactionCreated(transactionId,
@@ -275,17 +277,17 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
       else {
         Ok(api.HyperStorageTransaction(transactionId))
       }
-      owner ! ShardTaskComplete(task, ForegroundWorkerTaskResult(result.serializeToString()))
+      owner ! ShardTaskComplete(task, PrimaryWorkerTaskResult(result.serializeToString()))
       trackProcessTime.stop()
       unbecome()
 
-    case ForegroundWorkerTaskFailed(task, e) if task == originalTask ⇒
+    case PrimaryWorkerTaskFailed(task, e) if task == originalTask ⇒
       owner ! ShardTaskComplete(task, hyperbusException(e, task))
       trackProcessTime.stop()
       unbecome()
   }
 
-  private def hyperbusException(e: Throwable, task: ShardTask): ForegroundWorkerTaskResult = {
+  private def hyperbusException(e: Throwable, task: ShardTask): PrimaryWorkerTaskResult = {
     val (response: HyperbusException[ErrorBody], logException) = e match {
       case h: NotFound[ErrorBody] ⇒ (h, false)
       case h: HyperbusException[ErrorBody] ⇒ (h, true)
@@ -293,17 +295,17 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
     }
 
     if (logException) {
-      log.error(e, s"ForegroundWorker task $task is failed")
+      log.error(e, s"task $task is failed")
     }
 
-    ForegroundWorkerTaskResult(response.serializeToString())
+    PrimaryWorkerTaskResult(response.serializeToString())
   }
 
-  def filterNulls(body: DynamicBody): DynamicBody = {
+  private def filterNulls(body: DynamicBody): DynamicBody = {
     body.copy(content = body.content ~~ filterNullsVisitor)
   }
 
-  def appendId(body: DynamicBody, id: Value): DynamicBody = {
+  private def appendId(body: DynamicBody, id: Value): DynamicBody = {
     body.copy(content = Obj(body.content.asMap + ("id" → id)))
   }
 
@@ -326,7 +328,7 @@ class ForegroundWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, back
   }
 }
 
-object ForegroundWorker {
+object PrimaryWorker {
   def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration) =
-    Props(classOf[ForegroundWorker], hyperbus, db, tracker, backgroundTaskTimeout)
+    Props(classOf[PrimaryWorker], hyperbus, db, tracker, backgroundTaskTimeout)
 }
