@@ -33,5 +33,6 @@ libraryDependencies ++= Seq(
   "eu.inn" %% "hyperbus-akka" % "0.1.80",
   "org.slf4j" % "slf4j-api" % "1.7.12",
   "ch.qos.logback" % "logback-classic" % "1.1.3",
-  "com.storm-enroute" %% "scalameter" % "0.7"
+  "com.storm-enroute" %% "scalameter" % "0.7",
+  "eu.inn" %% "service-config" % "0.1.6"
 )
