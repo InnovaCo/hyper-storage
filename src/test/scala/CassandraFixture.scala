@@ -41,9 +41,11 @@ trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures {
 
   def cleanUpCassandra(): Unit = {
     log.info("------- CLEANING UP C* -------- ")
-    import scala.collection.JavaConversions._
-    val cleanDs = new ClassPathCQLDataSet("cleanup.cql", "hyper_storage_test")
-    cleanDs.getCQLStatements.foreach(c ⇒ Cassandra.session.execute(c))
+    if (Cassandra.session != null) {
+      import scala.collection.JavaConversions._
+      val cleanDs = new ClassPathCQLDataSet("cleanup.cql", "hyper_storage_test")
+      cleanDs.getCQLStatements.foreach(c ⇒ Cassandra.session.execute(c))
+    }
   }
 
   import eu.inn.binders.cassandra._
