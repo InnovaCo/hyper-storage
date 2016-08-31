@@ -155,6 +155,17 @@ class QueryCollectionsSpec extends FreeSpec
       val hyperbus = setup()
 
       val res = (hyperbus <~ HyperStorageContentGet("collection-1~",
+        body = new QueryBuilder() sortBy Seq(SortBy("a")) add("size", 2) add("filter", "a >\"goodbye\"") result()
+      )).futureValue
+      res.statusCode shouldBe Status.OK
+      res.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c1x, c3x)))
+      verify(db).selectContentCollection("collection-1~", 10002, None, true)
+    }
+
+    "Query with filter and sorting descending by some non-index field (full table scan)" in {
+      val hyperbus = setup()
+
+      val res = (hyperbus <~ HyperStorageContentGet("collection-1~",
         body = new QueryBuilder() sortBy Seq(SortBy("a", descending = true)) add("size", 2) add("filter", "a >\"goodbye\"") result()
       )).futureValue
       res.statusCode shouldBe Status.OK

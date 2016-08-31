@@ -1,7 +1,5 @@
 package eu.inn.hyperstorage
 
-import java.util.UUID
-
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.ask
 import eu.inn.binders.value.{Lst, Null, Number, Obj, Value}
@@ -185,9 +183,8 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
           throw GatewayTimeout(ErrorBody("query-skipped-rows-limited", Some(s"Maximum skipped row limit is reached: $skipMax")))
         } else {
           if (querySortBy.nonEmpty) {
-            import eu.inn.hyperstorage.utils.SortUtils._
             implicit val ordering = new CollectionOrdering(querySortBy)
-            (list.sortedTop(pageSize, v ⇒ v).toList, revisionOpt)
+            (list.sorted.take(pageSize), revisionOpt)
           }
           else
             (list.take(pageSize), revisionOpt)
@@ -338,7 +335,10 @@ class CollectionOrdering(querySortBy: Seq[SortBy]) extends Ordering[Value] {
       sortIdentifiersStream.map { case (identifier,descending) ⇒
         val xv = extract(x, identifier)
         val yv = extract(y, identifier)
-        cmp(xv,yv)
+        if (descending)
+          cmp(yv,xv)
+        else
+          cmp(xv,yv)
       }.find(_ != 0).getOrElse(0)
     }
   }
