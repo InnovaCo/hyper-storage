@@ -323,7 +323,7 @@ case class CollectionQueryOptions(documentUri: String,
                                   indexDefOpt: Option[IndexDef],
                                   indexSortBy: Seq[HyperStorageIndexSortItem],
                                   reversed: Boolean,
-                                  limit: Int, // todo: rename
+                                  limit: Int,
                                   skipRowsLimit: Int,
                                   endTimeInMillis: Long,
                                   filterFields: Seq[FieldFilter],

@@ -5,6 +5,8 @@ import eu.inn.hyperstorage.db._
 import org.scalatest.concurrent.Eventually
 import org.scalatest.{FreeSpec, Matchers}
 
+import scala.concurrent.Future
+
 class DbSpec extends FreeSpec with Matchers with CassandraFixture
   with TestHelpers
   with Eventually {
@@ -53,18 +55,19 @@ class DbSpec extends FreeSpec with Matchers with CassandraFixture
 
     "Index collection with ordering by text field" in {
       cleanUpCassandra()
-      db.insertIndexItem("index_content_ta0", Seq("t0" → "aa00"), IndexContent(
+      val futures = Seq(db.insertIndexItem("index_content_ta0", Seq("t0" → "aa00"), IndexContent(
         "test~", "x1", "i1", 1l, Some("{}"), new Date(), None
-      ))
+      )),
       db.insertIndexItem("index_content_ta0", Seq("t0" → "aa01"), IndexContent(
         "test~", "x1", "i2", 1l, Some("{}"), new Date(), None
-      ))
+      )),
       db.insertIndexItem("index_content_ta0", Seq("t0" → "aa02"), IndexContent(
         "test~", "x1", "i3", 1l, Some("{}"), new Date(), None
-      ))
+      )),
       db.insertIndexItem("index_content_ta0", Seq("t0" → "aa02"), IndexContent(
         "test~", "x1", "i4", 1l, Some("{}"), new Date(), None
-      ))
+      )))
+      Future.sequence(futures).futureValue
       val ca = db.selectIndexCollection("index_content_ta0", "test~", "x1", Seq.empty, Seq.empty, 10).futureValue.toSeq
       ca.size shouldBe 4
       ca(0).itemId shouldBe "i1"

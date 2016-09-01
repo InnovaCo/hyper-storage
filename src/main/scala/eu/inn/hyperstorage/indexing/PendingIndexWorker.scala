@@ -63,6 +63,7 @@ class PendingIndexWorker(cluster: ActorRef, indexKey: IndexDefTransaction, hyper
       indexNextBatch(processId + 1, indexDef, Some(latestItemId))
 
     case IndexContentTaskResult(None, p) if p == processId ⇒
+      log.info(s"Indexing of: $indexKey is complete")
       context.parent ! IndexManager.IndexingComplete(indexKey)
       context.stop(self)
 
@@ -102,6 +103,7 @@ private[indexing] object IndexWorkerImpl {
       case Some(pendingIndex) ⇒
         db.selectIndexDef(indexKey.documentUri, indexKey.indexId) map {
           case Some(indexDef) if indexDef.defTransactionId == pendingIndex.defTransactionId ⇒
+            log.info(s"Starting indexing of: $indexDef")
             notifyActor ! BeginIndexing(indexDef, pendingIndex.lastItemId)
           case _ ⇒
             actorSystem.scheduler.scheduleOnce(RETRY_PERIOD, notifyActor, WaitForIndexDef(pendingIndex))
