@@ -113,6 +113,7 @@ object IndexLogic {
   def leastRowsFilterFields(indexSortedBy: Seq[HyperStorageIndexSortItem],
                             queryFilterFields: Seq[FieldFilter],
                             prevFilterFieldsSize: Int,
+                            prevFilterReachedEnd: Boolean,
                             value: Obj,
                             reversed: Boolean): Seq[FieldFilter] = {
 
@@ -144,7 +145,7 @@ object IndexLogic {
 
     if (reachedEnd) Seq.empty else {
       val startIndex = isbIdx.lastIndexWhere(isb ⇒ queryFilterFields.exists(qf ⇒ qf.name == isb._1 && qf.op == FilterEq)) + 1
-      val lastIndex = if (prevFilterFieldsSize == 0) {
+      val lastIndex = if (prevFilterFieldsSize == 0 || !prevFilterReachedEnd) {
         size - 1
       } else {
         prevFilterFieldsSize - 2

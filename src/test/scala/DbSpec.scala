@@ -66,6 +66,7 @@ class DbSpec extends FreeSpec with Matchers with CassandraFixture
         "test~", "x1", "i4", 1l, Some("{}"), new Date(), None
       ))
       val ca = db.selectIndexCollection("index_content_ta0", "test~", "x1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      ca.size shouldBe 4
       ca(0).itemId shouldBe "i1"
       ca(1).itemId shouldBe "i2"
       ca(2).itemId shouldBe "i3"
@@ -75,6 +76,7 @@ class DbSpec extends FreeSpec with Matchers with CassandraFixture
         Seq.empty,
         Seq(CkField("t0", ascending = false)),
         10).futureValue.toSeq
+      cd.size shouldBe 4
       cd(0).itemId shouldBe "i4"
       cd(1).itemId shouldBe "i3"
       cd(2).itemId shouldBe "i2"
@@ -84,32 +86,33 @@ class DbSpec extends FreeSpec with Matchers with CassandraFixture
         Seq(FieldFilter("t0", Text("aa00"), FilterGt)),
         Seq(CkField("t0", ascending = true)),
         10).futureValue.toSeq
+      ca2.size shouldBe 3
       ca2(0).itemId shouldBe "i2"
       ca2(1).itemId shouldBe "i3"
       ca2(2).itemId shouldBe "i4"
-      ca2.size shouldBe 3
+
 
       val cd2 = db.selectIndexCollection("index_content_ta0", "test~", "x1",
         Seq(FieldFilter("t0", Text("aa02"), FilterLt)),
         Seq(CkField("t0", ascending = false)),
         10).futureValue.toSeq
+      cd2.size shouldBe 2
       cd2(0).itemId shouldBe "i2"
       cd2(1).itemId shouldBe "i1"
-      cd2.size shouldBe 2
 
       val ca3 = db.selectIndexCollection("index_content_ta0", "test~", "x1",
         Seq(FieldFilter("t0", Text("aa02"), FilterEq), FieldFilter("item_id", Text("i3"), FilterGt)),
         Seq(CkField("t0", ascending = true), CkField("item_id", ascending = true)),
         10).futureValue.toSeq
-      ca3(0).itemId shouldBe "i4"
       ca3.size shouldBe 1
+      ca3(0).itemId shouldBe "i4"
 
       val cd3 = db.selectIndexCollection("index_content_ta0", "test~", "x1",
         Seq(FieldFilter("t0", Text("aa02"), FilterEq), FieldFilter("item_id", Text("i4"), FilterLt)),
         Seq(CkField("t0", ascending = false), CkField("item_id", ascending = false)),
         10).futureValue.toSeq
-      cd3(0).itemId shouldBe "i3"
       cd3.size shouldBe 1
+      cd3(0).itemId shouldBe "i3"
     }
   }
 }

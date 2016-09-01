@@ -131,29 +131,30 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       where document_uri=$documentUri and item_id=$itemId
     """.oneOption[Content]
 
-  def selectContentCollection(documentUri: String, limit: Int, fromId: Option[String], ascending: Boolean = true): Future[Iterator[Content]] = {
+  def selectContentCollection(documentUri: String, limit: Int, itemIdFilter: Option[(String, FilterOperator)], ascending: Boolean = true): Future[Iterator[Content]] = {
+    //println(s"selectContentCollection($documentUri,$limit,$itemIdFilter,$ascending)")
     val orderClause = if(ascending) {
       Dynamic("order by item_id asc")
     }
     else {
       Dynamic("order by item_id desc")
     }
-    val itemIdFilter = fromId.map { id ⇒
-      if(ascending) {
-        Dynamic(" and item_id > ?")
-      }
-      else {
-        Dynamic(" and item_id < ?")
-      }
-    } getOrElse {Dynamic("")}
+    val itemIdFilterDynamic = Dynamic(itemIdFilter.map {
+      case (_, FilterEq) ⇒ s"and item_id = ?"
+      case (_, FilterGt) ⇒ s"and item_id > ?"
+      case (_, FilterGtEq) ⇒ s"and item_id >= ?"
+      case (_, FilterLt) ⇒ s"and item_id < ?"
+      case (_, FilterLtEq) ⇒ s"and item_id <= ?"
+    }.getOrElse(""))
+
     val c = cql"""
       select document_uri,item_id,revision,transaction_list,is_deleted,body,created_at,modified_at from content
-      where document_uri=? $itemIdFilter
+      where document_uri=? $itemIdFilterDynamic
       $orderClause
       limit ?
     """
-    if (fromId.isDefined) {
-      c.bindArgs(documentUri, fromId.get, limit)
+    if (itemIdFilter.isDefined) {
+      c.bindArgs(documentUri, itemIdFilter.get._1, limit)
     }
     else {
       c.bindArgs(documentUri, limit)

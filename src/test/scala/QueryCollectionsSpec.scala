@@ -77,6 +77,31 @@ class QueryCollectionsSpec extends FreeSpec
       reset(db)
     }
 
+    "Query without sorting and indexes with fiter by id" in {
+      val hyperbus = setup()
+      // setupIndexes(hyperbus)
+      // query by id asc
+      val res = (hyperbus <~ HyperStorageContentGet("collection-1~",
+        body = new QueryBuilder() add("size", 5) add("filter", "id =\"item3\"") result()
+      )).futureValue
+      res.statusCode shouldBe Status.OK
+      res.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c3x)))
+      verify(db).selectContentCollection("collection-1~", 5, Some(("item3",FilterEq)), true)
+    }
+
+    "Query without sorting and indexes with fiter by other field" in {
+      val hyperbus = setup()
+      // setupIndexes(hyperbus)
+      // query by id asc
+      val res = (hyperbus <~ HyperStorageContentGet("collection-1~",
+        body = new QueryBuilder() add("size", 1) add("filter", "a =\"way way\"") result()
+      )).futureValue
+      res.statusCode shouldBe Status.OK
+      res.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c3x)))
+      verify(db).selectContentCollection("collection-1~", 1, None, true)
+      verify(db).selectContentCollection("collection-1~", 500, Some(("item1",FilterGt)), true)
+    }
+
     "Query by id asc" in {
       val hyperbus = setup()
       setupIndexes(hyperbus)
@@ -110,7 +135,7 @@ class QueryCollectionsSpec extends FreeSpec
       )).futureValue
       res.statusCode shouldBe Status.OK
       res.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c2x, c3x)))
-      verify(db).selectContentCollection("collection-1~", 50, Some("item1"), true)
+      verify(db).selectContentCollection("collection-1~", 50, Some(("item1", FilterGt)), true)
     }
 
     "Query by id desc and filter by id" in {
@@ -122,7 +147,7 @@ class QueryCollectionsSpec extends FreeSpec
       )).futureValue
       res.statusCode shouldBe Status.OK
       res.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c2x, c1x)))
-      verify(db).selectContentCollection("collection-1~", 50, Some("item3"), false)
+      verify(db).selectContentCollection("collection-1~", 50, Some(("item3", FilterLt)), false)
     }
 
     "Query with filter by some non-index field" in {
@@ -135,7 +160,7 @@ class QueryCollectionsSpec extends FreeSpec
       res.statusCode shouldBe Status.OK
       res.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c3x)))
       verify(db).selectContentCollection("collection-1~", 2, None, true)
-      verify(db).selectContentCollection("collection-1~", 2, Some("item2"), true)
+      verify(db).selectContentCollection("collection-1~", 501, Some(("item2", FilterGt)), true)
     }
 
     "Query with filter by some non-index field and descending sorting" in {
@@ -148,7 +173,7 @@ class QueryCollectionsSpec extends FreeSpec
       res.statusCode shouldBe Status.OK
       res.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c1x)))
       verify(db).selectContentCollection("collection-1~", 2, None, false)
-      verify(db).selectContentCollection("collection-1~", 2, Some("item2"), false)
+      verify(db).selectContentCollection("collection-1~", 501, Some(("item2", FilterLt)), false)
     }
 
     "Query with filter and sorting by some non-index field (full table scan)" in {
@@ -252,7 +277,7 @@ class QueryCollectionsSpec extends FreeSpec
       res.statusCode shouldBe Status.OK
       res.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c2x,c3x)))
       verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq.empty, Seq(CkField("t0",true)), 2)
-      verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterGt)), Seq(CkField("t0",true)), 2)
+      verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterEq),FieldFilter("item_id", Text("item1"), FilterGt)), Seq(CkField("t0",true)), 501)
     }
 
     "Query when sort order matches with CK fields (skipping unmatched to the filter) with query-filter-ck-fields" in {
@@ -265,7 +290,7 @@ class QueryCollectionsSpec extends FreeSpec
       res.statusCode shouldBe Status.OK
       res.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c2x,c3x)))
       verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("zzz"), FilterLt)), Seq(CkField("t0",true)), 2)
-      verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterEq),FieldFilter("item_id", Text("item1"), FilterGt)), Seq(CkField("t0",true)), 2)
+      verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterEq),FieldFilter("item_id", Text("item1"), FilterGt)), Seq(CkField("t0",true)), 501)
     }
 
     "Query when sort order matches with CK fields (skipping unmatched to the filter) with query-filter-ck-fields / reversed" in {
@@ -278,7 +303,7 @@ class QueryCollectionsSpec extends FreeSpec
       res.statusCode shouldBe Status.OK
       res.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c3x,c2x)))
       verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("aaa"), FilterGt)), Seq(CkField("t0",false)), 2)
-      verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterEq),FieldFilter("item_id", Text("item1"), FilterLt)), Seq(CkField("t0",false)), 2)
+      verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterEq),FieldFilter("item_id", Text("item1"), FilterLt)), Seq(CkField("t0",false)), 501)
     }
   }
 }

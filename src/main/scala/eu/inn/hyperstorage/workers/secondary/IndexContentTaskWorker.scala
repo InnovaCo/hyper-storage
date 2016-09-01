@@ -41,7 +41,7 @@ trait IndexContentTaskWorker {
           case IndexDef.STATUS_INDEXING ⇒
             val bucketSize = 256 // todo: move to config, or make adaptive, or per index
 
-            db.selectContentCollection(task.indexDefTransaction.documentUri, bucketSize, task.lastItemId) flatMap { collectionItems ⇒
+            db.selectContentCollection(task.indexDefTransaction.documentUri, bucketSize, task.lastItemId.map((_, FilterGt))) flatMap { collectionItems ⇒
               FutureUtils.serial(collectionItems.toSeq) { item ⇒
                 indexItem(indexDef, item)
               } flatMap { insertedItemIds ⇒

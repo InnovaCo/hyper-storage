@@ -31,7 +31,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
   final val COLLECTION_SIZE_FIELD_NAME = "size"
   final val COLLECTION_SKIP_MAX_FIELD_NAME = "skipMax"
   final val DEFAULT_MAX_SKIPPED_ROWS = 10000
-  final val MAX_COLLECTION_SELECTS = 500
+  final val MAX_COLLECTION_SELECTS = 20
   final val DEFAULT_PAGE_SIZE = 100
 
   def receive = AkkaHyperService.dispatch(this)
@@ -141,7 +141,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
                                pageSize: Int,
                                skipMax: Int): Future[(List[Value], Option[Long])] = {
 
-    val queryFilterExpression = queryFilter.map(HParser(_).get)
+    val queryFilterExpression = queryFilter.flatMap(Option.apply).map(HParser(_).get)
 
     val defIdSort = HyperStorageIndexSortItem("id", Some(HyperStorageIndexSortFieldType.TEXT), Some(HyperStorageIndexSortOrder.ASC))
 
@@ -165,18 +165,20 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     // todo: detect filter exact match
 
     val (ckFields,reversed) = OrderFieldsLogic.extractIndexSortFields(querySortBy, indexSortFields)
-    val sortMatchIsExact = ckFields.size == querySortBy.size
+    val sortMatchIsExact = ckFields.size == querySortBy.size || querySortBy.isEmpty
     val endOfTime = System.currentTimeMillis + requestTimeout.toMillis
 
     if (sortMatchIsExact) {
       queryUntilFetched(
         CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize, skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression),
         Seq.empty,0,0,None
-      )
+      )  map { case (list, revisionOpt) ⇒
+        (list.take(pageSize), revisionOpt)
+      }
     }
     else {
       queryUntilFetched(
-        CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize + skipMax, skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression),
+        CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize + skipMax, pageSize + skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression),
         Seq.empty,0,0,None
       ) map { case (list, revisionOpt) ⇒
         if (list.size==(pageSize+skipMax)) {
@@ -199,7 +201,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
       case None ⇒
         db.selectContentCollection(ops.documentUri,
           ops.limit,
-          ops.filterFields.find(_.name == "item_id").map(_.value.asString),
+          ops.filterFields.find(_.name == "item_id").map(ff ⇒ (ff.value.asString, ff.op)),
           ops.ckFields.find(_.name == "item_id").forall(_.ascending)
         )
 
@@ -264,6 +266,9 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
                                 skippedRows: Int,
                                 lastValueOpt: Option[Obj]
         ): Future[(List[Value], Option[Long])] = {
+
+    //println(s"queryUntilFetched($ops,$leastFieldFilter,$recursionCounter,$skippedRows,$lastValueOpt)")
+
   //todo exception context
     if (recursionCounter >= MAX_COLLECTION_SELECTS)
       Future.failed(GatewayTimeout(ErrorBody("query-count-limited", Some(s"Maximum query count is reached: $recursionCounter"))))
@@ -272,18 +277,19 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     else if (skippedRows >= ops.skipRowsLimit)
       Future.failed(GatewayTimeout(ErrorBody("query-skipped-rows-limited", Some(s"Maximum skipped row limit is reached: $skippedRows"))))
     else {
-      queryAndFilterRows(ops.copy(filterFields=IndexLogic.mergeLeastQueryFilterFields(ops.filterFields, leastFieldFilter))) flatMap {
+      val fetchLimit = ops.limit + Math.max((recursionCounter * (ops.skipRowsLimit - ops.limit)/(MAX_COLLECTION_SELECTS*1.0)).toInt, 0)
+      queryAndFilterRows(ops.copy(filterFields=IndexLogic.mergeLeastQueryFilterFields(ops.filterFields, leastFieldFilter),limit=fetchLimit)) flatMap {
         case(stream,totalAccepted,totalFetched,newLastValueOpt,revisionOpt) ⇒
           val taken = stream.take(ops.limit)
           if (totalAccepted >= ops.limit ||
-            ((leastFieldFilter.isEmpty || (leastFieldFilter.size==1 && leastFieldFilter.head.op != FilterEq)) && totalFetched < ops.limit)) {
+            ((leastFieldFilter.isEmpty || (leastFieldFilter.size==1 && leastFieldFilter.head.op != FilterEq)) && totalFetched < fetchLimit)) {
             Future.successful((stream, revisionOpt))
           }
           else {
             val l = newLastValueOpt.orElse(lastValueOpt)
             if (l.isEmpty) Future.successful((stream, revisionOpt))
             else {
-              val nextLeastFieldFilter = IndexLogic.leastRowsFilterFields(ops.indexSortBy, ops.filterFields, leastFieldFilter.size, l.get, ops.reversed)
+              val nextLeastFieldFilter = IndexLogic.leastRowsFilterFields(ops.indexSortBy, ops.filterFields, leastFieldFilter.size, totalFetched < fetchLimit, l.get, ops.reversed)
               if (nextLeastFieldFilter.isEmpty) Future.successful((stream, revisionOpt))
               else {
                 queryUntilFetched(ops, nextLeastFieldFilter, recursionCounter + 1, skippedRows + totalFetched - totalAccepted, l) map {
