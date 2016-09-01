@@ -35,12 +35,12 @@ object BenchmarkTest {
         println(e.toString)
     }
 
-//    val fi = hyperbus <~ HyperStorageIndexPost(colname, HyperStorageIndexNew(Some("index2"),
-//      Seq(HyperStorageIndexSortItem("b", order = Some("desc"), fieldType = Some("text"))), Some("d < 0.5")))
-//    wf(fi)
+    val fi = hyperbus <~ HyperStorageIndexPost(colname, HyperStorageIndexNew(Some("index2"),
+      Seq(HyperStorageIndexSortItem("d", order = Some("desc"), fieldType = Some("text"))), Some("a > 5 and a < 60000000")))
+    wf(fi)
 
-//    wf(hyperbus.shutdown(waitDuration))
-//    System.exit(0)
+    wf(hyperbus.shutdown(waitDuration))
+    System.exit(0)
 
     try {
       val itemCount = 200
