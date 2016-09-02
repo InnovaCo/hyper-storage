@@ -81,10 +81,12 @@ class QueryCollectionsSpec extends FreeSpec
       val hyperbus = setup()
       // setupIndexes(hyperbus)
       // query by id asc
+      implicit val mcx = MessagingContextFactory.withCorrelationId("abc123")
       val res = (hyperbus <~ HyperStorageContentGet("collection-1~",
         body = new QueryBuilder() add("size", 5) add("filter", "id =\"item3\"") result()
       )).futureValue
       res.statusCode shouldBe Status.OK
+      res.headers should contain("correlationId" → Seq("abc123"))
       res.body.content shouldBe ObjV("_embedded" -> ObjV("els" → LstV(c3x)))
       verify(db).selectContentCollection("collection-1~", 5, Some(("item3",FilterEq)), true)
     }

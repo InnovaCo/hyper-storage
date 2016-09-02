@@ -90,6 +90,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
   }
 
   private def queryCollection(resourcePath: ResourcePath, request: HyperStorageContentGet) = {
+    implicit val mcx = request
     val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
 
     val f = request.body.content.selectDynamic(COLLECTION_FILTER_NAME)
@@ -304,6 +305,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
   }
 
   private def queryDocument(resourcePath: ResourcePath, request: HyperStorageContentGet) = {
+    implicit val mcx = request
     val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
     db.selectContent(resourcePath.documentUri, resourcePath.itemId) map {
       case None ⇒
