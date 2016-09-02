@@ -5,7 +5,7 @@
             <pattern>%highlight(%.-3level) %cyan(%d{HH:mm:ss.SSS}) %yellow(%-35.35logger) %magenta(%X{subscriptionId}) %highlight(%msg) %n</pattern>
         </encoder>
     </appender>
-    <logger name="eu.inn.binders.cassandra.Statement">
+    <logger name="eu.inn.binders.cassandra">
         <level value="info" />
     </logger>
     <logger name="org.apache.cassandra">
@@ -17,7 +17,7 @@
     <logger name="com.datastax.driver">
         <level value="warn" />
     </logger>
-    <root level="info">
+    <root level="debug">
         <appender-ref ref="stdout"/>
     </root>
 </configuration>

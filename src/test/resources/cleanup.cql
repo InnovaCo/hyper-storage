@@ -1,3 +1,10 @@
 TRUNCATE content;
 TRUNCATE transaction;
 TRUNCATE checkpoint;
+TRUNCATE index_def;
+TRUNCATE pending_index;
+TRUNCATE index_content;
+TRUNCATE index_content_ta0;
+TRUNCATE index_content_da0;
+TRUNCATE index_content_td0;
+TRUNCATE index_content_dd0;

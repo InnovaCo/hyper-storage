@@ -1,7 +1,9 @@
 addSbtPlugin("com.eed3si9n" % "sbt-buildinfo" % "0.6.0")
 
-addSbtPlugin("eu.inn" % "hyperbus-sbt-plugin" % "0.1.78")
+addSbtPlugin("eu.inn" % "hyperbus-sbt-plugin" % "0.1.82")
 
 resolvers ++= Seq(
   "Innova plugins" at "http://repproxy.srv.inn.ru/artifactory/plugins-release-local"
 )
+
+addSbtPlugin("org.scoverage" % "sbt-scoverage" % "1.3.5")

@@ -8,16 +8,48 @@ types:
       transactionId: string
 
   HyperStorageTransactionCreated:
-      type: object
-      properties:
-        transactionId: string
-        path: string
+    type: object
+    properties:
+      transactionId: string
+      path: string
+
+  HyperStorageIndexSortOrder:
+    enum: [asc, desc]
+
+  HyperStorageIndexSortFieldType:
+    enum: [text, decimal]
+
+  HyperStorageIndexSortItem:
+    type: object
+    properties:
+      fieldName: string
+      fieldType?: HyperStorageIndexSortFieldType
+      order?: HyperStorageIndexSortOrder
+
+  HyperStorageIndex:
+    type: object
+    properties:
+      indexId: string
+      sortBy: HyperStorageIndexSortItem[]
+      filterBy?: string
+
+  HyperStorageIndexNew:
+    type: object
+    properties:
+      indexId?: string
+      sortBy: HyperStorageIndexSortItem[]
+      filterBy?: string
+
+  HyperStorageIndexCreated:
+    type: object
+    properties:
+      indexId: string
+      path: string
 
 annotationTypes:
   feed:
 
 /hyper-storage/content/{path:*}:
-  (private):
   uriParameters:
     path:*: string
   get:
@@ -64,3 +96,28 @@ annotationTypes:
         body:
           application/json:
             type: HyperStorageTransaction
+
+/hyper-storage/indexes/{path}:
+  uriParameters:
+    path: string
+  post:
+    body:
+      application/json:
+        type: HyperStorageIndexNew
+    responses:
+      201:
+        body:
+          application/json:
+            type: HyperStorageIndexCreated
+
+/hyper-storage/indexes/{path}/{indexId}:
+  uriParameters:
+    path: string
+    indexId: string
+  get:
+    responses:
+      200:
+        body:
+          application/json:
+            type: HyperStorageIndex
+  delete:

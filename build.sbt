@@ -29,7 +29,7 @@ buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion, sbtVersion)
 
 
 // BuildInfo
-lazy val root = (project in file(".")). enablePlugins(BuildInfoPlugin, Raml2Hyperbus)
+lazy val root = (project in file(".")).enablePlugins(BuildInfoPlugin, Raml2Hyperbus)
 
 val projectMajorVersion = settingKey[String]("Defines the major version number")
 
@@ -42,13 +42,15 @@ libraryDependencies ++= Seq(
   "eu.inn" %% "service-control" % "0.2.17",
   "eu.inn" %% "service-config" % "0.1.6",
   "eu.inn" %% "service-metrics" % "0.2.9",
-  "eu.inn" %% "binders-typesafe-config" % "0.12.14",
-  "eu.inn" %% "hyperbus" % "0.1.79",
-  "eu.inn" %% "hyperbus-t-distributed-akka" % "0.1.79",
-  "eu.inn" %% "hyperbus-akka" % "0.1.79",
-  "eu.inn" %% "hyperbus-t-kafka" % "0.1.79",
-  "eu.inn" %% "binders-core" % "0.12.89",
-  "eu.inn" %% "binders-cassandra" % "0.12.44",
+  "eu.inn" %% "binders-typesafe-config" % "0.12.15",
+  "eu.inn" %% "hyperbus" % "0.1.82",
+  "eu.inn" %% "hyperbus-t-distributed-akka" % "0.1.82",
+  "eu.inn" %% "hyperbus-akka" % "0.1.82",
+  "eu.inn" %% "hyperbus-t-kafka" % "0.1.82",
+  "eu.inn" %% "binders-core" % "0.12.93",
+  "eu.inn" %% "binders-json" % "0.12.47",
+  "eu.inn" %% "binders-cassandra" % "0.13.50",
+  "eu.inn" %% "expression-parser" % "0.1.29",
   "com.datastax.cassandra" % "cassandra-driver-core" % "2.1.9",
   "org.slf4j" % "slf4j-api" % "1.7.12",
   "ch.qos.logback" % "logback-classic" % "1.1.3",
@@ -61,3 +63,6 @@ libraryDependencies ++= Seq(
 )
 
 testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports", "-oDS")
+
+parallelExecution in Test := false
+
