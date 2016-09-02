@@ -64,9 +64,11 @@ class IntegratedSpec extends FreeSpec
       Thread.sleep(2000)
 
       val path = UUID.randomUUID().toString
+      implicit val mcx = MessagingContextFactory.withCorrelationId("abc123")
       val f1 = hyperbus <~ HyperStorageContentPut(path, DynamicBody(Text("Hello")))
       whenReady(f1) { response ⇒
         response.statusCode should equal(Status.CREATED)
+        response.headers should contain("correlationId" → Seq("abc123"))
       }
 
       val putEventFuture = putEventPromise.future
@@ -79,6 +81,7 @@ class IntegratedSpec extends FreeSpec
       whenReady(hyperbus <~ HyperStorageContentGet(path), TestTimeout(10.seconds)) { response ⇒
         response.statusCode should equal(Status.OK)
         response.body.content should equal(Text("Hello"))
+        response.headers should contain("correlationId" → Seq("abc123"))
       }
     }
 
