@@ -2,7 +2,7 @@ import eu.inn.binders.value._
 import eu.inn.hyperbus.model._
 import eu.inn.hyperbus.model.utils.{Sort, SortBy}
 import eu.inn.hyperstorage.api._
-import eu.inn.hyperstorage.db.IndexDef
+import eu.inn.hyperstorage.db.{FieldFilter, FilterGt, IndexDef}
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
@@ -15,9 +15,10 @@ class IndexingSpec extends FreeSpec
   with TestHelpers
   with Eventually {
 
-  override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(20000, Millis)))
+  override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(30000, Millis)))
 
   "IndexingSpec" - {
+/*
     "Create index without sorting or filtering" in {
       cleanUpCassandra()
       val hyperbus = integratedHyperbus(db)
@@ -133,6 +134,163 @@ class IndexingSpec extends FreeSpec
       rc5.body.content shouldBe ObjV("_embedded" -> ObjV("els" → Lst.empty))
     }
 
+    "Deleting item should remove it from index" in {
+      cleanUpCassandra()
+      val hyperbus = integratedHyperbus(db)
+
+      val c1 = ObjV("a" → "hello", "b" → 100500)
+      val c1x = Obj(c1.asMap + "id" → "item1")
+      val f1 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c1))
+      f1.futureValue.statusCode should equal(Status.CREATED)
+
+      val path = "collection-1~"
+      val fi = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"), Seq.empty, Some("b > 10")))
+      fi.futureValue.statusCode should equal(Status.CREATED)
+
+      eventually {
+        val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+        indexDefUp shouldBe defined
+        indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
+      }
+
+      eventually {
+        val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
+          "item_id", "", FilterGt
+        )), Seq.empty, 10).futureValue.toSeq
+        indexContent.size shouldBe 1
+        indexContent.head.documentUri shouldBe "collection-1~"
+        indexContent.head.itemId shouldBe "item1"
+        indexContent.head.body.get should include("\"item1\"")
+      }
+
+      val f2 = hyperbus <~ HyperStorageContentDelete("collection-1~/item1", EmptyBody)
+      f2.futureValue.statusCode should equal(Status.OK)
+
+      eventually {
+        val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
+          "item_id", "", FilterGt
+        )), Seq.empty, 10).futureValue.toSeq
+        indexContent shouldBe empty
+      }
+    }
+
+    "Patching item should update index" in {
+      cleanUpCassandra()
+      val hyperbus = integratedHyperbus(db)
+
+      val c1 = ObjV("a" → "hello", "b" → 100500)
+      val c1x = Obj(c1.asMap + "id" → "item1")
+      val f1 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c1))
+      f1.futureValue.statusCode should equal(Status.CREATED)
+
+      val path = "collection-1~"
+      val fi = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"), Seq.empty, Some("b > 10")))
+      fi.futureValue.statusCode should equal(Status.CREATED)
+
+      eventually {
+        val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+        indexDefUp shouldBe defined
+        indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
+      }
+
+      eventually {
+        val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
+          "item_id", "", FilterGt
+        )), Seq.empty, 10).futureValue.toSeq
+        indexContent.size shouldBe 1
+        indexContent.head.documentUri shouldBe "collection-1~"
+        indexContent.head.itemId shouldBe "item1"
+        indexContent.head.body.get should include("\"item1\"")
+        indexContent.head.revision shouldBe 1
+      }
+
+      val c2 = ObjV("a" → "goodbye")
+      val c2x = Obj(c2.asMap + "id" → "item1")
+      val f2 = hyperbus <~ HyperStorageContentPatch("collection-1~/item1", DynamicBody(c2))
+      f2.futureValue.statusCode should equal(Status.OK)
+
+      eventually {
+        val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
+          "item_id", "", FilterGt
+        )), Seq.empty, 10).futureValue.toSeq
+        indexContent.size shouldBe 1
+        indexContent.head.documentUri shouldBe "collection-1~"
+        indexContent.head.itemId shouldBe "item1"
+        indexContent.head.body.get should include("\"item1\"")
+        indexContent.head.body.get should include("\"goodbye\"")
+        indexContent.head.revision shouldBe 2
+      }
+
+      val c3 = ObjV("b" → 5)
+      val f3 = hyperbus <~ HyperStorageContentPatch("collection-1~/item1", DynamicBody(c3))
+      f3.futureValue.statusCode should equal(Status.OK)
+
+      eventually {
+        val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
+          "item_id", "", FilterGt
+        )), Seq.empty, 10).futureValue.toSeq
+        indexContent shouldBe empty
+      }
+    }
+
+    "Putting over existing item should update index" in {
+      cleanUpCassandra()
+      val hyperbus = integratedHyperbus(db)
+
+      val c1 = ObjV("a" → "hello", "b" → 100500)
+      val c1x = Obj(c1.asMap + "id" → "item1")
+      val f1 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c1))
+      f1.futureValue.statusCode should equal(Status.CREATED)
+
+      val path = "collection-1~"
+      val fi = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"), Seq.empty, Some("b > 10")))
+      fi.futureValue.statusCode should equal(Status.CREATED)
+
+      eventually {
+        val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+        indexDefUp shouldBe defined
+        indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
+      }
+
+      eventually {
+        val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
+          "item_id", "", FilterGt
+        )), Seq.empty, 10).futureValue.toSeq
+        indexContent.size shouldBe 1
+        indexContent.head.documentUri shouldBe "collection-1~"
+        indexContent.head.itemId shouldBe "item1"
+        indexContent.head.body.get should include("\"item1\"")
+      }
+
+      val c2 = ObjV("a" → "goodbye", "b" → 30)
+      val c2x = Obj(c2.asMap + "id" → "item1")
+      val f2 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c2))
+      f2.futureValue.statusCode should equal(Status.OK)
+
+      eventually {
+        val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
+          "item_id", "", FilterGt
+        )), Seq.empty, 10).futureValue.toSeq
+        indexContent.size shouldBe 1
+        indexContent.head.documentUri shouldBe "collection-1~"
+        indexContent.head.itemId shouldBe "item1"
+        indexContent.head.body.get should include("\"item1\"")
+        indexContent.head.body.get should include("\"goodbye\"")
+        indexContent.head.revision shouldBe 2
+      }
+
+      val c3 = ObjV("a" → "hello", "b" → 5)
+      val f3 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c3))
+      f3.futureValue.statusCode should equal(Status.OK)
+
+      eventually {
+        val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
+          "item_id", "", FilterGt
+        )), Seq.empty, 10).futureValue.toSeq
+        indexContent shouldBe empty
+      }
+    }
+
     "Create index with filter and decimal sorting" in {
       cleanUpCassandra()
       val hyperbus = integratedHyperbus(db)
@@ -238,7 +396,7 @@ class IndexingSpec extends FreeSpec
         indexContent(1).body.get should include("\"item3\"")
       }
     }
-
+*/
     "Create index with filter and text sorting" in {
       cleanUpCassandra()
       val hyperbus = integratedHyperbus(db)
@@ -281,6 +439,7 @@ class IndexingSpec extends FreeSpec
 
       eventually {
         val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+        //println(indexContent)
         indexContent.size shouldBe 2
         indexContent(0).documentUri shouldBe "collection-1~"
         indexContent(0).itemId shouldBe "item1"
@@ -291,7 +450,7 @@ class IndexingSpec extends FreeSpec
         indexContent(1).body.get should include("\"item3\"")
       }
     }
-
+/*
     "Create index with filter and text desc sorting" in {
       cleanUpCassandra()
       val hyperbus = integratedHyperbus(db)
@@ -421,6 +580,6 @@ class IndexingSpec extends FreeSpec
         val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
         indexContent shouldBe empty
       }
-    }
+    }*/
   }
 }

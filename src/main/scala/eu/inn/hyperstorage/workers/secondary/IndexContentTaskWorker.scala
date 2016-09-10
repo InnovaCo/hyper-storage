@@ -24,10 +24,15 @@ import scala.util.control.NonFatal
 
 trait IndexContentTaskWorker {
   def hyperbus: Hyperbus
+
   def db: Db
+
   def tracker: MetricsTracker
+
   def log: LoggingAdapter
+
   def indexManager: ActorRef
+
   implicit def executionContext: ExecutionContext
 
   def validateCollectionUri(uri: String)
@@ -43,7 +48,7 @@ trait IndexContentTaskWorker {
 
             db.selectContentCollection(task.indexDefTransaction.documentUri, bucketSize, task.lastItemId.map((_, FilterGt))) flatMap { collectionItems ⇒
               FutureUtils.serial(collectionItems.toSeq) { item ⇒
-                indexItem(indexDef, item)
+                indexItem(indexDef, item, canBeIndexedAlready = false)
               } flatMap { insertedItemIds ⇒
 
                 if (insertedItemIds.isEmpty) {
@@ -81,7 +86,7 @@ trait IndexContentTaskWorker {
     }
     catch {
       case NonFatal(e) ⇒
-      Future.failed(e)
+        Future.failed(e)
     }
   }
 
@@ -95,11 +100,8 @@ trait IndexContentTaskWorker {
     }
   }
 
-  def indexItem(indexDef: IndexDef, item: Content): Future[String] = {
+  def indexItem(indexDef: IndexDef, item: Content, canBeIndexedAlready: Boolean): Future[String] = {
     import eu.inn.binders.json._
-    if (log.isDebugEnabled) {
-      log.debug(s"Indexing item $item with $indexDef")
-    }
 
     // todo: cache this
     val contentValue = item.body.map { str ⇒
@@ -128,6 +130,10 @@ trait IndexContentTaskWorker {
       true
     }
 
+    if (log.isDebugEnabled) {
+      log.debug(s"Indexing item $item with $indexDef ... ${if (write) "Accepted" else "Rejected"}")
+    }
+
     if (write) {
       val indexContent = IndexContent(
         item.documentUri, indexDef.indexId, item.itemId, item.revision, item.body, item.createdAt, item.modifiedAt
@@ -137,7 +143,13 @@ trait IndexContentTaskWorker {
       }
     }
     else {
-      Future.successful(item.itemId)
+      if (canBeIndexedAlready) {
+        db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, item.itemId) map { _ ⇒
+          item.itemId
+        }
+      } else {
+        Future.successful(item.itemId)
+      }
     }
   }
 }

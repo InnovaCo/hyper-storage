@@ -36,7 +36,7 @@ trait BackgroundContentTaskCompleter {
   implicit def executionContext: ExecutionContext
 
   def deleteIndexDefAndData(indexDef: IndexDef): Future[Unit]
-  def indexItem(indexDef: IndexDef, item: Content): Future[String]
+  def indexItem(indexDef: IndexDef, item: Content, canBeIndexedAlready: Boolean): Future[String]
 
   def executeBackgroundTask(owner: ActorRef, task: BackgroundContentTask): Future[ShardTaskComplete] = {
     try {
@@ -145,15 +145,17 @@ trait BackgroundContentTaskCompleter {
         db.selectIndexDefs(content.documentUri).flatMap { indexDefsIterator ⇒
           val indexDefs = indexDefsIterator.toSeq
           FutureUtils.serial(itemIds.toSeq) { itemId ⇒
+            log.debug(s"Looking for content $itemId")
+
             // todo: cache content
             db.selectContent(content.documentUri, itemId) flatMap { contentOption ⇒
               if (log.isDebugEnabled) {
-                log.debug(s"Indexing content $contentOption for $indexDefs")
+                log.debug(s"Indexing content $itemId / $contentOption for $indexDefs")
               }
               FutureUtils.serial(indexDefs) { indexDef ⇒
                 contentOption match {
                   case Some(item) ⇒
-                    indexItem(indexDef, item)
+                    indexItem(indexDef, item, canBeIndexedAlready = true)
 
                   case None ⇒
                     // todo: delete only if filter is true!

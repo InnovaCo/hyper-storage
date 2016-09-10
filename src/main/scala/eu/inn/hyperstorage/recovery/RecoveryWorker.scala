@@ -5,17 +5,19 @@ import java.util.Date
 import akka.actor._
 import akka.pattern.ask
 import com.codahale.metrics.Meter
+import eu.inn.hyperbus.IdGenerator
 import eu.inn.hyperstorage._
-import eu.inn.hyperstorage.db.Db
+import eu.inn.hyperstorage.db.{Content, Db}
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.hyperstorage.sharding.ShardMemberStatus.{Active, Deactivating}
 import eu.inn.hyperstorage.sharding.{ShardedClusterData, UpdateShardStatus}
 import eu.inn.hyperstorage.utils.FutureUtils
-import eu.inn.hyperstorage.workers.secondary.{BackgroundContentTask, BackgroundContentTaskResult, BackgroundContentTaskNoSuchResourceException}
+import eu.inn.hyperstorage.workers.secondary.{BackgroundContentTask, BackgroundContentTaskNoSuchResourceException, BackgroundContentTaskResult}
 import eu.inn.metrics.MetricsTracker
 
-import scala.concurrent.Future
+import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
+import scala.util.Random
 import scala.util.control.NonFatal
 
 /*
@@ -217,6 +219,32 @@ class HotRecoveryWorker(
     val lowerBound = TransactionLogic.getDtQuantum(millis - hotPeriod._1)
     log.info(s"Running hot recovery check starting from ${qts(lowerBound)}. Partitions to process: ${partitions.size}")
     self ! CheckQuantum(currentProcessId, lowerBound, partitions, HotWorkerState(partitions, lowerBound))
+
+/*
+    val random = new Random(System.currentTimeMillis)
+
+    log.warning("Inserting test data...")
+
+    0 to 10000 foreach { i ⇒
+      val batch = 1000
+      val futures = 0 to batch map { _ ⇒
+        val itemId = IdGenerator.create()
+        val a = random.nextInt()
+        val b = random.alphanumeric.take(16).mkString
+        val c = random.alphanumeric.take(32).mkString
+        val d = random.nextDouble()
+        val body = s"""
+      {"a":$a,"id":"$itemId","b":"$b","c":"$c","d":$d}
+    """
+        val content = Content(documentUri = "bench-test~", itemId, 1, List.empty, Some(body), false, new Date, None)
+        db.insertContent(content)
+      }
+      log.warning(s"batch $i...")
+      Await.result(Future.sequence(futures), 60.seconds)
+    }
+
+    log.warning("Completed")
+    */
   }
 
   // todo: detect if lag is increasing and print warning

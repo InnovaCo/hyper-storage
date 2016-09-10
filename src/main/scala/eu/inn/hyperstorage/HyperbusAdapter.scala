@@ -171,7 +171,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
 
     if (sortMatchIsExact) {
       queryUntilFetched(
-        CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize, skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression),
+        CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize, skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression, sortMatchIsExact),
         Seq.empty,0,0,None
       )  map { case (list, revisionOpt) ⇒
         (list.take(pageSize), revisionOpt)
@@ -179,7 +179,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     }
     else {
       queryUntilFetched(
-        CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize + skipMax, pageSize + skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression),
+        CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize + skipMax, pageSize + skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression, sortMatchIsExact),
         Seq.empty,0,0,None
       ) map { case (list, revisionOpt) ⇒
         if (list.size==(pageSize+skipMax)) {
@@ -254,6 +254,9 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
             None
           }
         } else {
+          // record was returned, however there was no item, only static part
+          // sometimes cassandra do this
+          totalFetched += 1
           None
         }
       }.toList
@@ -330,7 +333,9 @@ case class CollectionQueryOptions(documentUri: String,
                                   endTimeInMillis: Long,
                                   filterFields: Seq[FieldFilter],
                                   ckFields: Seq[CkField],
-                                  queryFilterExpression: Option[Expression])
+                                  queryFilterExpression: Option[Expression],
+                                  exactSortMatch: Boolean
+                                 )
 
 class CollectionOrdering(querySortBy: Seq[SortBy]) extends Ordering[Value] {
   private val sortIdentifiersStream = querySortBy.map { sb ⇒
