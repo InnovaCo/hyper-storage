@@ -118,7 +118,7 @@ trait IndexContentTaskWorker {
       Seq.empty
     }
 
-    val write: Boolean = indexDef.filterBy.map { filterBy ⇒
+    val write: Boolean = !item.isDeleted && (indexDef.filterBy.map { filterBy ⇒
       IndexLogic.evaluateFilterExpression(filterBy, contentValue) recover {
         case NonFatal(e) ⇒
           if (log.isDebugEnabled) {
@@ -128,7 +128,7 @@ trait IndexContentTaskWorker {
       } get
     } getOrElse {
       true
-    }
+    })
 
     if (log.isDebugEnabled) {
       log.debug(s"Indexing item $item with $indexDef ... ${if (write) "Accepted" else "Rejected"}")
@@ -144,7 +144,7 @@ trait IndexContentTaskWorker {
     }
     else {
       if (canBeIndexedAlready) {
-        db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, item.itemId) map { _ ⇒
+        db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, item.itemId, sortBy) map { _ ⇒
           item.itemId
         }
       } else {

@@ -97,6 +97,7 @@ trait BackgroundContentTaskCompleter {
           ShardTaskComplete(task, BackgroundContentTaskResult(task.documentUri, updatedTransactions.map(_.uuid)))
         } recover {
           case NonFatal(e) ⇒
+            log.error(e, s"Task failed: $task")
             ShardTaskComplete(task, BackgroundContentTaskFailedException(task.documentUri, e.toString))
         } andThen {
           case Success(ShardTaskComplete(_, BackgroundContentTaskResult(documentUri, updatedTransactions))) ⇒
@@ -159,7 +160,8 @@ trait BackgroundContentTaskCompleter {
 
                   case None ⇒
                     // todo: delete only if filter is true!
-                    db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemId)
+                    // todo: we need sort fields here
+                    db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemId, Seq.empty)
                 }
               }
             }

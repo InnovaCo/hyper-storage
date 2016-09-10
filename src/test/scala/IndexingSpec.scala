@@ -18,7 +18,7 @@ class IndexingSpec extends FreeSpec
   override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(30000, Millis)))
 
   "IndexingSpec" - {
-/*
+
     "Create index without sorting or filtering" in {
       cleanUpCassandra()
       val hyperbus = integratedHyperbus(db)
@@ -396,7 +396,7 @@ class IndexingSpec extends FreeSpec
         indexContent(1).body.get should include("\"item3\"")
       }
     }
-*/
+
     "Create index with filter and text sorting" in {
       cleanUpCassandra()
       val hyperbus = integratedHyperbus(db)
@@ -450,7 +450,7 @@ class IndexingSpec extends FreeSpec
         indexContent(1).body.get should include("\"item3\"")
       }
     }
-/*
+
     "Create index with filter and text desc sorting" in {
       cleanUpCassandra()
       val hyperbus = integratedHyperbus(db)
@@ -580,6 +580,6 @@ class IndexingSpec extends FreeSpec
         val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
         indexContent shouldBe empty
       }
-    }*/
+    }
   }
 }

@@ -292,16 +292,13 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     val tableName = Dynamic(indexTable)
     val sortFieldNames = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_._1).mkString(",", ",", ""))
     val sortFieldPlaces = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_ ⇒ "?").mkString(",", ",", ""))
+
     val cql = cql"""
       insert into $tableName(document_uri,index_id,item_id,revision,body,created_at,modified_at$sortFieldNames)
       values(?,?,?,?,?,?,?$sortFieldPlaces)
     """.bindPartial(indexContent)
 
-    sortFields.foreach {
-      case (name, Text(s)) ⇒ cql.boundStatement.setString(name, s)
-      case (name, Number(n)) ⇒ cql.boundStatement.setDecimal(name, n.bigDecimal)
-      case (name, v) ⇒ throw new IllegalArgumentException(s"Can't bind $name value $v") // todo: do something
-    }
+    bindSortFields(cql, sortFields)
     cql.execute()
   }
 
@@ -320,7 +317,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
           case FieldFilter(name, _, FilterGtEq) ⇒ s"$name >= ?"
           case FieldFilter(name, _, FilterLt) ⇒ s"$name < ?"
           case FieldFilter(name, _, FilterLtEq) ⇒ s"$name <= ?"
-        } mkString("and ", " and ", "")
+        } mkString(" and ", " and ", "")
       }
 
     val orderByDynamic = if (orderByFields.isEmpty)
@@ -333,7 +330,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
 
     val c = cql"""
       select document_uri,index_id,item_id,revision,body,created_at,modified_at from $tableName
-      where document_uri=? and index_id=? $filterEqualFields
+      where document_uri=? and index_id=?$filterEqualFields
       $orderByDynamic
       limit ?
     """
@@ -349,12 +346,24 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     c.all[IndexContent]
   }
 
-  def deleteIndexItem(indexTable: String, documentUri: String, indexId: String, itemId: String): Future[Unit] = {
+  def deleteIndexItem(indexTable: String,
+                      documentUri: String,
+                      indexId: String,
+                      itemId: String,
+                      sortFields: Seq[(String,Value)]): Future[Unit] = {
     val tableName = Dynamic(indexTable)
-    cql"""
+
+    val sortFieldsFilter = Dynamic(sortFields map { case (name, _) ⇒
+        s"$name = ?"
+      } mkString(if (sortFields.isEmpty) "" else " and ", " and ", "")
+    )
+
+    val cql = cql"""
       delete from $tableName
-      where document_uri=$documentUri and index_id=$indexId and item_id = $itemId
-    """.execute()
+      where document_uri=$documentUri and index_id=$indexId and item_id = $itemId$sortFieldsFilter
+    """
+    bindSortFields(cql, sortFields)
+    cql.execute()
   }
 
   def deleteIndex(indexTable: String, documentUri: String, indexId: String): Future[Unit] = {
@@ -363,5 +372,13 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       delete from $tableName
       where document_uri = $documentUri and index_id=$indexId
     """.execute()
+  }
+
+  private def bindSortFields(cql: Statement[CamelCaseToSnakeCaseConverter], sortFields: Seq[(String, Value)]) = {
+    sortFields.foreach {
+      case (name, Text(s)) ⇒ cql.boundStatement.setString(name, s)
+      case (name, Number(n)) ⇒ cql.boundStatement.setDecimal(name, n.bigDecimal)
+      case (name, v) ⇒ throw new IllegalArgumentException(s"Can't bind $name value $v") // todo: do something
+    }
   }
 }
