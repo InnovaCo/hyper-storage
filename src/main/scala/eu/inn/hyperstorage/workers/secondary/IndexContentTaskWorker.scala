@@ -48,7 +48,7 @@ trait IndexContentTaskWorker {
 
             db.selectContentCollection(task.indexDefTransaction.documentUri, bucketSize, task.lastItemId.map((_, FilterGt))) flatMap { collectionItems ⇒
               FutureUtils.serial(collectionItems.toSeq) { item ⇒
-                indexItem(indexDef, item, canBeIndexedAlready = false)
+                indexItem(indexDef, item)
               } flatMap { insertedItemIds ⇒
 
                 if (insertedItemIds.isEmpty) {
@@ -100,7 +100,7 @@ trait IndexContentTaskWorker {
     }
   }
 
-  def indexItem(indexDef: IndexDef, item: Content, canBeIndexedAlready: Boolean): Future[String] = {
+  def indexItem(indexDef: IndexDef, item: Content): Future[String] = {
     import eu.inn.binders.json._
 
     // todo: cache this
@@ -143,12 +143,8 @@ trait IndexContentTaskWorker {
       }
     }
     else {
-      if (canBeIndexedAlready) {
-        db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, item.itemId, sortBy) map { _ ⇒
-          item.itemId
-        }
-      } else {
-        Future.successful(item.itemId)
+      Future.successful {
+        item.itemId
       }
     }
   }

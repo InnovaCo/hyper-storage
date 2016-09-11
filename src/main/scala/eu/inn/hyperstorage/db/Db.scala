@@ -57,6 +57,7 @@ case class Transaction(
                         uuid: UUID,
                         revision: Long,
                         body: String,
+                        obsoleteIndexItems: Option[String],
                         completedAt: Option[Date]
                       )
 
@@ -186,18 +187,18 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     """.execute()
 
   def selectTransaction(dtQuantum: Long, partition: Int, documentUri: String, uuid: UUID): Future[Option[Transaction]] = cql"""
-      select dt_quantum,partition,document_uri,item_id,uuid,revision,body,completed_at from transaction
+      select dt_quantum,partition,document_uri,item_id,uuid,revision,body,obsolete_index_items,completed_at from transaction
       where dt_quantum=$dtQuantum and partition=$partition and document_uri=$documentUri and uuid=$uuid
     """.oneOption[Transaction]
 
   def selectPartitionTransactions(dtQuantum: Long, partition: Int): Future[Iterator[Transaction]] = cql"""
-      select dt_quantum,partition,document_uri,item_id,uuid,revision,body,completed_at from transaction
+      select dt_quantum,partition,document_uri,item_id,uuid,revision,body,obsolete_index_items,completed_at from transaction
       where dt_quantum=$dtQuantum and partition=$partition
     """.all[Transaction]
 
   def insertTransaction(transaction: Transaction): Future[Unit] = cql"""
-      insert into transaction(dt_quantum,partition,document_uri,item_id,uuid,revision,body,completed_at)
-      values(?,?,?,?,?,?,?,?)
+      insert into transaction(dt_quantum,partition,document_uri,item_id,uuid,revision,body,obsolete_index_items,completed_at)
+      values(?,?,?,?,?,?,?,?,?)
     """.bind(transaction).execute()
 
   def completeTransaction(transaction: Transaction): Future[Unit] = cql"""

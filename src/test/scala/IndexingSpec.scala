@@ -15,7 +15,7 @@ class IndexingSpec extends FreeSpec
   with TestHelpers
   with Eventually {
 
-  override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(30000, Millis)))
+  override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(11000, Millis)))
 
   "IndexingSpec" - {
 
@@ -147,30 +147,58 @@ class IndexingSpec extends FreeSpec
       val fi = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"), Seq.empty, Some("b > 10")))
       fi.futureValue.statusCode should equal(Status.CREATED)
 
+      val fi2 = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index2"),
+        Seq(HyperStorageIndexSortItem("a", order = None, fieldType = None)),
+        Some("b > 10")))
+      fi2.futureValue.statusCode should equal(Status.CREATED)
+
       eventually {
-        val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
-        indexDefUp shouldBe defined
-        indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
+        val indexDefUp1 = db.selectIndexDef("collection-1~", "index1").futureValue
+        indexDefUp1 shouldBe defined
+        indexDefUp1.get.status shouldBe IndexDef.STATUS_NORMAL
       }
 
       eventually {
-        val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
+        val indexDefUp2 = db.selectIndexDef("collection-1~", "index2").futureValue
+        indexDefUp2 shouldBe defined
+        indexDefUp2.get.status shouldBe IndexDef.STATUS_NORMAL
+      }
+
+      eventually {
+        val indexContent1 = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
           "item_id", "", FilterGt
         )), Seq.empty, 10).futureValue.toSeq
-        indexContent.size shouldBe 1
-        indexContent.head.documentUri shouldBe "collection-1~"
-        indexContent.head.itemId shouldBe "item1"
-        indexContent.head.body.get should include("\"item1\"")
+        indexContent1.size shouldBe 1
+        indexContent1.head.documentUri shouldBe "collection-1~"
+        indexContent1.head.itemId shouldBe "item1"
+        indexContent1.head.body.get should include("\"item1\"")
+      }
+
+      eventually {
+        val indexContent2 = db.selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter(
+          "t0", "", FilterGt
+        )), Seq.empty, 10).futureValue.toSeq
+        indexContent2.size shouldBe 1
+        indexContent2.head.documentUri shouldBe "collection-1~"
+        indexContent2.head.itemId shouldBe "item1"
+        indexContent2.head.body.get should include("\"item1\"")
       }
 
       val f2 = hyperbus <~ HyperStorageContentDelete("collection-1~/item1", EmptyBody)
       f2.futureValue.statusCode should equal(Status.OK)
 
       eventually {
-        val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
+        val indexContent1 = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
           "item_id", "", FilterGt
         )), Seq.empty, 10).futureValue.toSeq
-        indexContent shouldBe empty
+        indexContent1 shouldBe empty
+      }
+
+      eventually {
+        val indexContent2 = db.selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter(
+          "t0", "", FilterGt
+        )), Seq.empty, 10).futureValue.toSeq
+        indexContent2 shouldBe empty
       }
     }
 
@@ -187,6 +215,11 @@ class IndexingSpec extends FreeSpec
       val fi = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"), Seq.empty, Some("b > 10")))
       fi.futureValue.statusCode should equal(Status.CREATED)
 
+      val fi2 = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index2"),
+        Seq(HyperStorageIndexSortItem("a", order = None, fieldType = None)),
+        Some("b > 10")))
+      fi2.futureValue.statusCode should equal(Status.CREATED)
+
       eventually {
         val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
         indexDefUp shouldBe defined
@@ -194,8 +227,25 @@ class IndexingSpec extends FreeSpec
       }
 
       eventually {
+        val indexDefUp2 = db.selectIndexDef("collection-1~", "index2").futureValue
+        indexDefUp2 shouldBe defined
+        indexDefUp2.get.status shouldBe IndexDef.STATUS_NORMAL
+      }
+
+      eventually {
         val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
           "item_id", "", FilterGt
+        )), Seq.empty, 10).futureValue.toSeq
+        indexContent.size shouldBe 1
+        indexContent.head.documentUri shouldBe "collection-1~"
+        indexContent.head.itemId shouldBe "item1"
+        indexContent.head.body.get should include("\"item1\"")
+        indexContent.head.revision shouldBe 1
+      }
+
+      eventually {
+        val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter(
+          "t0", "", FilterGt
         )), Seq.empty, 10).futureValue.toSeq
         indexContent.size shouldBe 1
         indexContent.head.documentUri shouldBe "collection-1~"
@@ -221,6 +271,18 @@ class IndexingSpec extends FreeSpec
         indexContent.head.revision shouldBe 2
       }
 
+      eventually {
+        val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter(
+          "t0", "", FilterGt
+        )), Seq.empty, 10).futureValue.toSeq
+        indexContent.size shouldBe 1
+        indexContent.head.documentUri shouldBe "collection-1~"
+        indexContent.head.itemId shouldBe "item1"
+        indexContent.head.body.get should include("\"item1\"")
+        indexContent.head.body.get should include("\"goodbye\"")
+        indexContent.head.revision shouldBe 2
+      }
+
       val c3 = ObjV("b" → 5)
       val f3 = hyperbus <~ HyperStorageContentPatch("collection-1~/item1", DynamicBody(c3))
       f3.futureValue.statusCode should equal(Status.OK)
@@ -228,6 +290,13 @@ class IndexingSpec extends FreeSpec
       eventually {
         val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
           "item_id", "", FilterGt
+        )), Seq.empty, 10).futureValue.toSeq
+        indexContent shouldBe empty
+      }
+
+      eventually {
+        val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index1", Seq(FieldFilter(
+          "t0", "", FilterGt
         )), Seq.empty, 10).futureValue.toSeq
         indexContent shouldBe empty
       }
@@ -246,6 +315,11 @@ class IndexingSpec extends FreeSpec
       val fi = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index1"), Seq.empty, Some("b > 10")))
       fi.futureValue.statusCode should equal(Status.CREATED)
 
+      val fi2 = hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(Some("index2"),
+        Seq(HyperStorageIndexSortItem("a", order = None, fieldType = None)),
+        Some("b > 10")))
+      fi2.futureValue.statusCode should equal(Status.CREATED)
+
       eventually {
         val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
         indexDefUp shouldBe defined
@@ -253,8 +327,24 @@ class IndexingSpec extends FreeSpec
       }
 
       eventually {
+        val indexDefUp = db.selectIndexDef("collection-1~", "index2").futureValue
+        indexDefUp shouldBe defined
+        indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
+      }
+
+      eventually {
         val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
           "item_id", "", FilterGt
+        )), Seq.empty, 10).futureValue.toSeq
+        indexContent.size shouldBe 1
+        indexContent.head.documentUri shouldBe "collection-1~"
+        indexContent.head.itemId shouldBe "item1"
+        indexContent.head.body.get should include("\"item1\"")
+      }
+
+      eventually {
+        val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter(
+          "t0", "", FilterGt
         )), Seq.empty, 10).futureValue.toSeq
         indexContent.size shouldBe 1
         indexContent.head.documentUri shouldBe "collection-1~"
@@ -279,6 +369,18 @@ class IndexingSpec extends FreeSpec
         indexContent.head.revision shouldBe 2
       }
 
+      eventually {
+        val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter(
+          "t0", "", FilterGt
+        )), Seq.empty, 10).futureValue.toSeq
+        indexContent.size shouldBe 1
+        indexContent.head.documentUri shouldBe "collection-1~"
+        indexContent.head.itemId shouldBe "item1"
+        indexContent.head.body.get should include("\"item1\"")
+        indexContent.head.body.get should include("\"goodbye\"")
+        indexContent.head.revision shouldBe 2
+      }
+
       val c3 = ObjV("a" → "hello", "b" → 5)
       val f3 = hyperbus <~ HyperStorageContentPut("collection-1~/item1", DynamicBody(c3))
       f3.futureValue.statusCode should equal(Status.OK)
@@ -286,6 +388,13 @@ class IndexingSpec extends FreeSpec
       eventually {
         val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
           "item_id", "", FilterGt
+        )), Seq.empty, 10).futureValue.toSeq
+        indexContent shouldBe empty
+      }
+
+      eventually {
+        val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter(
+          "t0", "", FilterGt
         )), Seq.empty, 10).futureValue.toSeq
         indexContent shouldBe empty
       }

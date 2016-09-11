@@ -60,6 +60,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     val task = PrimaryTask(documentUri, System.currentTimeMillis() + ttl, str)
     implicit val timeout: akka.util.Timeout = requestTimeout
 
+    // todo: what happens when error is returned
     hyperStorageProcessor ? task map {
       case PrimaryWorkerTaskResult(content) ⇒
         StringDeserializer.dynamicResponse(content)

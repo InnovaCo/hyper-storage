@@ -5,6 +5,7 @@ import java.util.UUID
 import akka.actor.ActorRef
 import akka.event.LoggingAdapter
 import com.datastax.driver.core.utils.UUIDs
+import eu.inn.binders.value.Value
 import eu.inn.hyperbus.Hyperbus
 import eu.inn.hyperbus.model.{DynamicRequest, _}
 import eu.inn.hyperstorage.db.{Transaction, _}
@@ -36,7 +37,7 @@ trait BackgroundContentTaskCompleter {
   implicit def executionContext: ExecutionContext
 
   def deleteIndexDefAndData(indexDef: IndexDef): Future[Unit]
-  def indexItem(indexDef: IndexDef, item: Content, canBeIndexedAlready: Boolean): Future[String]
+  def indexItem(indexDef: IndexDef, item: Content): Future[String]
 
   def executeBackgroundTask(owner: ActorRef, task: BackgroundContentTask): Future[ShardTaskComplete] = {
     try {
@@ -138,14 +139,19 @@ trait BackgroundContentTaskCompleter {
         }
       }
       else {
+        // todo: refactor, this is crazy
         val itemIds = incompleteTransactions.collect {
-          case it if it.transaction.itemId.nonEmpty ⇒ it.transaction.itemId
-        }.toSet
+          case it if it.transaction.itemId.nonEmpty ⇒
+            import eu.inn.binders.json._
+            val obsoleteMap = it.transaction.obsoleteIndexItems.map(_.parseJson[Map[String, Map[String, Value]]])
+            val obsoleteSeq = obsoleteMap.map(_.map(kv ⇒ kv._1 → kv._2.toSeq).toSeq).getOrElse(Seq.empty)
+            it.transaction.itemId → obsoleteSeq
+        }.groupBy(_._1).mapValues(_.map(_._2)).map(kv ⇒ kv._1 → kv._2.flatten)
 
         // todo: cache index meta
         db.selectIndexDefs(content.documentUri).flatMap { indexDefsIterator ⇒
           val indexDefs = indexDefsIterator.toSeq
-          FutureUtils.serial(itemIds.toSeq) { itemId ⇒
+          FutureUtils.serial(itemIds.keys.toSeq) { itemId ⇒
             log.debug(s"Looking for content $itemId")
 
             // todo: cache content
@@ -154,14 +160,22 @@ trait BackgroundContentTaskCompleter {
                 log.debug(s"Indexing content $itemId / $contentOption for $indexDefs")
               }
               FutureUtils.serial(indexDefs) { indexDef ⇒
+
+                // todo: refactor, this is crazy
+                val seq: Seq[Seq[(String,Value)]] = itemIds(itemId).filter(_._1 == indexDef.indexId).map(_._2)
+                val deleteObsoleteFutures = FutureUtils.serial(seq) { s ⇒
+                  db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemId, s)
+                }
+
                 contentOption match {
                   case Some(item) ⇒
-                    indexItem(indexDef, item, canBeIndexedAlready = true)
+                    deleteObsoleteFutures.flatMap(_ ⇒ indexItem(indexDef, item))
 
                   case None ⇒
                     // todo: delete only if filter is true!
                     // todo: we need sort fields here
-                    db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemId, Seq.empty)
+                    //db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemId, Seq.empty)
+                    deleteObsoleteFutures
                 }
               }
             }
