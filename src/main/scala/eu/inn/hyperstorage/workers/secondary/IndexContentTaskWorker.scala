@@ -2,7 +2,6 @@ package eu.inn.hyperstorage.workers.secondary
 
 import akka.actor.ActorRef
 import akka.event.LoggingAdapter
-import eu.inn.binders.value.{Null, Value}
 import eu.inn.hyperbus.Hyperbus
 import eu.inn.hyperstorage._
 import eu.inn.hyperstorage.db._
@@ -101,22 +100,8 @@ trait IndexContentTaskWorker {
   }
 
   def indexItem(indexDef: IndexDef, item: Content): Future[String] = {
-    import eu.inn.binders.json._
-
-    // todo: cache this
-    val contentValue = item.body.map { str ⇒
-      str.parseJson[Value]
-    } getOrElse {
-      Null
-    }
-
-    // todo: cache this
-    val sortBy = indexDef.sortBy.map { sortString ⇒
-      val sortBy = IndexLogic.deserializeSortByFields(sortString)
-      IndexLogic.extractSortFieldValues(sortBy, contentValue)
-    } getOrElse {
-      Seq.empty
-    }
+    val contentValue = item.bodyValue
+    val sortBy = IndexLogic.extractSortFieldValues(indexDef.sortByParsed, contentValue)
 
     val write: Boolean = !item.isDeleted && (indexDef.filterBy.map { filterBy ⇒
       IndexLogic.evaluateFilterExpression(filterBy, contentValue) recover {

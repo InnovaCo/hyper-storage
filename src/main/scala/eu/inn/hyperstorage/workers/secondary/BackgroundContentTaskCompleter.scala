@@ -163,19 +163,19 @@ trait BackgroundContentTaskCompleter {
 
                 // todo: refactor, this is crazy
                 val seq: Seq[Seq[(String,Value)]] = itemIds(itemId).filter(_._1 == indexDef.indexId).map(_._2)
-                val deleteObsoleteFutures = FutureUtils.serial(seq) { s ⇒
+                val deleteObsoleteFuture = FutureUtils.serial(seq) { s ⇒
                   db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemId, s)
                 }
 
                 contentOption match {
-                  case Some(item) ⇒
-                    deleteObsoleteFutures.flatMap(_ ⇒ indexItem(indexDef, item))
+                  case Some(item) if !item.isDeleted ⇒
+                    deleteObsoleteFuture.flatMap(_ ⇒ indexItem(indexDef, item))
 
-                  case None ⇒
-                    // todo: delete only if filter is true!
-                    // todo: we need sort fields here
-                    //db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemId, Seq.empty)
-                    deleteObsoleteFutures
+                  case _ ⇒
+                    deleteObsoleteFuture.flatMap { _ ⇒
+                      val revision = incompleteTransactions.map(t ⇒ t.transaction.revision).max
+                      db.updateIndexRevision(indexDef.tableName, indexDef.documentUri, indexDef.indexId, revision)
+                    }
                 }
               }
             }

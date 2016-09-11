@@ -63,7 +63,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     // todo: what happens when error is returned
     hyperStorageProcessor ? task map {
       case PrimaryWorkerTaskResult(content) ⇒
-        StringDeserializer.dynamicResponse(content)
+        StringDeserializer.dynamicResponse(content) // todo: we are deserializing just to serialize back here
     }
   }
 
@@ -151,7 +151,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     val sources = indexDefs.flatMap { indexDef ⇒
       if (indexDef.status == IndexDef.STATUS_NORMAL) Some {
         val filterAST = indexDef.filterBy.map(HParser(_).get)
-        val indexSortBy = indexDef.sortBy.map(IndexLogic.deserializeSortByFields).getOrElse(Seq.empty) :+ defIdSort
+        val indexSortBy = indexDef.sortByParsed :+ defIdSort
         (IndexLogic.weighIndex(queryFilterExpression, querySortBy, filterAST, indexSortBy), indexSortBy, Some(indexDef))
       }
       else {
@@ -227,7 +227,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
       val acceptedStream = iterator.flatMap { c ⇒
         if (!c.itemId.isEmpty) {
           totalFetched += 1
-          val optVal = StringDeserializer.dynamicBody(c.body).content match {
+          val optVal = c.bodyValue match {
             case o: Obj ⇒ Some(o)
             case _ ⇒ None
           }
@@ -316,7 +316,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
         notFound
       case Some(content) ⇒
         if (!content.isDeleted) {
-          val body = StringDeserializer.dynamicBody(content.body)
+          val body = DynamicBody(content.bodyValue)
           Ok(body, Headers(Map(Header.REVISION → Seq(content.revision.toString))))
         } else {
           notFound

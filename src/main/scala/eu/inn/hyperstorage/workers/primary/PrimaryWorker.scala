@@ -7,7 +7,7 @@ import akka.pattern.pipe
 import com.codahale.metrics.Timer
 import eu.inn.binders.value._
 import eu.inn.hyperbus.model._
-import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
+import eu.inn.hyperbus.serialization.StringSerializer
 import eu.inn.hyperbus.transport.api.matchers.Specific
 import eu.inn.hyperbus.transport.api.uri.Uri
 import eu.inn.hyperbus.{Hyperbus, IdGenerator}
@@ -157,8 +157,6 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                              indexDefs: Seq[IndexDef]
                             ): Future[Transaction] = {
 
-    // todo: deserialize existingContent and newContent, to minimize serializations!
-
     val newTransaction = createNewTransaction(documentUri, itemId, request, existingContentStatic)
     val newContent = updateContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
     val obsoleteIndexItems = if (request.method != Method.POST && ContentLogic.isCollectionUri(documentUri) && itemId.nonEmpty) {
@@ -188,33 +186,18 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     // todo: work with Value content instead of string
     val m = existingContent.flatMap { c ⇒
       if (c.isDeleted) None else {
-        c.body.map { str ⇒
-          str.parseJson[Value]
-        }
+        Some(c.bodyValue)
       }
     } map { existingContentValue: Value ⇒
       val newContentValueOption = if(newContent.isDeleted) None else {
-        newContent.body.map {
-          str ⇒
-            str.parseJson[Value]
-        }
+        Some(newContent.bodyValue)
       }
 
       indexDefs.flatMap { indexDef ⇒
-        val sortByExisting = indexDef.sortBy.map { sortString ⇒
-          val sortBy = IndexLogic.deserializeSortByFields(sortString)
-          IndexLogic.extractSortFieldValues(sortBy, existingContentValue)
-        } getOrElse {
-          Seq.empty
-        }
+        val sortByExisting = IndexLogic.extractSortFieldValues(indexDef.sortByParsed, existingContentValue)
 
         val sortByNew = newContentValueOption.map { newContentValue ⇒
-          indexDef.sortBy.map { sortString ⇒
-            val sortBy = IndexLogic.deserializeSortByFields(sortString)
-            IndexLogic.extractSortFieldValues(sortBy, newContentValue)
-          } getOrElse {
-            Seq.empty
-          }
+          IndexLogic.extractSortFieldValues(indexDef.sortByParsed, newContentValue)
         }
 
         if (sortByExisting != sortByNew) {
@@ -299,7 +282,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       case Some(content) if !content.isDeleted ⇒
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = newTransaction.uuid +: content.transactionList,
-          body = Some(mergeBody(StringDeserializer.dynamicBody(content.body), request.body).serializeToString()),
+          body = mergeBody(content.bodyValue, request.body.content),
           isDeleted = false,
           createdAt = content.createdAt,
           modifiedAt = Some(new Date())
@@ -311,8 +294,13 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     }
   }
 
-  private def mergeBody(existing: DynamicBody, patch: DynamicBody): DynamicBody = {
-    DynamicBody(filterNulls(existing.content + patch.content))
+  private def mergeBody(existing: Value, patch: Value): Option[String] = {
+    import eu.inn.binders.json._
+    val newBodyContent = filterNulls(existing + patch)
+    newBodyContent match {
+      case Null ⇒ None
+      case other ⇒ Some(other.toJson)
+    }
   }
 
   def filterNulls(content: Value): Value = {

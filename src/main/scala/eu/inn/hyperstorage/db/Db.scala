@@ -5,8 +5,9 @@ import java.util.{Date, UUID}
 import eu.inn.binders._
 import eu.inn.binders.cassandra._
 import eu.inn.binders.naming.CamelCaseToSnakeCaseConverter
-import eu.inn.binders.value.{Number, Text, Value}
+import eu.inn.binders.value.{Null, Number, Text, Value}
 import eu.inn.hyperstorage.CassandraConnector
+import eu.inn.hyperstorage.api.HyperStorageIndexSortItem
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -29,6 +30,11 @@ trait CollectionContent {
   def body: Option[String]
   def createdAt: Date
   def modifiedAt: Option[Date]
+
+  lazy val bodyValue : Value = {
+    import eu.inn.binders.json._
+    body.map(_.parseJson[Value]).getOrElse(Null)
+  }
 }
 
 case class Content(
@@ -77,7 +83,12 @@ case class IndexDef(
                      filterBy: Option[String],
                      tableName: String,
                      defTransactionId: UUID
-                   )
+                   ) {
+  lazy val sortByParsed: Seq[HyperStorageIndexSortItem] = sortBy.map{ str ⇒
+    import eu.inn.binders.json._
+    str.parseJson[Seq[HyperStorageIndexSortItem]]
+  }.getOrElse(Seq.empty)
+}
 
 case class IndexContent(
                          documentUri: String,
@@ -372,6 +383,15 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     cql"""
       delete from $tableName
       where document_uri = $documentUri and index_id=$indexId
+    """.execute()
+  }
+
+  def updateIndexRevision(indexTable: String, documentUri: String, indexId: String, revision: Long): Future[Unit] = {
+    val tableName = Dynamic(indexTable)
+    cql"""
+      update $tableName
+      set revision = ${revision}
+      where document_uri = $documentUri and index_id = $indexId
     """.execute()
   }
 
