@@ -204,8 +204,10 @@ hyperbus <~ HyperStorageIndexPost(path, HyperStorageIndexNew(
 *TBD:*
 
 ## Шардирование по нодам
+### Гарантия последовательного и непрерывного версионирования
 ## Схема хранения данных
 ## Обработка транзакций
+### Eventual consistency
 ## Индексирование
 
 
