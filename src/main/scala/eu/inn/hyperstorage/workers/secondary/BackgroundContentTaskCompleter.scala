@@ -5,6 +5,7 @@ import java.util.UUID
 import akka.actor.ActorRef
 import akka.event.LoggingAdapter
 import com.datastax.driver.core.utils.UUIDs
+import eu.inn.binders.value.Value
 import eu.inn.hyperbus.Hyperbus
 import eu.inn.hyperbus.model.{DynamicRequest, _}
 import eu.inn.hyperstorage.db.{Transaction, _}
@@ -97,6 +98,7 @@ trait BackgroundContentTaskCompleter {
           ShardTaskComplete(task, BackgroundContentTaskResult(task.documentUri, updatedTransactions.map(_.uuid)))
         } recover {
           case NonFatal(e) ⇒
+            log.error(e, s"Task failed: $task")
             ShardTaskComplete(task, BackgroundContentTaskFailedException(task.documentUri, e.toString))
         } andThen {
           case Success(ShardTaskComplete(_, BackgroundContentTaskResult(documentUri, updatedTransactions))) ⇒
@@ -137,27 +139,43 @@ trait BackgroundContentTaskCompleter {
         }
       }
       else {
+        // todo: refactor, this is crazy
         val itemIds = incompleteTransactions.collect {
-          case it if it.transaction.itemId.nonEmpty ⇒ it.transaction.itemId
-        }.toSet
+          case it if it.transaction.itemId.nonEmpty ⇒
+            import eu.inn.binders.json._
+            val obsoleteMap = it.transaction.obsoleteIndexItems.map(_.parseJson[Map[String, Map[String, Value]]])
+            val obsoleteSeq = obsoleteMap.map(_.map(kv ⇒ kv._1 → kv._2.toSeq).toSeq).getOrElse(Seq.empty)
+            it.transaction.itemId → obsoleteSeq
+        }.groupBy(_._1).mapValues(_.map(_._2)).map(kv ⇒ kv._1 → kv._2.flatten)
 
         // todo: cache index meta
         db.selectIndexDefs(content.documentUri).flatMap { indexDefsIterator ⇒
           val indexDefs = indexDefsIterator.toSeq
-          FutureUtils.serial(itemIds.toSeq) { itemId ⇒
+          FutureUtils.serial(itemIds.keys.toSeq) { itemId ⇒
+            log.debug(s"Looking for content $itemId")
+
             // todo: cache content
             db.selectContent(content.documentUri, itemId) flatMap { contentOption ⇒
               if (log.isDebugEnabled) {
-                log.debug(s"Indexing content $contentOption for $indexDefs")
+                log.debug(s"Indexing content $itemId / $contentOption for $indexDefs")
               }
               FutureUtils.serial(indexDefs) { indexDef ⇒
-                contentOption match {
-                  case Some(item) ⇒
-                    indexItem(indexDef, item)
 
-                  case None ⇒
-                    // todo: delete only if filter is true!
-                    db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemId)
+                // todo: refactor, this is crazy
+                val seq: Seq[Seq[(String,Value)]] = itemIds(itemId).filter(_._1 == indexDef.indexId).map(_._2)
+                val deleteObsoleteFuture = FutureUtils.serial(seq) { s ⇒
+                  db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemId, s)
+                }
+
+                contentOption match {
+                  case Some(item) if !item.isDeleted ⇒
+                    deleteObsoleteFuture.flatMap(_ ⇒ indexItem(indexDef, item))
+
+                  case _ ⇒
+                    deleteObsoleteFuture.flatMap { _ ⇒
+                      val revision = incompleteTransactions.map(t ⇒ t.transaction.revision).max
+                      db.updateIndexRevision(indexDef.tableName, indexDef.documentUri, indexDef.indexId, revision)
+                    }
                 }
               }
             }

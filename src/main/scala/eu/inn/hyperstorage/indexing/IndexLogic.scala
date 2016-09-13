@@ -39,11 +39,6 @@ object IndexLogic {
     }
   }
 
-  def deserializeSortByFields(sortBy: String): Seq[HyperStorageIndexSortItem] = {
-    import eu.inn.binders.json._
-    sortBy.parseJson[Seq[HyperStorageIndexSortItem]]
-  }
-
   def serializeSortByFields(sortBy: Seq[HyperStorageIndexSortItem]): Option[String] = {
     import eu.inn.binders.json._
     if (sortBy.nonEmpty) Some(sortBy.toJson) else None

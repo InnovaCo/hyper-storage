@@ -7,13 +7,14 @@ import akka.pattern.pipe
 import com.codahale.metrics.Timer
 import eu.inn.binders.value._
 import eu.inn.hyperbus.model._
-import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
+import eu.inn.hyperbus.serialization.StringSerializer
 import eu.inn.hyperbus.transport.api.matchers.Specific
 import eu.inn.hyperbus.transport.api.uri.Uri
 import eu.inn.hyperbus.{Hyperbus, IdGenerator}
 import eu.inn.hyperstorage._
 import eu.inn.hyperstorage.api._
 import eu.inn.hyperstorage.db._
+import eu.inn.hyperstorage.indexing.IndexLogic
 import eu.inn.hyperstorage.metrics.Metrics
 import eu.inn.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
 import eu.inn.hyperstorage.workers.secondary.BackgroundContentTask
@@ -111,16 +112,36 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
   }
 
   private def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemId: String, task: PrimaryTask, request: DynamicRequest) = {
-    db.selectContent(documentUri, itemId) flatMap { existingContent ⇒
-      val f: Future[Option[ContentBase]] = existingContent match {
-        case Some(content) ⇒ Future.successful(Some(content))
-        case None ⇒ db.selectContentStatic(documentUri)
+    val futureExisting : Future[(Option[Content], Option[ContentBase], List[IndexDef])] =
+      if (request.method == Method.POST) {
+        Future.successful((None, None, List.empty))
+      } else {
+        val futureIndexDefs = if (ContentLogic.isCollectionUri(documentUri)) {
+          db.selectIndexDefs(documentUri).map(_.toList)
+        } else {
+          Future.successful(List.empty)
+        }
+        val futureContent = db.selectContent(documentUri, itemId)
+
+        (for (
+          contentOption ← futureContent;
+          indexDefs ← futureIndexDefs
+        ) yield {
+          (contentOption, indexDefs)
+        }).flatMap { case (contentOption, indexDefs) ⇒
+          contentOption match {
+            case Some(_) ⇒ Future.successful((contentOption, contentOption, indexDefs))
+            case None if ContentLogic.isCollectionUri(documentUri) ⇒ db.selectContentStatic(documentUri).map(contentStatic ⇒
+              (contentOption, contentStatic, indexDefs)
+            )
+            case _ ⇒ Future.successful((contentOption, None, indexDefs))
+          }
+        }
       }
 
-      f flatMap { existingContentStatic ⇒
-        updateResource(documentUri, itemId, request, existingContent, existingContentStatic) map { newTransaction ⇒
-          PrimaryWorkerTaskCompleted(task, newTransaction, existingContent.isEmpty && request.method != Method.DELETE)
-        }
+    futureExisting.flatMap { case (existingContent, existingContentStatic, indexDefs) ⇒
+      updateResource(documentUri, itemId, request, existingContent, existingContentStatic, indexDefs) map { newTransaction ⇒
+        PrimaryWorkerTaskCompleted(task, newTransaction, existingContent.isEmpty && request.method != Method.DELETE)
       }
     } recover {
       case NonFatal(e) ⇒
@@ -132,10 +153,20 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                              itemId: String,
                              request: DynamicRequest,
                              existingContent: Option[Content],
-                             existingContentStatic: Option[ContentBase]): Future[Transaction] = {
+                             existingContentStatic: Option[ContentBase],
+                             indexDefs: Seq[IndexDef]
+                            ): Future[Transaction] = {
+
     val newTransaction = createNewTransaction(documentUri, itemId, request, existingContentStatic)
     val newContent = updateContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
-    db.insertTransaction(newTransaction) flatMap { _ ⇒ {
+    val obsoleteIndexItems = if (request.method != Method.POST && ContentLogic.isCollectionUri(documentUri) && itemId.nonEmpty) {
+      findObsoleteIndexItems(existingContent,newContent,indexDefs)
+    }
+    else {
+      None
+    }
+    val newTransactionWithOI = newTransaction.copy(obsoleteIndexItems=obsoleteIndexItems)
+    db.insertTransaction(newTransactionWithOI) flatMap { _ ⇒ {
       if (!itemId.isEmpty && newContent.isDeleted) {
         // deleting item
         db.deleteContentItem(newContent, itemId)
@@ -144,8 +175,42 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         db.insertContent(newContent)
       }
     } map { _ ⇒
-      newTransaction
+      newTransactionWithOI
     }
+    }
+  }
+
+  private def findObsoleteIndexItems(existingContent: Option[Content], newContent: Content, indexDefs: Seq[IndexDef]) : Option[String] = {
+    import eu.inn.binders.json._
+    // todo: refactor, this is crazy method
+    // todo: work with Value content instead of string
+    val m = existingContent.flatMap { c ⇒
+      if (c.isDeleted) None else {
+        Some(c.bodyValue)
+      }
+    } map { existingContentValue: Value ⇒
+      val newContentValueOption = if(newContent.isDeleted) None else {
+        Some(newContent.bodyValue)
+      }
+
+      indexDefs.flatMap { indexDef ⇒
+        val sortByExisting = IndexLogic.extractSortFieldValues(indexDef.sortByParsed, existingContentValue)
+
+        val sortByNew = newContentValueOption.map { newContentValue ⇒
+          IndexLogic.extractSortFieldValues(indexDef.sortByParsed, newContentValue)
+        }
+
+        if (sortByExisting != sortByNew) {
+          Some(indexDef.indexId → sortByExisting)
+        }
+        else{
+          None
+        }
+      }
+    }
+    m.map { mm ⇒
+      val mp: Map[String, Map[String, Value]] = mm.map(kv ⇒ kv._1 → kv._2.toMap).toMap
+      mp.toJson
     }
   }
 
@@ -217,7 +282,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       case Some(content) if !content.isDeleted ⇒
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = newTransaction.uuid +: content.transactionList,
-          body = Some(mergeBody(StringDeserializer.dynamicBody(content.body), request.body).serializeToString()),
+          body = mergeBody(content.bodyValue, request.body.content),
           isDeleted = false,
           createdAt = content.createdAt,
           modifiedAt = Some(new Date())
@@ -229,8 +294,13 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     }
   }
 
-  private def mergeBody(existing: DynamicBody, patch: DynamicBody): DynamicBody = {
-    DynamicBody(filterNulls(existing.content + patch.content))
+  private def mergeBody(existing: Value, patch: Value): Option[String] = {
+    import eu.inn.binders.json._
+    val newBodyContent = filterNulls(existing + patch)
+    newBodyContent match {
+      case Null ⇒ None
+      case other ⇒ Some(other.toJson)
+    }
   }
 
   def filterNulls(content: Value): Value = {

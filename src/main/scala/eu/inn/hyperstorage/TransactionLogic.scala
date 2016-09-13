@@ -19,6 +19,7 @@ object TransactionLogic {
     revision = revision,
     uuid = UUIDs.timeBased(),
     body = body,
+    obsoleteIndexItems = None,
     completedAt = None
   )
 

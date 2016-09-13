@@ -18,6 +18,7 @@ create table transaction (
 	uuid timeuuid,
 	revision bigint,
 	body text,
+	obsolete_index_items text,
 	completed_at timestamp,
 	primary key ((dt_quantum, partition), document_uri, uuid)
 );

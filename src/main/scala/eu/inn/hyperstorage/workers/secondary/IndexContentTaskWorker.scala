@@ -2,7 +2,6 @@ package eu.inn.hyperstorage.workers.secondary
 
 import akka.actor.ActorRef
 import akka.event.LoggingAdapter
-import eu.inn.binders.value.{Null, Value}
 import eu.inn.hyperbus.Hyperbus
 import eu.inn.hyperstorage._
 import eu.inn.hyperstorage.db._
@@ -24,10 +23,15 @@ import scala.util.control.NonFatal
 
 trait IndexContentTaskWorker {
   def hyperbus: Hyperbus
+
   def db: Db
+
   def tracker: MetricsTracker
+
   def log: LoggingAdapter
+
   def indexManager: ActorRef
+
   implicit def executionContext: ExecutionContext
 
   def validateCollectionUri(uri: String)
@@ -81,7 +85,7 @@ trait IndexContentTaskWorker {
     }
     catch {
       case NonFatal(e) ⇒
-      Future.failed(e)
+        Future.failed(e)
     }
   }
 
@@ -96,27 +100,10 @@ trait IndexContentTaskWorker {
   }
 
   def indexItem(indexDef: IndexDef, item: Content): Future[String] = {
-    import eu.inn.binders.json._
-    if (log.isDebugEnabled) {
-      log.debug(s"Indexing item $item with $indexDef")
-    }
+    val contentValue = item.bodyValue
+    val sortBy = IndexLogic.extractSortFieldValues(indexDef.sortByParsed, contentValue)
 
-    // todo: cache this
-    val contentValue = item.body.map { str ⇒
-      str.parseJson[Value]
-    } getOrElse {
-      Null
-    }
-
-    // todo: cache this
-    val sortBy = indexDef.sortBy.map { sortString ⇒
-      val sortBy = IndexLogic.deserializeSortByFields(sortString)
-      IndexLogic.extractSortFieldValues(sortBy, contentValue)
-    } getOrElse {
-      Seq.empty
-    }
-
-    val write: Boolean = indexDef.filterBy.map { filterBy ⇒
+    val write: Boolean = !item.isDeleted && (indexDef.filterBy.map { filterBy ⇒
       IndexLogic.evaluateFilterExpression(filterBy, contentValue) recover {
         case NonFatal(e) ⇒
           if (log.isDebugEnabled) {
@@ -126,6 +113,10 @@ trait IndexContentTaskWorker {
       } get
     } getOrElse {
       true
+    })
+
+    if (log.isDebugEnabled) {
+      log.debug(s"Indexing item $item with $indexDef ... ${if (write) "Accepted" else "Rejected"}")
     }
 
     if (write) {
@@ -137,7 +128,9 @@ trait IndexContentTaskWorker {
       }
     }
     else {
-      Future.successful(item.itemId)
+      Future.successful {
+        item.itemId
+      }
     }
   }
 }
