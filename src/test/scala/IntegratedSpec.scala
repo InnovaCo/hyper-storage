@@ -33,6 +33,53 @@ class IntegratedSpec extends FreeSpec
   override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(10000, Millis)))
 
   "HyperStorageIntegratedSpec" - {
+    "Test hyper-storage PUT+GET simple example" in {
+      val hyperbus = testHyperbus()
+      val tk = testKit()
+      import tk._
+      import system._
+
+      cleanUpCassandra()
+
+      val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
+      val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self)
+      val workerSettings = Map(
+        "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
+        "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+      )
+
+      val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
+      val distributor = TestActorRef(HyperbusAdapter.props(processor, db, tracker, 20.seconds))
+      import eu.inn.hyperbus.akkaservice._
+      implicit val timeout = Timeout(20.seconds)
+      hyperbus.routeTo[HyperbusAdapter](distributor).futureValue // wait while subscription is completes
+      Thread.sleep(2000)
+
+      hyperbus <~ HyperStorageContentPut("abc/123", DynamicBody(ObjV("a" → 10, "x" → "hello"))) map {
+        case Ok(body) ⇒ println("abc/123 is updated")
+        case Created(body) ⇒ println("abc/123 is created")
+      } recover {
+        case hyperbusError: ErrorResponse ⇒ println(hyperbusError.body.code)
+        case otherException ⇒ println("something wrong")
+      } futureValue
+
+      hyperbus <~ HyperStorageContentGet("abc/123") map {
+        case Ok(body, _) ⇒ println("abc/123 is fetched:", body.content)
+      } recover {
+        case NotFound(body) ⇒ println("abc/123 is not found")
+        case hyperbusError: ErrorResponse ⇒ println(hyperbusError.body.code)
+        case otherException ⇒ println("something wrong")
+      } futureValue
+
+      hyperbus <~ HyperStorageContentDelete("abc/123") map {
+        case Ok(body) ⇒ println("abc/123 is deleted.")
+      } recover {
+        case NotFound(body) ⇒ println("abc/123 is not found")
+        case hyperbusError: ErrorResponse ⇒ println(hyperbusError.body.code)
+        case otherException ⇒ println("something wrong")
+      } futureValue
+    }
+
     "Test hyper-storage PUT+GET+Event" in {
       val hyperbus = testHyperbus()
       val tk = testKit()
@@ -293,7 +340,8 @@ class IntegratedSpec extends FreeSpec
       val c2x = Obj(c2.asMap + "id" → id2)
 
       val f4 = hyperbus <~ HyperStorageContentGet("collection-2~",
-        body = new QueryBuilder() add("size", 50) result())
+        body = new QueryBuilder() add("size", 50) result()
+      )
 
       whenReady(f4) { response ⇒
         response.statusCode should equal(Status.OK)
