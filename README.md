@@ -292,7 +292,7 @@ hyperbus <~ HyperStorageIndexPost("abc~", HyperStorageIndexNew(
 
 ## Обработка запросов на чтение
 
-Все запросы на чтение принимаются из `Hyperbus` и обрабатываются в `HyperbusAdapter` выполняя запросы в Cassandra и не зависит от `ShardProcessor`.
+Все запросы на чтение принимаются из `Hyperbus` и обрабатываются в `HyperbusAdapter` выполняя запросы в Cassandra и не зависят от `ShardProcessor`.
 
 # Что на будущее
 
