@@ -1,4 +1,4 @@
-# HyperStorage, реализация REST сервиса хранящего данные для hyperbus
+# HyperStorage — RESTFul база данных на основе Cassandra+Kafka
 
 HyperStorage использует cassandra для оперативного хранения и kafka для публикации событий об изменениях данных. Основные возможности HyperStorage:
 
