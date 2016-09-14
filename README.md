@@ -274,6 +274,7 @@ hyperbus <~ HyperStorageIndexPost("abc~", HyperStorageIndexNew(
 ## Обработка транзакций
 
 В обработчике `PrimaryWorker`:
+
 1. Для любой операции по изменению данных, сначала идет вставка в таблицу `transaction`
 2. Происходит применение изменений к таблице `content`
 
